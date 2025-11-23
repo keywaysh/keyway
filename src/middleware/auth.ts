@@ -51,7 +51,7 @@ export async function authenticateGitHub(
  * Requires authenticateGitHub to be called first
  */
 export async function requireRepoAccess(
-  request: FastifyRequest<{ Params: { repo?: string }; Body: { repoFullName?: string } }>,
+  request: FastifyRequest,
   reply: FastifyReply
 ) {
   if (!request.accessToken) {
@@ -59,9 +59,12 @@ export async function requireRepoAccess(
   }
 
   // Get repo name from params (encoded) or body
-  const repoFullName = request.params.repo
-    ? decodeURIComponent(request.params.repo)
-    : (request.body as any)?.repoFullName;
+  const params = request.params as { repo?: string };
+  const body = request.body as { repoFullName?: string };
+
+  const repoFullName = params.repo
+    ? decodeURIComponent(params.repo)
+    : body?.repoFullName;
 
   if (!repoFullName) {
     throw new ForbiddenError('Repository name required');
@@ -79,14 +82,15 @@ export async function requireRepoAccess(
  * Requires authenticateGitHub to be called first
  */
 export async function requireAdminAccess(
-  request: FastifyRequest<{ Body: { repoFullName?: string } }>,
+  request: FastifyRequest,
   reply: FastifyReply
 ) {
   if (!request.accessToken) {
     throw new UnauthorizedError('Authentication required');
   }
 
-  const repoFullName = (request.body as any)?.repoFullName;
+  const body = request.body as { repoFullName?: string };
+  const repoFullName = body?.repoFullName;
 
   if (!repoFullName) {
     throw new ForbiddenError('Repository name required');

@@ -14,11 +14,16 @@ export class AppError extends Error {
   }
 
   toJSON() {
-    return {
+    const result: Record<string, unknown> = {
       error: this.code,
       message: this.message,
-      ...(this.details && { details: this.details }),
     };
+
+    if (this.details) {
+      result.details = this.details;
+    }
+
+    return result;
   }
 }
 

@@ -74,7 +74,7 @@ fastify.register(authRoutes, { prefix: '/auth' });
 fastify.register(vaultRoutes, { prefix: '/vaults' });
 
 // Global error handler
-fastify.setErrorHandler((error, request, reply) => {
+fastify.setErrorHandler((error: Error & { statusCode?: number; validation?: unknown }, request, reply) => {
   // Log error with context
   fastify.log.error({
     err: error,
