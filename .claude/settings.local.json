@@ -1,0 +1,20 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(pnpm --filter @keyway/shared build:*)",
+      "Bash(pnpm --filter @keyway/api build:*)",
+      "Bash(pnpm --filter keyway build:*)",
+      "Bash(pnpm install:*)",
+      "Bash(pnpm build:*)",
+      "Bash(npm install)",
+      "Bash(npm run build:*)",
+      "Bash(tree:*)",
+      "Bash(drizzle/.gitkeep)",
+      "Bash(npm run type-check:*)",
+      "Bash(cat:*)",
+      "Bash(chmod:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
