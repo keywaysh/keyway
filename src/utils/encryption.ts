@@ -1,18 +1,7 @@
 import crypto from 'crypto';
+import { config } from '../config';
 
-const ALGORITHM = 'aes-256-gcm';
-const IV_LENGTH = 16;
-const AUTH_TAG_LENGTH = 16;
-
-if (!process.env.ENCRYPTION_KEY) {
-  throw new Error('ENCRYPTION_KEY environment variable is required');
-}
-
-const ENCRYPTION_KEY = Buffer.from(process.env.ENCRYPTION_KEY, 'hex');
-
-if (ENCRYPTION_KEY.length !== 32) {
-  throw new Error('ENCRYPTION_KEY must be 32 bytes (64 hex characters)');
-}
+const { algorithm, key: ENCRYPTION_KEY, ivLength: IV_LENGTH, authTagLength: AUTH_TAG_LENGTH } = config.encryption;
 
 export interface EncryptedData {
   encryptedContent: string;
@@ -30,7 +19,7 @@ export function encrypt(content: string): EncryptedData {
   const iv = crypto.randomBytes(IV_LENGTH);
 
   // Create cipher
-  const cipher = crypto.createCipheriv(ALGORITHM, ENCRYPTION_KEY, iv);
+  const cipher = crypto.createCipheriv(algorithm, ENCRYPTION_KEY, iv);
 
   // Encrypt the content
   let encrypted = cipher.update(content, 'utf8', 'hex');
@@ -56,7 +45,7 @@ export function decrypt(encryptedData: EncryptedData): string {
 
   // Create decipher
   const decipher = crypto.createDecipheriv(
-    ALGORITHM,
+    algorithm,
     ENCRYPTION_KEY,
     Buffer.from(iv, 'hex')
   );

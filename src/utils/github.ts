@@ -1,6 +1,8 @@
 import { z } from 'zod';
+import { config } from '../config';
+import { UnauthorizedError, ForbiddenError } from '../errors';
 
-const GITHUB_API_BASE = 'https://api.github.com';
+const GITHUB_API_BASE = config.github.apiBaseUrl;
 
 interface GitHubUser {
   id: number;
@@ -33,8 +35,8 @@ export async function exchangeCodeForToken(code: string): Promise<string> {
       Accept: 'application/json',
     },
     body: JSON.stringify({
-      client_id: process.env.GITHUB_CLIENT_ID,
-      client_secret: process.env.GITHUB_CLIENT_SECRET,
+      client_id: config.github.clientId,
+      client_secret: config.github.clientSecret,
       code,
     }),
   });
@@ -138,6 +140,6 @@ export async function getUserFromToken(accessToken: string) {
       avatarUrl: user.avatar_url,
     };
   } catch (error) {
-    throw new Error('Invalid or expired GitHub access token');
+    throw new UnauthorizedError('Invalid or expired GitHub access token');
   }
 }

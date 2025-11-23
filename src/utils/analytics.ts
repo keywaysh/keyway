@@ -1,4 +1,5 @@
 import { PostHog } from 'posthog-node';
+import { config } from '../config';
 
 let posthog: PostHog | null = null;
 
@@ -6,16 +7,13 @@ let posthog: PostHog | null = null;
  * Initialize PostHog client
  */
 export function initAnalytics() {
-  if (!process.env.POSTHOG_API_KEY) {
-    console.warn('PostHog API key not found. Analytics disabled.');
+  if (!config.analytics.enabled) {
     return;
   }
 
-  posthog = new PostHog(process.env.POSTHOG_API_KEY, {
-    host: process.env.POSTHOG_HOST || 'https://app.posthog.com',
+  posthog = new PostHog(config.analytics.posthogApiKey!, {
+    host: config.analytics.posthogHost,
   });
-
-  console.log('PostHog analytics initialized');
 }
 
 /**

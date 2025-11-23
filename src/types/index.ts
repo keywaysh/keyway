@@ -42,7 +42,6 @@ export type Secret = z.infer<typeof SecretSchema>;
 // API Request/Response schemas
 export const InitVaultRequestSchema = z.object({
   repoFullName: z.string().regex(/^[a-zA-Z0-9_-]+\/[a-zA-Z0-9_-]+$/),
-  accessToken: z.string(),
 });
 
 export type InitVaultRequest = z.infer<typeof InitVaultRequestSchema>;
@@ -59,7 +58,6 @@ export const PushSecretsRequestSchema = z.object({
   repoFullName: z.string().regex(/^[a-zA-Z0-9_-]+\/[a-zA-Z0-9_-]+$/),
   environment: z.string().regex(/^[a-zA-Z0-9_-]+$/),
   content: z.string(),
-  accessToken: z.string(),
 });
 
 export type PushSecretsRequest = z.infer<typeof PushSecretsRequestSchema>;
@@ -70,14 +68,6 @@ export const PushSecretsResponseSchema = z.object({
 });
 
 export type PushSecretsResponse = z.infer<typeof PushSecretsResponseSchema>;
-
-export const PullSecretsRequestSchema = z.object({
-  repoFullName: z.string().regex(/^[a-zA-Z0-9_-]+\/[a-zA-Z0-9_-]+$/),
-  environment: z.string().regex(/^[a-zA-Z0-9_-]+$/),
-  accessToken: z.string(),
-});
-
-export type PullSecretsRequest = z.infer<typeof PullSecretsRequestSchema>;
 
 export const PullSecretsResponseSchema = z.object({
   content: z.string(),
