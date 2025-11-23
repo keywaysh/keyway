@@ -12,7 +12,10 @@
       "Bash(drizzle/.gitkeep)",
       "Bash(npm run type-check:*)",
       "Bash(cat:*)",
-      "Bash(chmod:*)"
+      "Bash(chmod:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)"
     ],
     "deny": [],
     "ask": []

@@ -21,19 +21,20 @@
   "author": "Nicolas Ritouet",
   "license": "MIT",
   "dependencies": {
-    "fastify": "^4.25.1",
     "@fastify/cors": "^8.4.2",
+    "dotenv": "^16.3.1",
     "drizzle-orm": "^0.29.1",
+    "fastify": "^4.25.1",
     "postgres": "^3.4.3",
-    "zod": "^3.22.4",
     "posthog-node": "^3.5.0",
-    "dotenv": "^16.3.1"
+    "zod": "^3.22.4"
   },
   "devDependencies": {
     "@types/node": "^20.10.0",
-    "typescript": "^5.3.3",
+    "drizzle-kit": "^0.20.6",
+    "pino-pretty": "^13.1.2",
     "tsx": "^4.7.0",
-    "drizzle-kit": "^0.20.6"
+    "typescript": "^5.3.3"
   },
   "engines": {
     "node": ">=18.0.0"
