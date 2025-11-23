@@ -10,7 +10,9 @@
     "start": "node dist/index.js",
     "type-check": "tsc --noEmit",
     "db:generate": "drizzle-kit generate:pg",
-    "db:migrate": "tsx src/db/migrate.ts"
+    "db:migrate": "tsx src/db/migrate.ts",
+    "validate": "bash scripts/pre-push.sh",
+    "deploy:check": "pnpm run type-check && pnpm run build"
   },
   "keywords": [
     "secrets",

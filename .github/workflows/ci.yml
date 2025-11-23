@@ -1,0 +1,68 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: keyway_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v2
+        with:
+          version: 8
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Type check
+        run: pnpm run type-check
+
+      - name: Build
+        run: pnpm run build
+
+      - name: Run migrations
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/keyway_test
+          ENCRYPTION_KEY: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+          JWT_SECRET: test_jwt_secret_for_ci_only_32_chars_min
+          GITHUB_CLIENT_ID: test
+          GITHUB_CLIENT_SECRET: test
+        run: pnpm run db:migrate
+
+      # TODO: Add tests when implemented
+      # - name: Run tests
+      #   run: pnpm test
+
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+
+    steps:
+      - name: Deploy to Railway
+        run: echo "✅ CI passed - Railway will auto-deploy"
