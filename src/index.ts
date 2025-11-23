@@ -27,23 +27,10 @@ const PORT = parseInt(process.env.PORT || '3000', 10);
 const HOST = process.env.HOST || '0.0.0.0';
 
 // Create Fastify instance
-const isDevelopment = process.env.NODE_ENV !== 'production';
-
 const fastify = Fastify({
-  logger: isDevelopment
-    ? {
-        level: process.env.LOG_LEVEL || 'info',
-        transport: {
-          target: 'pino-pretty',
-          options: {
-            translateTime: 'HH:MM:ss Z',
-            ignore: 'pid,hostname',
-          },
-        },
-      }
-    : {
-        level: process.env.LOG_LEVEL || 'info',
-      },
+  logger: {
+    level: process.env.LOG_LEVEL || 'info',
+  },
 });
 
 // Register CORS
