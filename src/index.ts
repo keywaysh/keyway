@@ -2,6 +2,7 @@ import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import helmet from '@fastify/helmet';
 import rateLimit from '@fastify/rate-limit';
+import formbody from '@fastify/formbody';
 import { ZodError } from 'zod';
 import { config } from './config';
 import { AppError } from './errors';
@@ -44,6 +45,9 @@ fastify.register(cors, {
     : false, // Block all if no origins specified in production
   credentials: true,
 });
+
+// Register form body parser (for HTML forms)
+fastify.register(formbody);
 
 // Health check endpoint
 fastify.get('/health', async (request, reply) => {
