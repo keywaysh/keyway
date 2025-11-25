@@ -17,6 +17,7 @@ import {
   deleteSecret,
   logActivity,
   extractRequestInfo,
+  detectPlatform,
 } from '../../../services';
 import { hasRepoAccess } from '../../../utils/github';
 import { trackEvent, AnalyticsEvents } from '../../../utils/analytics';
@@ -152,6 +153,15 @@ export async function vaultsRoutes(fastify: FastifyInstance) {
       repoFullName: body.repoFullName,
     });
 
+    await logActivity({
+      userId: user.id,
+      action: 'vault_created',
+      platform: detectPlatform(request),
+      vaultId: vault.id,
+      metadata: { repoFullName: body.repoFullName },
+      ...extractRequestInfo(request),
+    });
+
     fastify.log.info({
       repoFullName: body.repoFullName,
       userId: user.id,
@@ -217,7 +227,7 @@ export async function vaultsRoutes(fastify: FastifyInstance) {
     await logActivity({
       userId: user.id,
       action: 'vault_deleted',
-      platform: 'web',
+      platform: detectPlatform(request),
       vaultId: vault.id,
       metadata: { repoFullName },
       ...extractRequestInfo(request),
@@ -311,7 +321,7 @@ export async function vaultsRoutes(fastify: FastifyInstance) {
     await logActivity({
       userId: user.id,
       action,
-      platform: 'web',
+      platform: detectPlatform(request),
       vaultId: vault.id,
       metadata: { key: body.key, environment: body.environment },
       ...extractRequestInfo(request),
@@ -371,7 +381,7 @@ export async function vaultsRoutes(fastify: FastifyInstance) {
     await logActivity({
       userId: user.id,
       action: 'secret_updated',
-      platform: 'web',
+      platform: detectPlatform(request),
       vaultId: vault.id,
       metadata: { key: updatedSecret.key, environment: updatedSecret.environment },
       ...extractRequestInfo(request),
@@ -419,7 +429,7 @@ export async function vaultsRoutes(fastify: FastifyInstance) {
     await logActivity({
       userId: user.id,
       action: 'secret_deleted',
-      platform: 'web',
+      platform: detectPlatform(request),
       vaultId: vault.id,
       metadata: { key: deletedSecret.key, environment: deletedSecret.environment },
       ...extractRequestInfo(request),

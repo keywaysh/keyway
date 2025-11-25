@@ -6,6 +6,7 @@ import { eq, and, inArray } from 'drizzle-orm';
 import { encrypt, decrypt, sanitizeForLogging } from '../../../utils/encryption';
 import { sendData, NotFoundError } from '../../../lib';
 import { trackEvent, AnalyticsEvents } from '../../../utils/analytics';
+import { logActivity, extractRequestInfo, detectPlatform } from '../../../services';
 
 // Schemas
 const PushSecretsSchema = z.object({
@@ -164,6 +165,23 @@ export async function secretsRoutes(fastify: FastifyInstance) {
       deleted: keysToDelete.length,
     });
 
+    if (user) {
+      await logActivity({
+        userId: user.id,
+        action: 'secrets_pushed',
+        platform: detectPlatform(request),
+        vaultId: vault.id,
+        metadata: {
+          repoFullName: body.repoFullName,
+          environment: body.environment,
+          created,
+          updated,
+          deleted: keysToDelete.length,
+        },
+        ...extractRequestInfo(request),
+      });
+    }
+
     return sendData(reply, {
       success: true,
       message: 'Secrets pushed successfully',
@@ -223,6 +241,21 @@ export async function secretsRoutes(fastify: FastifyInstance) {
       environment,
       secretCount: envSecrets.length,
     });
+
+    if (user) {
+      await logActivity({
+        userId: user.id,
+        action: 'secrets_pulled',
+        platform: detectPlatform(request),
+        vaultId: vault.id,
+        metadata: {
+          repoFullName,
+          environment,
+          secretCount: envSecrets.length,
+        },
+        ...extractRequestInfo(request),
+      });
+    }
 
     return sendData(reply, { content }, { requestId: request.id });
   });

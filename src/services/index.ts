@@ -25,6 +25,7 @@ export {
   logActivity,
   getActivityForUser,
   extractRequestInfo,
+  detectPlatform,
   type ActivityLogItem,
   type LogActivityInput,
 } from './activity.service';
