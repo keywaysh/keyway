@@ -2,13 +2,14 @@ import { FastifyInstance } from 'fastify';
 import { db, users, vaults, secrets, activityLogs } from '../db';
 import { eq, and, desc } from 'drizzle-orm';
 import { authenticateGitHub } from '../middleware/auth';
-import { NotFoundError, ForbiddenError, ValidationError } from '../errors';
+import { NotFoundError, ForbiddenError } from '../errors';
 import { encrypt, sanitizeForLogging } from '../utils/encryption';
 import { hasRepoAccess } from '../utils/github';
 import { trackEvent, AnalyticsEvents } from '../utils/analytics';
 import {
   UpsertSecretRequestSchema,
   VaultIdParamSchema,
+  VaultSecretIdParamSchema,
   type UserProfileResponse,
   type VaultListItem,
   type VaultListResponse,
@@ -65,12 +66,12 @@ export async function apiRoutes(fastify: FastifyInstance) {
       // User hasn't initialized any vault yet but has valid token
       // Return profile from GitHub data
       const response: UserProfileResponse = {
-        id: '', // No internal ID yet
+        id: null,
         githubId: githubUser.githubId,
         username: githubUser.username,
         email: githubUser.email,
         avatarUrl: githubUser.avatarUrl,
-        createdAt: new Date().toISOString(),
+        createdAt: null,
       };
       return response;
     }
@@ -449,16 +450,9 @@ export async function apiRoutes(fastify: FastifyInstance) {
   fastify.delete('/vaults/:vaultId/secrets/:secretId', {
     preHandler: [authenticateGitHub],
   }, async (request, reply) => {
-    const params = request.params as { vaultId: string; secretId: string };
-    const { vaultId } = VaultIdParamSchema.parse({ vaultId: params.vaultId });
-    const secretId = params.secretId;
+    const { vaultId, secretId } = VaultSecretIdParamSchema.parse(request.params);
     const githubUser = request.githubUser!;
     const accessToken = request.accessToken!;
-
-    // Validate secretId is a UUID
-    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(secretId)) {
-      throw new ValidationError('Invalid secret ID format');
-    }
 
     // Get vault
     const vault = await db.query.vaults.findFirst({

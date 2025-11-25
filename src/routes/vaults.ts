@@ -1,16 +1,18 @@
 import { FastifyInstance } from 'fastify';
 import {
   InitVaultRequestSchema,
-  PushSecretsRequestSchema,
+  PushSecretsBodySchema,
+  RepoEnvParamSchema,
+  RepoParamSchema,
+  EnvironmentPermissionBodySchema,
 } from '../types';
 import { db, users, vaults, secrets, environmentPermissions } from '../db';
-import { eq, and } from 'drizzle-orm';
+import { eq, and, inArray } from 'drizzle-orm';
 import { encrypt, decrypt, sanitizeForLogging } from '../utils/encryption';
 import { trackEvent, AnalyticsEvents } from '../utils/analytics';
 import { authenticateGitHub, requireAdminAccess, requireEnvironmentAccess } from '../middleware/auth';
 import { ConflictError, NotFoundError } from '../errors';
 import { getVaultPermissions, getDefaultPermission } from '../utils/permissions';
-import { z } from 'zod';
 
 /**
  * Parse .env content into key-value pairs
@@ -142,15 +144,11 @@ export async function vaultRoutes(fastify: FastifyInstance) {
   fastify.post('/:repo/:env/push', {
     preHandler: [authenticateGitHub, requireEnvironmentAccess('write')]
   }, async (request, reply) => {
-    const params = request.params as { repo: string; env: string };
+    const params = RepoEnvParamSchema.parse(request.params);
     const repoFullName = decodeURIComponent(params.repo);
     const environment = params.env;
 
-    const body = PushSecretsRequestSchema.parse({
-      ...(request.body as any),
-      repoFullName,
-      environment,
-    });
+    const body = PushSecretsBodySchema.parse(request.body);
 
     const githubUser = request.githubUser!;
 
@@ -224,9 +222,7 @@ export async function vaultRoutes(fastify: FastifyInstance) {
       .map(s => s.id);
 
     if (keysToDelete.length > 0) {
-      for (const id of keysToDelete) {
-        await db.delete(secrets).where(eq(secrets.id, id));
-      }
+      await db.delete(secrets).where(inArray(secrets.id, keysToDelete));
     }
 
     // Update vault timestamp
@@ -277,7 +273,7 @@ export async function vaultRoutes(fastify: FastifyInstance) {
   fastify.get('/:repo/:env/pull', {
     preHandler: [authenticateGitHub, requireEnvironmentAccess('read')]
   }, async (request, reply) => {
-    const params = request.params as { repo: string; env: string };
+    const params = RepoEnvParamSchema.parse(request.params);
     const repoFullName = decodeURIComponent(params.repo);
     const environment = params.env;
 
@@ -351,7 +347,7 @@ export async function vaultRoutes(fastify: FastifyInstance) {
   fastify.get('/repos/:repo/permissions', {
     preHandler: [authenticateGitHub]
   }, async (request, reply) => {
-    const params = request.params as { repo: string };
+    const params = RepoParamSchema.parse(request.params);
     const repoFullName = decodeURIComponent(params.repo);
 
     // Get vault
@@ -380,19 +376,11 @@ export async function vaultRoutes(fastify: FastifyInstance) {
   fastify.put('/repos/:repo/environments/:env/permissions', {
     preHandler: [authenticateGitHub, requireAdminAccess]
   }, async (request, reply) => {
-    const params = request.params as { repo: string; env: string };
+    const params = RepoEnvParamSchema.parse(request.params);
     const repoFullName = decodeURIComponent(params.repo);
     const environment = params.env;
 
-    const schema = z.object({
-      repoFullName: z.string(),
-      permissions: z.object({
-        read: z.enum(['read', 'triage', 'write', 'maintain', 'admin']),
-        write: z.enum(['read', 'triage', 'write', 'maintain', 'admin']),
-      }),
-    });
-
-    const body = schema.parse({ ...(request.body as any), repoFullName });
+    const body = EnvironmentPermissionBodySchema.parse(request.body);
 
     // Get vault
     const vault = await db.query.vaults.findFirst({
@@ -449,11 +437,9 @@ export async function vaultRoutes(fastify: FastifyInstance) {
   fastify.delete('/repos/:repo/environments/:env/permissions', {
     preHandler: [authenticateGitHub, requireAdminAccess]
   }, async (request, reply) => {
-    const params = request.params as { repo: string; env: string };
+    const params = RepoEnvParamSchema.parse(request.params);
     const repoFullName = decodeURIComponent(params.repo);
     const environment = params.env;
-
-    const body = request.body as { repoFullName?: string };
 
     // Get vault
     const vault = await db.query.vaults.findFirst({

@@ -54,6 +54,14 @@ export const InitVaultResponseSchema = z.object({
 
 export type InitVaultResponse = z.infer<typeof InitVaultResponseSchema>;
 
+// Body schema for push (only content comes from body)
+export const PushSecretsBodySchema = z.object({
+  content: z.string(),
+});
+
+export type PushSecretsBody = z.infer<typeof PushSecretsBodySchema>;
+
+// Full request schema (for internal use after combining params + body)
 export const PushSecretsRequestSchema = z.object({
   repoFullName: z.string().regex(/^[a-zA-Z0-9_-]+\/[a-zA-Z0-9_-]+$/),
   environment: z.string().regex(/^[a-zA-Z0-9_-]+$/),
@@ -164,12 +172,12 @@ export type ErrorResponse = z.infer<typeof ErrorResponseSchema>;
 
 // GET /api/me - User profile response
 export const UserProfileResponseSchema = z.object({
-  id: z.string().uuid(),
+  id: z.string().uuid().nullable(), // null if user hasn't created any vault yet
   githubId: z.number(),
   username: z.string(),
   email: z.string().nullable(),
   avatarUrl: z.string().nullable(),
-  createdAt: z.string(),
+  createdAt: z.string().nullable(), // null if user not in DB yet
 });
 
 export type UserProfileResponse = z.infer<typeof UserProfileResponseSchema>;
@@ -285,3 +293,36 @@ export const VaultIdParamSchema = z.object({
 });
 
 export type VaultIdParam = z.infer<typeof VaultIdParamSchema>;
+
+// Vault and Secret ID param schema
+export const VaultSecretIdParamSchema = z.object({
+  vaultId: z.string().uuid(),
+  secretId: z.string().uuid(),
+});
+
+export type VaultSecretIdParam = z.infer<typeof VaultSecretIdParamSchema>;
+
+// Repo and environment param schema
+export const RepoEnvParamSchema = z.object({
+  repo: z.string(),
+  env: z.string(),
+});
+
+export type RepoEnvParam = z.infer<typeof RepoEnvParamSchema>;
+
+// Repo param schema
+export const RepoParamSchema = z.object({
+  repo: z.string(),
+});
+
+export type RepoParam = z.infer<typeof RepoParamSchema>;
+
+// Environment permission body schema
+export const EnvironmentPermissionBodySchema = z.object({
+  permissions: z.object({
+    read: z.enum(['read', 'triage', 'write', 'maintain', 'admin']),
+    write: z.enum(['read', 'triage', 'write', 'maintain', 'admin']),
+  }),
+});
+
+export type EnvironmentPermissionBody = z.infer<typeof EnvironmentPermissionBodySchema>;

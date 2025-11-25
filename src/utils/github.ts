@@ -216,9 +216,9 @@ export async function getUserRole(
     }
 
     return null;
-  } catch (error) {
+  } catch {
     // If API call fails or JSON parsing fails, return null
-    console.error('Failed to get collaborator role:', error);
+    // Caller handles null case appropriately
     return null;
   }
 }
