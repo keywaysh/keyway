@@ -259,6 +259,18 @@ export const UpsertSecretResponseSchema = z.object({
 
 export type UpsertSecretResponse = z.infer<typeof UpsertSecretResponseSchema>;
 
+// PATCH /api/vaults/:owner/:repo/secrets/:secretId - Partial update
+export const PatchSecretRequestSchema = z.object({
+  name: z.string().min(1).max(255).regex(/^[A-Z][A-Z0-9_]*$/, {
+    message: 'Key must be uppercase with underscores (e.g., DATABASE_URL)',
+  }).optional(),
+  value: z.string().optional(),
+}).refine(data => data.name !== undefined || data.value !== undefined, {
+  message: 'At least one of name or value must be provided',
+});
+
+export type PatchSecretRequest = z.infer<typeof PatchSecretRequestSchema>;
+
 // GET /api/activity - Activity log item
 export const ActivityLogItemSchema = z.object({
   id: z.string().uuid(),
@@ -286,9 +298,28 @@ export const ActivityLogItemSchema = z.object({
 
 export type ActivityLogItem = z.infer<typeof ActivityLogItemSchema>;
 
+// Pagination query params
+export const PaginationQuerySchema = z.object({
+  limit: z.coerce.number().int().min(1).max(100).default(20),
+  offset: z.coerce.number().int().min(0).default(0),
+});
+
+export type PaginationQuery = z.infer<typeof PaginationQuerySchema>;
+
+// Pagination meta for responses
+export const PaginationMetaSchema = z.object({
+  total: z.number(),
+  limit: z.number(),
+  offset: z.number(),
+  hasMore: z.boolean(),
+});
+
+export type PaginationMeta = z.infer<typeof PaginationMetaSchema>;
+
 export const ActivityLogResponseSchema = z.object({
   activities: z.array(ActivityLogItemSchema),
   total: z.number(),
+  meta: PaginationMetaSchema.optional(),
 });
 
 export type ActivityLogResponse = z.infer<typeof ActivityLogResponseSchema>;

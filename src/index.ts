@@ -31,9 +31,22 @@ fastify.register(helmet, {
 fastify.register(rateLimit, {
   max: 100, // 100 requests
   timeWindow: '15 minutes', // per 15 minutes
-  errorResponseBuilder: () => ({
+  addHeadersOnExceeding: {
+    'x-ratelimit-limit': true,
+    'x-ratelimit-remaining': true,
+    'x-ratelimit-reset': true,
+  },
+  addHeaders: {
+    'x-ratelimit-limit': true,
+    'x-ratelimit-remaining': true,
+    'x-ratelimit-reset': true,
+    'retry-after': true,
+  },
+  errorResponseBuilder: (request, context) => ({
     error: 'RATE_LIMIT_EXCEEDED',
     message: 'Too many requests, please try again later',
+    requestId: request.id,
+    retryAfter: context.ttl,
   }),
 });
 
@@ -49,6 +62,11 @@ fastify.register(cors, {
 
 // Register form body parser (for HTML forms)
 fastify.register(formbody);
+
+// Add request ID to all responses
+fastify.addHook('onSend', async (request, reply) => {
+  reply.header('X-Request-ID', request.id);
+});
 
 // Health check endpoint
 fastify.get('/health', async (request, reply) => {
@@ -103,7 +121,10 @@ fastify.setErrorHandler((error: Error & { statusCode?: number; validation?: unkn
 
   // Handle custom application errors
   if (error instanceof AppError) {
-    return reply.status(error.statusCode).send(error.toJSON());
+    return reply.status(error.statusCode).send({
+      ...error.toJSON(),
+      requestId: request.id,
+    });
   }
 
   // Handle Zod validation errors
@@ -112,6 +133,7 @@ fastify.setErrorHandler((error: Error & { statusCode?: number; validation?: unkn
       error: 'VALIDATION_ERROR',
       message: 'Invalid request data',
       details: error.errors,
+      requestId: request.id,
     });
   }
 
@@ -121,6 +143,7 @@ fastify.setErrorHandler((error: Error & { statusCode?: number; validation?: unkn
       error: 'VALIDATION_ERROR',
       message: error.message,
       details: error.validation,
+      requestId: request.id,
     });
   }
 
@@ -129,6 +152,7 @@ fastify.setErrorHandler((error: Error & { statusCode?: number; validation?: unkn
     return reply.status(429).send({
       error: 'RATE_LIMIT_EXCEEDED',
       message: 'Too many requests, please try again later',
+      requestId: request.id,
     });
   }
 
@@ -139,6 +163,7 @@ fastify.setErrorHandler((error: Error & { statusCode?: number; validation?: unkn
     message: config.server.isProduction
       ? 'An unexpected error occurred'
       : error.message,
+    requestId: request.id,
   });
 });
 

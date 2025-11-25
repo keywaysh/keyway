@@ -168,11 +168,16 @@ export async function authRoutes(fastify: FastifyInstance) {
 
           // Set domain for cross-subdomain cookie
           // This allows api.keyway.sh to set a cookie readable by keyway.sh
-          const host = request.headers.host || '';
-          const parts = host.split('.');
-          if (parts.length >= 2) {
-            const rootDomain = parts.slice(-2).join('.');
-            cookieParts.push(`Domain=.${rootDomain}`);
+          const host = (request.headers.host || '').split(':')[0]; // Remove port
+          const isLocalhost = host === 'localhost' || host === '127.0.0.1' || host.endsWith('.localhost');
+
+          // Only set Domain for production domains, not localhost
+          if (!isLocalhost) {
+            const parts = host.split('.');
+            if (parts.length >= 2) {
+              const rootDomain = parts.slice(-2).join('.');
+              cookieParts.push(`Domain=.${rootDomain}`);
+            }
           }
         }
 
@@ -186,11 +191,16 @@ export async function authRoutes(fastify: FastifyInstance) {
 
         if (isProduction) {
           flagCookieParts.push('Secure');
-          const host = request.headers.host || '';
-          const parts = host.split('.');
-          if (parts.length >= 2) {
-            const rootDomain = parts.slice(-2).join('.');
-            flagCookieParts.push(`Domain=.${rootDomain}`);
+          const host = (request.headers.host || '').split(':')[0]; // Remove port
+          const isLocalhost = host === 'localhost' || host === '127.0.0.1' || host.endsWith('.localhost');
+
+          // Only set Domain for production domains, not localhost
+          if (!isLocalhost) {
+            const parts = host.split('.');
+            if (parts.length >= 2) {
+              const rootDomain = parts.slice(-2).join('.');
+              flagCookieParts.push(`Domain=.${rootDomain}`);
+            }
           }
         }
 

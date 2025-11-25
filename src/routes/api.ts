@@ -1,6 +1,6 @@
 import { FastifyInstance } from 'fastify';
 import { db, users, vaults, secrets, activityLogs } from '../db';
-import { eq, and, desc } from 'drizzle-orm';
+import { eq, and, desc, count } from 'drizzle-orm';
 import { authenticateGitHub } from '../middleware/auth';
 import { NotFoundError, ForbiddenError } from '../errors';
 import { encrypt } from '../utils/encryption';
@@ -8,6 +8,8 @@ import { hasRepoAccess, getRepoPermission, getRepoAccessAndPermission } from '..
 import { trackEvent, AnalyticsEvents } from '../utils/analytics';
 import {
   UpsertSecretRequestSchema,
+  PatchSecretRequestSchema,
+  PaginationQuerySchema,
   type UserProfileResponse,
   type VaultListItem,
   type VaultListResponse,
@@ -362,7 +364,7 @@ export async function apiRoutes(fastify: FastifyInstance) {
   }, async (request, reply) => {
     const params = request.params as { owner: string; repo: string; secretId: string };
     const repoFullName = `${params.owner}/${params.repo}`;
-    const body = request.body as { name?: string; value?: string };
+    const body = PatchSecretRequestSchema.parse(request.body);
     const githubUser = request.githubUser!;
     const accessToken = request.accessToken!;
 
@@ -491,12 +493,13 @@ export async function apiRoutes(fastify: FastifyInstance) {
 
   /**
    * GET /api/activity
-   * Return a list of historical actions for this user
+   * Return a list of historical actions for this user (with pagination)
    */
   fastify.get('/activity', {
     preHandler: [authenticateGitHub],
   }, async (request, reply) => {
     const githubUser = request.githubUser!;
+    const query = PaginationQuerySchema.parse(request.query);
 
     // Get user from database
     const user = await db.query.users.findFirst({
@@ -507,11 +510,24 @@ export async function apiRoutes(fastify: FastifyInstance) {
       const response: ActivityLogResponse = {
         activities: [],
         total: 0,
+        meta: {
+          total: 0,
+          limit: query.limit,
+          offset: query.offset,
+          hasMore: false,
+        },
       };
       return response;
     }
 
-    // Get activity logs for this user (limit to last 200)
+    // Get total count
+    const [countResult] = await db
+      .select({ count: count() })
+      .from(activityLogs)
+      .where(eq(activityLogs.userId, user.id));
+    const total = countResult?.count ?? 0;
+
+    // Get activity logs for this user (with pagination)
     const logs = await db.query.activityLogs.findMany({
       where: eq(activityLogs.userId, user.id),
       with: {
@@ -519,7 +535,8 @@ export async function apiRoutes(fastify: FastifyInstance) {
         vault: true,
       },
       orderBy: [desc(activityLogs.createdAt)],
-      limit: 200,
+      limit: query.limit,
+      offset: query.offset,
     });
 
     const activities: ActivityLogItem[] = logs.map((log) => ({
@@ -539,7 +556,13 @@ export async function apiRoutes(fastify: FastifyInstance) {
 
     const response: ActivityLogResponse = {
       activities,
-      total: activities.length,
+      total,
+      meta: {
+        total,
+        limit: query.limit,
+        offset: query.offset,
+        hasMore: query.offset + activities.length < total,
+      },
     };
 
     return response;

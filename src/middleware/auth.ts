@@ -139,8 +139,13 @@ export async function requireAdminAccess(
     throw new UnauthorizedError('Authentication required');
   }
 
+  // Get repo name from params (owner/repo) or body
+  const params = request.params as { owner?: string; repo?: string };
   const body = request.body as { repoFullName?: string };
-  const repoFullName = body?.repoFullName;
+
+  const repoFullName = params.owner && params.repo
+    ? `${params.owner}/${params.repo}`
+    : body?.repoFullName;
 
   if (!repoFullName) {
     throw new ForbiddenError('Repository name required');
