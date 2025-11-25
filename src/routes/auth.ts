@@ -1,6 +1,5 @@
 import { FastifyInstance } from 'fastify';
 import {
-  GitHubCallbackRequestSchema,
   DeviceFlowPollRequestSchema,
   DeviceFlowStartRequestSchema,
 } from '../types';
@@ -14,7 +13,303 @@ import { config } from '../config';
 import { NotFoundError } from '../errors';
 import { authenticateGitHub } from '../middleware/auth';
 
+// Helper to build the unified callback URL
+function buildCallbackUrl(request: { headers: { 'x-forwarded-proto'?: string; host?: string }; hostname: string }): string {
+  const protocol = request.headers['x-forwarded-proto'] || (config.server.isDevelopment ? 'http' : 'https');
+  const host = request.headers.host || request.hostname;
+  return `${protocol}://${host}/auth/callback`;
+}
+
+// Helper to create or update user from GitHub data
+async function upsertUser(githubUser: { githubId: number; username: string; email: string | null; avatarUrl: string | null }, accessToken: string) {
+  const existingUser = await db.query.users.findFirst({
+    where: eq(users.githubId, githubUser.githubId),
+  });
+
+  if (existingUser) {
+    const [updatedUser] = await db
+      .update(users)
+      .set({
+        username: githubUser.username,
+        email: githubUser.email,
+        avatarUrl: githubUser.avatarUrl,
+        accessToken,
+        updatedAt: new Date(),
+      })
+      .where(eq(users.githubId, githubUser.githubId))
+      .returning();
+    return { user: updatedUser, isNewUser: false };
+  }
+
+  const [newUser] = await db
+    .insert(users)
+    .values({
+      githubId: githubUser.githubId,
+      username: githubUser.username,
+      email: githubUser.email,
+      avatarUrl: githubUser.avatarUrl,
+      accessToken,
+    })
+    .returning();
+  return { user: newUser, isNewUser: true };
+}
+
 export async function authRoutes(fastify: FastifyInstance) {
+  // ============================================
+  // Unified OAuth Callback (handles both web and device flows)
+  // ============================================
+
+  /**
+   * GET /auth/callback
+   * Unified GitHub OAuth callback for both web and device flows
+   * Determines flow type from state parameter
+   */
+  fastify.get('/callback', async (request, reply) => {
+    const query = request.query as { code?: string; state?: string; error?: string };
+
+    // Handle GitHub errors
+    if (query.error) {
+      fastify.log.warn({ error: query.error }, 'GitHub OAuth error');
+      return reply.type('text/html').send(`
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Keyway - Authorization Denied</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+    .container {
+      background: white;
+      border-radius: 12px;
+      padding: 40px;
+      max-width: 480px;
+      width: 100%;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+      text-align: center;
+    }
+    h1 { font-size: 28px; margin-bottom: 12px; color: #c53030; }
+    p { color: #4a5568; margin-bottom: 24px; line-height: 1.6; }
+    .logo { font-size: 48px; margin-bottom: 20px; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="logo">🚫</div>
+    <h1>Authorization Denied</h1>
+    <p>You denied the authorization request. You can close this window.</p>
+  </div>
+</body>
+</html>
+      `);
+    }
+
+    if (!query.code || !query.state) {
+      return reply.status(400).send({
+        error: 'MissingParams',
+        message: 'Missing code or state parameter',
+      });
+    }
+
+    try {
+      // Decode state to determine flow type
+      const stateData = JSON.parse(Buffer.from(query.state, 'base64').toString());
+
+      // Exchange code for GitHub access token
+      const accessToken = await exchangeCodeForToken(query.code);
+
+      // Get user info from GitHub
+      const githubUser = await getUserFromToken(accessToken);
+
+      // Create or update user
+      const { user, isNewUser } = await upsertUser(githubUser, accessToken);
+
+      // Handle based on flow type
+      if (stateData.type === 'web') {
+        // Web OAuth flow - generate JWT and set HTTP-only cookie
+        const keywayToken = generateKeywayToken({
+          userId: user.id,
+          githubId: user.githubId,
+          username: user.username,
+        });
+
+        trackEvent(user.id, AnalyticsEvents.AUTH_SUCCESS, {
+          username: githubUser.username,
+          method: 'web_oauth',
+          isNewUser,
+        });
+
+        fastify.log.info({ userId: user.id, username: user.username }, 'Web OAuth successful');
+
+        // Set HTTP-only cookie with the token
+        const isProduction = config.server.isProduction;
+        const maxAge = 30 * 24 * 60 * 60; // 30 days in seconds
+
+        // Build cookie parts
+        const cookieParts = [
+          `keyway_session=${keywayToken}`,
+          'Path=/',
+          'HttpOnly',
+          'SameSite=Lax',
+          `Max-Age=${maxAge}`,
+        ];
+
+        if (isProduction) {
+          cookieParts.push('Secure');
+
+          // Set domain for cross-subdomain cookie
+          // This allows api.keyway.sh to set a cookie readable by keyway.sh
+          const host = request.headers.host || '';
+          const parts = host.split('.');
+          if (parts.length >= 2) {
+            const rootDomain = parts.slice(-2).join('.');
+            cookieParts.push(`Domain=.${rootDomain}`);
+          }
+        }
+
+        reply.header('Set-Cookie', cookieParts.join('; '));
+
+        // Redirect to frontend dashboard
+        const redirectUrl = stateData.redirectUri || (isProduction ? 'https://keyway.sh/dashboard' : 'http://localhost:5173/dashboard');
+        return reply.redirect(redirectUrl);
+      } else if (stateData.deviceCodeId) {
+        // Device flow - update device code and show success page
+        await db
+          .update(deviceCodes)
+          .set({
+            status: 'approved',
+            userId: user.id,
+          })
+          .where(eq(deviceCodes.id, stateData.deviceCodeId));
+
+        trackEvent(user.id, AnalyticsEvents.AUTH_SUCCESS, {
+          username: githubUser.username,
+          method: 'device_flow',
+        });
+
+        fastify.log.info({
+          userId: user.id,
+          username: user.username,
+          deviceCodeId: stateData.deviceCodeId,
+        }, 'Device authorization approved');
+
+        return reply.type('text/html').send(`
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Keyway - Success</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+    .container {
+      background: white;
+      border-radius: 12px;
+      padding: 40px;
+      max-width: 480px;
+      width: 100%;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+      text-align: center;
+    }
+    h1 { font-size: 28px; margin-bottom: 12px; color: #38a169; }
+    p { color: #4a5568; margin-bottom: 24px; line-height: 1.6; }
+    .logo { font-size: 48px; margin-bottom: 20px; }
+    .user-info {
+      background: #f7fafc;
+      padding: 16px;
+      border-radius: 8px;
+      margin-top: 20px;
+    }
+    .user-info strong { color: #2d3748; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="logo">✅</div>
+    <h1>Success!</h1>
+    <p>You have successfully authorized Keyway CLI. You can now close this window and return to your terminal.</p>
+    <div class="user-info">
+      <strong>Logged in as:</strong> ${user.username}
+    </div>
+  </div>
+</body>
+</html>
+        `);
+      } else {
+        return reply.status(400).send({
+          error: 'InvalidState',
+          message: 'Invalid state parameter',
+        });
+      }
+    } catch (error) {
+      fastify.log.error({ err: error }, 'OAuth callback error');
+
+      trackEvent('anonymous', AnalyticsEvents.AUTH_FAILURE, {
+        error: error instanceof Error ? error.message : 'Unknown error',
+      });
+
+      return reply.type('text/html').send(`
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Keyway - Error</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+    .container {
+      background: white;
+      border-radius: 12px;
+      padding: 40px;
+      max-width: 480px;
+      width: 100%;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+      text-align: center;
+    }
+    h1 { font-size: 28px; margin-bottom: 12px; color: #c53030; }
+    p { color: #4a5568; margin-bottom: 24px; line-height: 1.6; }
+    .logo { font-size: 48px; margin-bottom: 20px; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="logo">⚠️</div>
+    <h1>Authentication Error</h1>
+    <p>An error occurred during authentication. Please try again or restart the authentication flow.</p>
+  </div>
+</body>
+</html>
+      `);
+    }
+  });
+
   // ============================================
   // Web OAuth Flow (Dashboard)
   // ============================================
@@ -48,10 +343,7 @@ export async function authRoutes(fastify: FastifyInstance) {
       redirectUri: redirectUri || null,
     })).toString('base64');
 
-    // Build callback URL (use host which includes port, fallback to hostname)
-    const protocol = request.headers['x-forwarded-proto'] || (config.server.isDevelopment ? 'http' : 'https');
-    const host = request.headers.host || request.hostname;
-    const callbackUri = `${protocol}://${host}/auth/github/callback`;
+    const callbackUri = buildCallbackUrl(request);
 
     // Build GitHub OAuth URL
     const githubAuthUrl = new URL('https://github.com/login/oauth/authorize');
@@ -60,139 +352,9 @@ export async function authRoutes(fastify: FastifyInstance) {
     githubAuthUrl.searchParams.set('scope', 'repo read:user user:email');
     githubAuthUrl.searchParams.set('state', state);
 
-    fastify.log.info({ redirectUri }, 'Starting web OAuth flow');
+    fastify.log.info({ redirectUri, callbackUri }, 'Starting web OAuth flow');
 
     return reply.redirect(githubAuthUrl.toString());
-  });
-
-  /**
-   * GET /auth/github/callback
-   * GitHub OAuth callback for web flow
-   * Exchanges code for token and redirects to frontend with Keyway token
-   */
-  fastify.get('/github/callback', async (request, reply) => {
-    const query = request.query as { code?: string; state?: string; error?: string };
-
-    // Handle GitHub errors
-    if (query.error) {
-      fastify.log.warn({ error: query.error }, 'GitHub OAuth error');
-      return reply.status(400).send({
-        error: 'OAuthError',
-        message: `GitHub OAuth error: ${query.error}`,
-      });
-    }
-
-    if (!query.code || !query.state) {
-      return reply.status(400).send({
-        error: 'MissingParams',
-        message: 'Missing code or state parameter',
-      });
-    }
-
-    try {
-      // Decode state
-      const stateData = JSON.parse(Buffer.from(query.state, 'base64').toString());
-
-      // Verify this is a web flow state
-      if (stateData.type !== 'web') {
-        return reply.status(400).send({
-          error: 'InvalidState',
-          message: 'Invalid state parameter',
-        });
-      }
-
-      // Exchange code for GitHub access token
-      const accessToken = await exchangeCodeForToken(query.code);
-
-      // Get user info from GitHub
-      const githubUser = await getUserFromToken(accessToken);
-
-      // Create or update user in database
-      const existingUser = await db.query.users.findFirst({
-        where: eq(users.githubId, githubUser.githubId),
-      });
-
-      let user;
-
-      if (existingUser) {
-        const [updatedUser] = await db
-          .update(users)
-          .set({
-            username: githubUser.username,
-            email: githubUser.email,
-            avatarUrl: githubUser.avatarUrl,
-            accessToken,
-            updatedAt: new Date(),
-          })
-          .where(eq(users.githubId, githubUser.githubId))
-          .returning();
-
-        user = updatedUser;
-      } else {
-        const [newUser] = await db
-          .insert(users)
-          .values({
-            githubId: githubUser.githubId,
-            username: githubUser.username,
-            email: githubUser.email,
-            avatarUrl: githubUser.avatarUrl,
-            accessToken,
-          })
-          .returning();
-
-        user = newUser;
-      }
-
-      // Generate Keyway JWT token
-      const keywayToken = generateKeywayToken({
-        userId: user.id,
-        githubId: user.githubId,
-        username: user.username,
-      });
-
-      // Track successful auth
-      trackEvent(user.id, AnalyticsEvents.AUTH_SUCCESS, {
-        username: githubUser.username,
-        method: 'web_oauth',
-        isNewUser: !existingUser,
-      });
-
-      fastify.log.info({
-        userId: user.id,
-        username: user.username,
-      }, 'Web OAuth successful');
-
-      // Redirect to frontend with token, or return JSON if no redirect_uri
-      if (stateData.redirectUri) {
-        const redirectUrl = new URL(stateData.redirectUri);
-        redirectUrl.searchParams.set('token', keywayToken);
-        return reply.redirect(redirectUrl.toString());
-      }
-
-      // No redirect_uri - return JSON response
-      return {
-        token: keywayToken,
-        user: {
-          id: user.id,
-          githubId: user.githubId,
-          username: user.username,
-          email: user.email,
-          avatarUrl: user.avatarUrl,
-        },
-      };
-    } catch (error) {
-      fastify.log.error({ err: error }, 'Web OAuth callback error');
-
-      trackEvent('anonymous', AnalyticsEvents.AUTH_FAILURE, {
-        error: error instanceof Error ? error.message : 'Unknown error',
-        method: 'web_oauth',
-      });
-
-      return reply.status(500).send({
-        error: 'AuthenticationError',
-        message: error instanceof Error ? error.message : 'Authentication failed',
-      });
-    }
   });
 
   // ============================================
@@ -635,326 +797,15 @@ export async function authRoutes(fastify: FastifyInstance) {
 
     // Build GitHub OAuth URL with state containing the device code ID
     const state = Buffer.from(JSON.stringify({ deviceCodeId: deviceCodeRecord.id })).toString('base64');
-    const protocol = request.headers['x-forwarded-proto'] || (config.server.isDevelopment ? 'http' : 'https');
-    const redirectUri = `${protocol}://${request.hostname}/auth/device/callback`;
+    const callbackUri = buildCallbackUrl(request);
 
     const githubAuthUrl = new URL('https://github.com/login/oauth/authorize');
     githubAuthUrl.searchParams.set('client_id', config.github.clientId);
-    githubAuthUrl.searchParams.set('redirect_uri', redirectUri);
+    githubAuthUrl.searchParams.set('redirect_uri', callbackUri);
     githubAuthUrl.searchParams.set('scope', 'repo read:user user:email');
     githubAuthUrl.searchParams.set('state', state);
 
     return reply.redirect(githubAuthUrl.toString());
-  });
-
-  /**
-   * GET /auth/device/callback
-   * GitHub OAuth callback for device flow
-   */
-  fastify.get('/device/callback', async (request, reply) => {
-    const query = request.query as { code?: string; state?: string; error?: string };
-
-    if (query.error) {
-      return reply.type('text/html').send(`
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Keyway - Authorization Denied</title>
-  <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-      min-height: 100vh;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      padding: 20px;
-    }
-    .container {
-      background: white;
-      border-radius: 12px;
-      padding: 40px;
-      max-width: 480px;
-      width: 100%;
-      box-shadow: 0 20px 60px rgba(0,0,0,0.3);
-      text-align: center;
-    }
-    h1 { font-size: 28px; margin-bottom: 12px; color: #c53030; }
-    p { color: #4a5568; margin-bottom: 24px; line-height: 1.6; }
-    .logo { font-size: 48px; margin-bottom: 20px; }
-  </style>
-</head>
-<body>
-  <div class="container">
-    <div class="logo">🚫</div>
-    <h1>Authorization Denied</h1>
-    <p>You denied the authorization request. You can close this window.</p>
-  </div>
-</body>
-</html>
-      `);
-    }
-
-    if (!query.code || !query.state) {
-      return reply.status(400).send({ error: 'Missing code or state' });
-    }
-
-    try {
-      // Decode state to get device code ID
-      const stateData = JSON.parse(Buffer.from(query.state, 'base64').toString());
-      const deviceCodeId = stateData.deviceCodeId;
-
-      // Exchange code for access token
-      const accessToken = await exchangeCodeForToken(query.code);
-
-      // Get user info from GitHub
-      const githubUser = await getUserFromToken(accessToken);
-
-      // Check if user exists, create or update
-      const existingUser = await db.query.users.findFirst({
-        where: eq(users.githubId, githubUser.githubId),
-      });
-
-      let user;
-
-      if (existingUser) {
-        // Update existing user
-        const [updatedUser] = await db
-          .update(users)
-          .set({
-            username: githubUser.username,
-            email: githubUser.email,
-            avatarUrl: githubUser.avatarUrl,
-            accessToken,
-            updatedAt: new Date(),
-          })
-          .where(eq(users.githubId, githubUser.githubId))
-          .returning();
-
-        user = updatedUser;
-      } else {
-        // Create new user
-        const [newUser] = await db
-          .insert(users)
-          .values({
-            githubId: githubUser.githubId,
-            username: githubUser.username,
-            email: githubUser.email,
-            avatarUrl: githubUser.avatarUrl,
-            accessToken,
-          })
-          .returning();
-
-        user = newUser;
-      }
-
-      // Update device code status to approved
-      await db
-        .update(deviceCodes)
-        .set({
-          status: 'approved',
-          userId: user.id,
-        })
-        .where(eq(deviceCodes.id, deviceCodeId));
-
-      // Track successful auth
-      trackEvent(user.id, AnalyticsEvents.AUTH_SUCCESS, {
-        username: githubUser.username,
-        method: 'device_flow',
-      });
-
-      fastify.log.info({
-        userId: user.id,
-        username: user.username,
-        deviceCodeId,
-      }, 'Device authorization approved');
-
-      // Show success page
-      return reply.type('text/html').send(`
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Keyway - Success</title>
-  <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-      min-height: 100vh;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      padding: 20px;
-    }
-    .container {
-      background: white;
-      border-radius: 12px;
-      padding: 40px;
-      max-width: 480px;
-      width: 100%;
-      box-shadow: 0 20px 60px rgba(0,0,0,0.3);
-      text-align: center;
-    }
-    h1 { font-size: 28px; margin-bottom: 12px; color: #38a169; }
-    p { color: #4a5568; margin-bottom: 24px; line-height: 1.6; }
-    .logo { font-size: 48px; margin-bottom: 20px; }
-    .user-info {
-      background: #f7fafc;
-      padding: 16px;
-      border-radius: 8px;
-      margin-top: 20px;
-    }
-    .user-info strong { color: #2d3748; }
-  </style>
-</head>
-<body>
-  <div class="container">
-    <div class="logo">✅</div>
-    <h1>Success!</h1>
-    <p>You have successfully authorized Keyway CLI. You can now close this window and return to your terminal.</p>
-    <div class="user-info">
-      <strong>Logged in as:</strong> ${user.username}
-    </div>
-  </div>
-</body>
-</html>
-      `);
-    } catch (error) {
-      fastify.log.error({ err: error }, 'Device flow callback error');
-
-      return reply.type('text/html').send(`
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Keyway - Error</title>
-  <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-      min-height: 100vh;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      padding: 20px;
-    }
-    .container {
-      background: white;
-      border-radius: 12px;
-      padding: 40px;
-      max-width: 480px;
-      width: 100%;
-      box-shadow: 0 20px 60px rgba(0,0,0,0.3);
-      text-align: center;
-    }
-    h1 { font-size: 28px; margin-bottom: 12px; color: #c53030; }
-    p { color: #4a5568; margin-bottom: 24px; line-height: 1.6; }
-    .logo { font-size: 48px; margin-bottom: 20px; }
-  </style>
-</head>
-<body>
-  <div class="container">
-    <div class="logo">⚠️</div>
-    <h1>Authentication Error</h1>
-    <p>An error occurred during authentication. Please try again or restart the authentication flow.</p>
-  </div>
-</body>
-</html>
-      `);
-    }
-  });
-
-  /**
-   * POST /auth/github/callback
-   * Exchange GitHub OAuth code for access token and create/update user
-   */
-  fastify.post('/github/callback', async (request, reply) => {
-    try {
-      const body = GitHubCallbackRequestSchema.parse(request.body);
-
-      // Exchange code for access token
-      const accessToken = await exchangeCodeForToken(body.code);
-
-      // Get user info from GitHub
-      const githubUser = await getUserFromToken(accessToken);
-
-      // Check if user exists
-      const existingUser = await db.query.users.findFirst({
-        where: eq(users.githubId, githubUser.githubId),
-      });
-
-      let user;
-
-      if (existingUser) {
-        // Update existing user
-        const [updatedUser] = await db
-          .update(users)
-          .set({
-            username: githubUser.username,
-            email: githubUser.email,
-            avatarUrl: githubUser.avatarUrl,
-            accessToken,
-            updatedAt: new Date(),
-          })
-          .where(eq(users.githubId, githubUser.githubId))
-          .returning();
-
-        user = updatedUser;
-      } else {
-        // Create new user
-        const [newUser] = await db
-          .insert(users)
-          .values({
-            githubId: githubUser.githubId,
-            username: githubUser.username,
-            email: githubUser.email,
-            avatarUrl: githubUser.avatarUrl,
-            accessToken,
-          })
-          .returning();
-
-        user = newUser;
-      }
-
-      // Track successful auth
-      trackEvent(user.id, AnalyticsEvents.AUTH_SUCCESS, {
-        username: githubUser.username,
-        isNewUser: !existingUser,
-      });
-
-      return {
-        accessToken,
-        user: {
-          id: githubUser.githubId,
-          username: githubUser.username,
-          email: githubUser.email,
-          avatarUrl: githubUser.avatarUrl,
-        },
-      };
-    } catch (error) {
-      trackEvent('anonymous', AnalyticsEvents.AUTH_FAILURE, {
-        error: error instanceof Error ? error.message : 'Unknown error',
-      });
-
-      if (error instanceof Error) {
-        return reply.status(400).send({
-          error: 'AuthenticationError',
-          message: error.message,
-        });
-      }
-
-      return reply.status(500).send({
-        error: 'InternalServerError',
-        message: 'Failed to authenticate with GitHub',
-      });
-    }
   });
 
   /**
