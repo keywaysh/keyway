@@ -397,6 +397,54 @@ export async function authRoutes(fastify: FastifyInstance) {
       githubId: request.githubUser!.githubId,
     };
   });
+
+  /**
+   * POST /logout
+   * Clear session cookie
+   */
+  fastify.post('/logout', async (request, reply) => {
+    const isProduction = config.server.isProduction;
+
+    // Build cookie clearing parts
+    const clearSessionParts = [
+      'keyway_session=',
+      'Path=/',
+      'HttpOnly',
+      'SameSite=Lax',
+      'Max-Age=0',
+    ];
+
+    const clearFlagParts = [
+      'keyway_logged_in=',
+      'Path=/',
+      'SameSite=Lax',
+      'Max-Age=0',
+    ];
+
+    if (isProduction) {
+      clearSessionParts.push('Secure');
+      clearFlagParts.push('Secure');
+
+      const host = (request.headers.host || '').split(':')[0];
+      const isLocalhost = host === 'localhost' || host === '127.0.0.1' || host.endsWith('.localhost');
+
+      if (!isLocalhost) {
+        const parts = host.split('.');
+        if (parts.length >= 2) {
+          const rootDomain = parts.slice(-2).join('.');
+          clearSessionParts.push(`Domain=.${rootDomain}`);
+          clearFlagParts.push(`Domain=.${rootDomain}`);
+        }
+      }
+    }
+
+    reply.header('Set-Cookie', [
+      clearSessionParts.join('; '),
+      clearFlagParts.join('; '),
+    ]);
+
+    return { success: true, message: 'Logged out successfully' };
+  });
 }
 
 // HTML template helpers

@@ -27,6 +27,7 @@ export const permissionTypeEnum = pgEnum('permission_type', [
 // Activity action types
 export const activityActionEnum = pgEnum('activity_action', [
   'vault_created',
+  'vault_deleted',
   'secrets_pushed',
   'secrets_pulled',
   'secret_created',

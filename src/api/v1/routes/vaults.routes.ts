@@ -1,8 +1,10 @@
 import { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { authenticateGitHub, requireAdminAccess } from '../../../middleware/auth';
-import { db, users, vaults } from '../../../db';
-import { eq } from 'drizzle-orm';
+import { db, users, vaults, secrets, environmentPermissions } from '../../../db';
+import { eq, and } from 'drizzle-orm';
+import { getVaultPermissions, getDefaultPermission } from '../../../utils/permissions';
+import type { CollaboratorRole } from '../../../db/schema';
 import { sendData, sendPaginatedData, sendCreated, sendNoContent, NotFoundError, ForbiddenError, ConflictError, buildPaginationMeta, parsePagination } from '../../../lib';
 import {
   getVaultsForUser,
@@ -41,6 +43,13 @@ const PatchSecretSchema = z.object({
   value: z.string().optional(),
 }).refine(data => data.name !== undefined || data.value !== undefined, {
   message: 'At least one of name or value must be provided',
+});
+
+const EnvironmentPermissionsSchema = z.object({
+  permissions: z.object({
+    read: z.enum(['read', 'triage', 'write', 'maintain', 'admin']),
+    write: z.enum(['read', 'triage', 'write', 'maintain', 'admin']),
+  }),
 });
 
 /**
@@ -174,6 +183,54 @@ export async function vaultsRoutes(fastify: FastifyInstance) {
     }
 
     return sendData(reply, vault, { requestId: request.id });
+  });
+
+  /**
+   * DELETE /:owner/:repo
+   * Delete a vault and all its secrets
+   */
+  fastify.delete('/:owner/:repo', {
+    preHandler: [authenticateGitHub, requireAdminAccess],
+  }, async (request, reply) => {
+    const params = request.params as { owner: string; repo: string };
+    const repoFullName = `${params.owner}/${params.repo}`;
+    const githubUser = request.githubUser!;
+
+    const vault = await getVaultByRepoInternal(repoFullName);
+    if (!vault) {
+      throw new NotFoundError('Vault not found');
+    }
+
+    const user = await db.query.users.findFirst({
+      where: eq(users.githubId, githubUser.githubId),
+    });
+    if (!user) {
+      throw new ForbiddenError('User not found in database');
+    }
+
+    // Delete all secrets first
+    await db.delete(secrets).where(eq(secrets.vaultId, vault.id));
+
+    // Delete the vault
+    await db.delete(vaults).where(eq(vaults.id, vault.id));
+
+    await logActivity({
+      userId: user.id,
+      action: 'vault_deleted',
+      platform: 'web',
+      vaultId: vault.id,
+      metadata: { repoFullName },
+      ...extractRequestInfo(request),
+    });
+
+    trackEvent(user.id, AnalyticsEvents.VAULT_INITIALIZED, {
+      repoFullName,
+      action: 'deleted',
+    });
+
+    fastify.log.info({ repoFullName, userId: user.id }, 'Vault deleted');
+
+    return sendNoContent(reply);
   });
 
   /**
@@ -369,5 +426,165 @@ export async function vaultsRoutes(fastify: FastifyInstance) {
     });
 
     return sendNoContent(reply);
+  });
+
+  // ============================================
+  // Environment routes
+  // ============================================
+
+  /**
+   * GET /:owner/:repo/environments
+   * List all environments for a vault
+   */
+  fastify.get('/:owner/:repo/environments', {
+    preHandler: [authenticateGitHub],
+  }, async (request, reply) => {
+    const params = request.params as { owner: string; repo: string };
+    const repoFullName = `${params.owner}/${params.repo}`;
+    const accessToken = request.accessToken!;
+
+    const vault = await getVaultByRepoInternal(repoFullName);
+    if (!vault) {
+      throw new NotFoundError('Vault not found');
+    }
+
+    const hasAccess = await hasRepoAccess(accessToken, vault.repoFullName);
+    if (!hasAccess) {
+      throw new ForbiddenError('You do not have access to this vault');
+    }
+
+    // Get unique environments from secrets
+    const vaultSecrets = await db.query.secrets.findMany({
+      where: eq(secrets.vaultId, vault.id),
+      columns: { environment: true },
+    });
+
+    const environments = [...new Set(vaultSecrets.map(s => s.environment))].sort();
+
+    return sendData(reply, { environments }, { requestId: request.id });
+  });
+
+  // ============================================
+  // Permission routes
+  // ============================================
+
+  /**
+   * GET /:owner/:repo/permissions
+   * Get permission configuration for a vault
+   */
+  fastify.get('/:owner/:repo/permissions', {
+    preHandler: [authenticateGitHub],
+  }, async (request, reply) => {
+    const params = request.params as { owner: string; repo: string };
+    const repoFullName = `${params.owner}/${params.repo}`;
+    const accessToken = request.accessToken!;
+
+    const vault = await getVaultByRepoInternal(repoFullName);
+    if (!vault) {
+      throw new NotFoundError('Vault not found');
+    }
+
+    const hasAccess = await hasRepoAccess(accessToken, vault.repoFullName);
+    if (!hasAccess) {
+      throw new ForbiddenError('You do not have access to this vault');
+    }
+
+    const permissions = await getVaultPermissions(vault.id);
+
+    return sendData(reply, {
+      repoFullName,
+      vaultId: vault.id,
+      ...permissions,
+    }, { requestId: request.id });
+  });
+
+  /**
+   * PUT /:owner/:repo/permissions/:env
+   * Set custom permissions for an environment (admin only)
+   */
+  fastify.put('/:owner/:repo/permissions/:env', {
+    preHandler: [authenticateGitHub, requireAdminAccess],
+  }, async (request, reply) => {
+    const params = request.params as { owner: string; repo: string; env: string };
+    const repoFullName = `${params.owner}/${params.repo}`;
+    const environment = params.env;
+    const body = EnvironmentPermissionsSchema.parse(request.body);
+
+    const vault = await getVaultByRepoInternal(repoFullName);
+    if (!vault) {
+      throw new NotFoundError('Vault not found');
+    }
+
+    // Delete existing custom permissions for this environment
+    await db
+      .delete(environmentPermissions)
+      .where(
+        and(
+          eq(environmentPermissions.vaultId, vault.id),
+          eq(environmentPermissions.environment, environment)
+        )
+      );
+
+    // Insert new custom permissions
+    await db.insert(environmentPermissions).values([
+      {
+        vaultId: vault.id,
+        environment,
+        permissionType: 'read',
+        minRole: body.permissions.read as CollaboratorRole,
+      },
+      {
+        vaultId: vault.id,
+        environment,
+        permissionType: 'write',
+        minRole: body.permissions.write as CollaboratorRole,
+      },
+    ]);
+
+    fastify.log.info({ repoFullName, environment, permissions: body.permissions }, 'Custom permissions set');
+
+    return sendData(reply, {
+      success: true,
+      message: `Custom permissions set for environment: ${environment}`,
+      permissions: body.permissions,
+    }, { requestId: request.id });
+  });
+
+  /**
+   * DELETE /:owner/:repo/permissions/:env
+   * Reset environment to default permissions (admin only)
+   */
+  fastify.delete('/:owner/:repo/permissions/:env', {
+    preHandler: [authenticateGitHub, requireAdminAccess],
+  }, async (request, reply) => {
+    const params = request.params as { owner: string; repo: string; env: string };
+    const repoFullName = `${params.owner}/${params.repo}`;
+    const environment = params.env;
+
+    const vault = await getVaultByRepoInternal(repoFullName);
+    if (!vault) {
+      throw new NotFoundError('Vault not found');
+    }
+
+    // Delete custom permissions for this environment
+    await db
+      .delete(environmentPermissions)
+      .where(
+        and(
+          eq(environmentPermissions.vaultId, vault.id),
+          eq(environmentPermissions.environment, environment)
+        )
+      );
+
+    fastify.log.info({ repoFullName, environment }, 'Custom permissions reset to defaults');
+
+    return sendData(reply, {
+      success: true,
+      message: `Permissions reset to defaults for environment: ${environment}`,
+      defaults: {
+        read: getDefaultPermission(environment, 'read'),
+        write: getDefaultPermission(environment, 'write'),
+      },
+    }, { requestId: request.id });
   });
 }
