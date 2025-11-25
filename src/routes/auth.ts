@@ -48,9 +48,10 @@ export async function authRoutes(fastify: FastifyInstance) {
       redirectUri: redirectUri || null,
     })).toString('base64');
 
-    // Build callback URL
+    // Build callback URL (use host which includes port, fallback to hostname)
     const protocol = request.headers['x-forwarded-proto'] || (config.server.isDevelopment ? 'http' : 'https');
-    const callbackUri = `${protocol}://${request.hostname}/auth/github/callback`;
+    const host = request.headers.host || request.hostname;
+    const callbackUri = `${protocol}://${host}/auth/github/callback`;
 
     // Build GitHub OAuth URL
     const githubAuthUrl = new URL('https://github.com/login/oauth/authorize');
