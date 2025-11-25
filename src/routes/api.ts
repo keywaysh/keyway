@@ -210,6 +210,108 @@ export async function apiRoutes(fastify: FastifyInstance) {
   });
 
   /**
+   * GET /api/vaults/:owner/:repo
+   * Return vault metadata by owner/repo (for web dashboard)
+   */
+  fastify.get('/vaults/:owner/:repo', {
+    preHandler: [authenticateGitHub],
+  }, async (request, reply) => {
+    const params = request.params as { owner: string; repo: string };
+    const repoFullName = `${params.owner}/${params.repo}`;
+    const accessToken = request.accessToken!;
+
+    // Get vault with secrets count
+    const vault = await db.query.vaults.findFirst({
+      where: eq(vaults.repoFullName, repoFullName),
+      with: {
+        secrets: true,
+        owner: true,
+      },
+    });
+
+    if (!vault) {
+      throw new NotFoundError('Vault not found');
+    }
+
+    // Verify user has access and get permission in a single API call
+    const { hasAccess, permission } = await getRepoAccessAndPermission(accessToken, vault.repoFullName);
+    if (!hasAccess) {
+      throw new ForbiddenError('You do not have access to this vault');
+    }
+
+    const [repoOwner, repoName] = vault.repoFullName.split('/');
+
+    // Get unique environments
+    const environments = [...new Set(vault.secrets.map(s => s.environment))];
+    if (environments.length === 0) {
+      environments.push('default');
+    }
+
+    const response: VaultMetadataResponse = {
+      id: vault.id,
+      repoFullName: vault.repoFullName,
+      repoOwner,
+      repoName,
+      repoAvatar: getGitHubAvatarUrl(repoOwner),
+      secretCount: vault.secrets.length,
+      environments,
+      permission,
+      createdAt: vault.createdAt.toISOString(),
+      updatedAt: vault.updatedAt.toISOString(),
+    };
+
+    return response;
+  });
+
+  /**
+   * GET /api/vaults/:owner/:repo/secrets
+   * Return secrets list by owner/repo (for web dashboard)
+   */
+  fastify.get('/vaults/:owner/:repo/secrets', {
+    preHandler: [authenticateGitHub],
+  }, async (request, reply) => {
+    const params = request.params as { owner: string; repo: string };
+    const repoFullName = `${params.owner}/${params.repo}`;
+    const accessToken = request.accessToken!;
+
+    // Get vault
+    const vault = await db.query.vaults.findFirst({
+      where: eq(vaults.repoFullName, repoFullName),
+    });
+
+    if (!vault) {
+      throw new NotFoundError('Vault not found');
+    }
+
+    // Verify user has access to the repository
+    const hasAccess = await hasRepoAccess(accessToken, vault.repoFullName);
+    if (!hasAccess) {
+      throw new ForbiddenError('You do not have access to this vault');
+    }
+
+    // Get all secrets for this vault (without encrypted values)
+    const vaultSecrets = await db.query.secrets.findMany({
+      where: eq(secrets.vaultId, vault.id),
+      orderBy: [desc(secrets.updatedAt)],
+    });
+
+    const secretList: SecretListItem[] = vaultSecrets.map((secret) => ({
+      id: secret.id,
+      key: secret.key,
+      environment: secret.environment,
+      createdAt: secret.createdAt.toISOString(),
+      updatedAt: secret.updatedAt.toISOString(),
+    }));
+
+    const response: SecretListResponse = {
+      secrets: secretList,
+      total: secretList.length,
+    };
+
+    return response;
+  });
+
+  /**
    * GET /api/vaults/:vaultId/secrets
    * Return the list of secrets WITHOUT values
    */
