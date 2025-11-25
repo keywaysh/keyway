@@ -57,6 +57,7 @@ fastify.register(cors, {
     ? config.cors.allowedOrigins
     : false, // Block all if no origins specified in production
   credentials: true,
+  methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE', 'OPTIONS'],
 });
 
 // Register form body parser (for HTML forms)
