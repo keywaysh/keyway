@@ -15,6 +15,189 @@ import { NotFoundError } from '../errors';
 import { authenticateGitHub } from '../middleware/auth';
 
 export async function authRoutes(fastify: FastifyInstance) {
+  // ============================================
+  // Web OAuth Flow (Dashboard)
+  // ============================================
+
+  /**
+   * GET /auth/github/start
+   * Start the web OAuth flow - redirects to GitHub
+   * Query params:
+   *   - redirect_uri: Where to redirect after auth (must be in ALLOWED_ORIGINS)
+   */
+  fastify.get('/github/start', async (request, reply) => {
+    const query = request.query as { redirect_uri?: string };
+    const redirectUri = query.redirect_uri;
+
+    // Validate redirect_uri if provided
+    if (redirectUri) {
+      const allowedOrigins = config.cors.allowedOrigins;
+      const isAllowed = config.cors.allowAll || allowedOrigins.some(origin => redirectUri.startsWith(origin));
+
+      if (!isAllowed) {
+        return reply.status(400).send({
+          error: 'InvalidRedirectUri',
+          message: 'The redirect_uri is not in the allowed origins list',
+        });
+      }
+    }
+
+    // Build state with redirect info
+    const state = Buffer.from(JSON.stringify({
+      type: 'web',
+      redirectUri: redirectUri || null,
+    })).toString('base64');
+
+    // Build callback URL
+    const protocol = request.headers['x-forwarded-proto'] || (config.server.isDevelopment ? 'http' : 'https');
+    const callbackUri = `${protocol}://${request.hostname}/auth/github/callback`;
+
+    // Build GitHub OAuth URL
+    const githubAuthUrl = new URL('https://github.com/login/oauth/authorize');
+    githubAuthUrl.searchParams.set('client_id', config.github.clientId);
+    githubAuthUrl.searchParams.set('redirect_uri', callbackUri);
+    githubAuthUrl.searchParams.set('scope', 'repo read:user user:email');
+    githubAuthUrl.searchParams.set('state', state);
+
+    fastify.log.info({ redirectUri }, 'Starting web OAuth flow');
+
+    return reply.redirect(githubAuthUrl.toString());
+  });
+
+  /**
+   * GET /auth/github/callback
+   * GitHub OAuth callback for web flow
+   * Exchanges code for token and redirects to frontend with Keyway token
+   */
+  fastify.get('/github/callback', async (request, reply) => {
+    const query = request.query as { code?: string; state?: string; error?: string };
+
+    // Handle GitHub errors
+    if (query.error) {
+      fastify.log.warn({ error: query.error }, 'GitHub OAuth error');
+      return reply.status(400).send({
+        error: 'OAuthError',
+        message: `GitHub OAuth error: ${query.error}`,
+      });
+    }
+
+    if (!query.code || !query.state) {
+      return reply.status(400).send({
+        error: 'MissingParams',
+        message: 'Missing code or state parameter',
+      });
+    }
+
+    try {
+      // Decode state
+      const stateData = JSON.parse(Buffer.from(query.state, 'base64').toString());
+
+      // Verify this is a web flow state
+      if (stateData.type !== 'web') {
+        return reply.status(400).send({
+          error: 'InvalidState',
+          message: 'Invalid state parameter',
+        });
+      }
+
+      // Exchange code for GitHub access token
+      const accessToken = await exchangeCodeForToken(query.code);
+
+      // Get user info from GitHub
+      const githubUser = await getUserFromToken(accessToken);
+
+      // Create or update user in database
+      const existingUser = await db.query.users.findFirst({
+        where: eq(users.githubId, githubUser.githubId),
+      });
+
+      let user;
+
+      if (existingUser) {
+        const [updatedUser] = await db
+          .update(users)
+          .set({
+            username: githubUser.username,
+            email: githubUser.email,
+            avatarUrl: githubUser.avatarUrl,
+            accessToken,
+            updatedAt: new Date(),
+          })
+          .where(eq(users.githubId, githubUser.githubId))
+          .returning();
+
+        user = updatedUser;
+      } else {
+        const [newUser] = await db
+          .insert(users)
+          .values({
+            githubId: githubUser.githubId,
+            username: githubUser.username,
+            email: githubUser.email,
+            avatarUrl: githubUser.avatarUrl,
+            accessToken,
+          })
+          .returning();
+
+        user = newUser;
+      }
+
+      // Generate Keyway JWT token
+      const keywayToken = generateKeywayToken({
+        userId: user.id,
+        githubId: user.githubId,
+        username: user.username,
+      });
+
+      // Track successful auth
+      trackEvent(user.id, AnalyticsEvents.AUTH_SUCCESS, {
+        username: githubUser.username,
+        method: 'web_oauth',
+        isNewUser: !existingUser,
+      });
+
+      fastify.log.info({
+        userId: user.id,
+        username: user.username,
+      }, 'Web OAuth successful');
+
+      // Redirect to frontend with token, or return JSON if no redirect_uri
+      if (stateData.redirectUri) {
+        const redirectUrl = new URL(stateData.redirectUri);
+        redirectUrl.searchParams.set('token', keywayToken);
+        return reply.redirect(redirectUrl.toString());
+      }
+
+      // No redirect_uri - return JSON response
+      return {
+        token: keywayToken,
+        user: {
+          id: user.id,
+          githubId: user.githubId,
+          username: user.username,
+          email: user.email,
+          avatarUrl: user.avatarUrl,
+        },
+      };
+    } catch (error) {
+      fastify.log.error({ err: error }, 'Web OAuth callback error');
+
+      trackEvent('anonymous', AnalyticsEvents.AUTH_FAILURE, {
+        error: error instanceof Error ? error.message : 'Unknown error',
+        method: 'web_oauth',
+      });
+
+      return reply.status(500).send({
+        error: 'AuthenticationError',
+        message: error instanceof Error ? error.message : 'Authentication failed',
+      });
+    }
+  });
+
+  // ============================================
+  // Device Flow (CLI)
+  // ============================================
+
   /**
    * POST /auth/device/start
    * Start the device authorization flow
