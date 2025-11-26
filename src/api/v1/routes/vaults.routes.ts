@@ -206,10 +206,14 @@ export async function vaultsRoutes(fastify: FastifyInstance) {
     const repoFullName = `${params.owner}/${params.repo}`;
     const githubUser = request.githubUser!;
 
+    fastify.log.info({ repoFullName }, 'Deleting vault - step 1: finding vault');
+
     const vault = await getVaultByRepoInternal(repoFullName);
     if (!vault) {
       throw new NotFoundError('Vault not found');
     }
+
+    fastify.log.info({ repoFullName, vaultId: vault.id }, 'Deleting vault - step 2: finding user');
 
     const user = await db.query.users.findFirst({
       where: eq(users.githubId, githubUser.githubId),
@@ -218,11 +222,17 @@ export async function vaultsRoutes(fastify: FastifyInstance) {
       throw new ForbiddenError('User not found in database');
     }
 
+    fastify.log.info({ repoFullName, vaultId: vault.id }, 'Deleting vault - step 3: deleting secrets');
+
     // Delete all secrets first
     await db.delete(secrets).where(eq(secrets.vaultId, vault.id));
 
+    fastify.log.info({ repoFullName, vaultId: vault.id }, 'Deleting vault - step 4: deleting vault');
+
     // Delete the vault
     await db.delete(vaults).where(eq(vaults.id, vault.id));
+
+    fastify.log.info({ repoFullName }, 'Deleting vault - step 5: logging activity');
 
     await logActivity({
       userId: user.id,
@@ -238,7 +248,7 @@ export async function vaultsRoutes(fastify: FastifyInstance) {
       action: 'deleted',
     });
 
-    fastify.log.info({ repoFullName, userId: user.id }, 'Vault deleted');
+    fastify.log.info({ repoFullName, userId: user.id }, 'Vault deleted successfully');
 
     return sendNoContent(reply);
   });
