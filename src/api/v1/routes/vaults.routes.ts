@@ -228,7 +228,7 @@ export async function vaultsRoutes(fastify: FastifyInstance) {
       userId: user.id,
       action: 'vault_deleted',
       platform: detectPlatform(request),
-      vaultId: vault.id,
+      vaultId: null, // Vault already deleted, can't reference it
       metadata: { repoFullName },
       ...extractRequestInfo(request),
     });
