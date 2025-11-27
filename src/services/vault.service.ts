@@ -27,6 +27,7 @@ export interface VaultListItem {
   secretCount: number;
   environments: string[];
   permission: string | null;
+  isPrivate: boolean;
   updatedAt: string;
 }
 
@@ -39,6 +40,7 @@ export interface VaultDetails {
   secretCount: number;
   environments: string[];
   permission: string | null;
+  isPrivate: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -79,6 +81,7 @@ export async function getVaultsForUser(
         secretCount: vault.secrets.length,
         environments,
         permission,
+        isPrivate: vault.isPrivate,
         updatedAt: vault.updatedAt.toISOString(),
       };
     })
@@ -133,6 +136,7 @@ export async function getVaultByRepo(
       secretCount: vault.secrets.length,
       environments,
       permission,
+      isPrivate: vault.isPrivate,
       createdAt: vault.createdAt.toISOString(),
       updatedAt: vault.updatedAt.toISOString(),
     },
