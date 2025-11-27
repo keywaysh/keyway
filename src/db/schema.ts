@@ -1,4 +1,4 @@
-import { pgTable, text, integer, timestamp, uuid, pgEnum, decimal, jsonb } from 'drizzle-orm/pg-core';
+import { pgTable, text, integer, timestamp, uuid, pgEnum, decimal, jsonb, boolean } from 'drizzle-orm/pg-core';
 import { relations } from 'drizzle-orm';
 
 // Device flow status enum
@@ -53,6 +53,21 @@ export const securityAlertTypeEnum = pgEnum('security_alert_type', [
   'rate_anomaly',
 ]);
 
+// User plan types
+export const userPlanEnum = pgEnum('user_plan', [
+  'free',
+  'pro',
+  'team',
+]);
+
+// Billing status types
+export const billingStatusEnum = pgEnum('billing_status', [
+  'active',
+  'past_due',
+  'canceled',
+  'trialing',
+]);
+
 export const users = pgTable('users', {
   id: uuid('id').primaryKey().defaultRandom(),
   githubId: integer('github_id').notNull().unique(),
@@ -60,6 +75,10 @@ export const users = pgTable('users', {
   email: text('email'),
   avatarUrl: text('avatar_url'),
   accessToken: text('access_token').notNull(),
+  // Plan and billing fields
+  plan: userPlanEnum('plan').notNull().default('free'),
+  billingStatus: billingStatusEnum('billing_status').default('active'),
+  stripeCustomerId: text('stripe_customer_id'),
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
 });
@@ -68,6 +87,8 @@ export const vaults = pgTable('vaults', {
   id: uuid('id').primaryKey().defaultRandom(),
   repoFullName: text('repo_full_name').notNull().unique(),
   ownerId: uuid('owner_id').notNull().references(() => users.id),
+  // Whether the GitHub repo is private (fetched from GitHub API during creation)
+  isPrivate: boolean('is_private').notNull().default(false),
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
 });
@@ -147,13 +168,30 @@ export const securityAlerts = pgTable('security_alerts', {
   createdAt: timestamp('created_at').notNull().defaultNow(),
 });
 
+// Usage metrics (cached/derived data for quick access)
+export const usageMetrics = pgTable('usage_metrics', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }).unique(),
+  totalPublicRepos: integer('total_public_repos').notNull().default(0),
+  totalPrivateRepos: integer('total_private_repos').notNull().default(0),
+  lastComputed: timestamp('last_computed').notNull().defaultNow(),
+});
+
 // Relations
-export const usersRelations = relations(users, ({ many }) => ({
+export const usersRelations = relations(users, ({ many, one }) => ({
   vaults: many(vaults),
   deviceCodes: many(deviceCodes),
   activityLogs: many(activityLogs),
   pullEvents: many(pullEvents),
   securityAlerts: many(securityAlerts),
+  usageMetrics: one(usageMetrics),
+}));
+
+export const usageMetricsRelations = relations(usageMetrics, ({ one }) => ({
+  user: one(users, {
+    fields: [usageMetrics.userId],
+    references: [users.id],
+  }),
 }));
 
 export const vaultsRelations = relations(vaults, ({ one, many }) => ({
@@ -243,8 +281,12 @@ export type PullEvent = typeof pullEvents.$inferSelect;
 export type NewPullEvent = typeof pullEvents.$inferInsert;
 export type SecurityAlert = typeof securityAlerts.$inferSelect;
 export type NewSecurityAlert = typeof securityAlerts.$inferInsert;
+export type UsageMetric = typeof usageMetrics.$inferSelect;
+export type NewUsageMetric = typeof usageMetrics.$inferInsert;
 export type CollaboratorRole = typeof collaboratorRoleEnum.enumValues[number];
 export type PermissionType = typeof permissionTypeEnum.enumValues[number];
 export type ActivityAction = typeof activityActionEnum.enumValues[number];
 export type ActivityPlatform = typeof activityPlatformEnum.enumValues[number];
 export type SecurityAlertType = typeof securityAlertTypeEnum.enumValues[number];
+export type UserPlan = typeof userPlanEnum.enumValues[number];
+export type BillingStatus = typeof billingStatusEnum.enumValues[number];

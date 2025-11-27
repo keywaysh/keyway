@@ -6,6 +6,7 @@ import { eq, and } from 'drizzle-orm';
 import { getVaultPermissions, getDefaultPermission } from '../../../utils/permissions';
 import type { CollaboratorRole } from '../../../db/schema';
 import { sendData, sendPaginatedData, sendCreated, sendNoContent, NotFoundError, ForbiddenError, ConflictError, buildPaginationMeta, parsePagination } from '../../../lib';
+import { PlanLimitError } from '../../../errors';
 import {
   getVaultsForUser,
   getVaultByRepo,
@@ -18,8 +19,10 @@ import {
   logActivity,
   extractRequestInfo,
   detectPlatform,
+  checkVaultCreationAllowed,
+  computeUserUsage,
 } from '../../../services';
-import { hasRepoAccess } from '../../../utils/github';
+import { hasRepoAccess, getRepoInfo } from '../../../utils/github';
 import { trackEvent, AnalyticsEvents } from '../../../utils/analytics';
 import { repoFullNameSchema } from '../../../types';
 import { getSecurityAlerts } from '../../../services/security.service';
@@ -112,6 +115,12 @@ export async function vaultsRoutes(fastify: FastifyInstance) {
     const githubUser = request.githubUser!;
     const accessToken = request.accessToken!;
 
+    // Get repo info from GitHub to determine visibility
+    const repoInfo = await getRepoInfo(accessToken, body.repoFullName);
+    if (!repoInfo) {
+      throw new NotFoundError(`Repository '${body.repoFullName}' not found or you don't have access`);
+    }
+
     // Get or create user in our database
     let user = await db.query.users.findFirst({
       where: eq(users.githubId, githubUser.githubId),
@@ -131,6 +140,12 @@ export async function vaultsRoutes(fastify: FastifyInstance) {
       user = newUser;
     }
 
+    // Check plan limits before creating vault
+    const limitCheck = await checkVaultCreationAllowed(user.id, user.plan, repoInfo.isPrivate);
+    if (!limitCheck.allowed) {
+      throw new PlanLimitError(limitCheck.reason!);
+    }
+
     // Check if vault already exists
     const existingVault = await db.query.vaults.findFirst({
       where: eq(vaults.repoFullName, body.repoFullName),
@@ -140,17 +155,22 @@ export async function vaultsRoutes(fastify: FastifyInstance) {
       throw new ConflictError('Vault already exists for this repository');
     }
 
-    // Create vault
+    // Create vault with visibility info
     const [vault] = await db
       .insert(vaults)
       .values({
         repoFullName: body.repoFullName,
         ownerId: user.id,
+        isPrivate: repoInfo.isPrivate,
       })
       .returning();
 
+    // Recompute usage after creating vault
+    await computeUserUsage(user.id);
+
     trackEvent(user.id, AnalyticsEvents.VAULT_INITIALIZED, {
       repoFullName: body.repoFullName,
+      isPrivate: repoInfo.isPrivate,
     });
 
     await logActivity({
@@ -158,7 +178,7 @@ export async function vaultsRoutes(fastify: FastifyInstance) {
       action: 'vault_created',
       platform: detectPlatform(request),
       vaultId: vault.id,
-      metadata: { repoFullName: body.repoFullName },
+      metadata: { repoFullName: body.repoFullName, isPrivate: repoInfo.isPrivate },
       ...extractRequestInfo(request),
     });
 
@@ -166,6 +186,7 @@ export async function vaultsRoutes(fastify: FastifyInstance) {
       repoFullName: body.repoFullName,
       userId: user.id,
       vaultId: vault.id,
+      isPrivate: repoInfo.isPrivate,
     }, 'Vault initialized');
 
     return sendCreated(reply, {
@@ -247,6 +268,9 @@ export async function vaultsRoutes(fastify: FastifyInstance) {
       repoFullName,
       action: 'deleted',
     });
+
+    // Recompute usage after deleting vault
+    await computeUserUsage(user.id);
 
     fastify.log.info({ repoFullName, userId: user.id }, 'Vault deleted successfully');
 

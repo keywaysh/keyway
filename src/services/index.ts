@@ -29,3 +29,13 @@ export {
   type ActivityLogItem,
   type LogActivityInput,
 } from './activity.service';
+
+// Usage service
+export {
+  computeUserUsage,
+  getUserUsage,
+  getUserUsageResponse,
+  checkVaultCreationAllowed,
+  type UserUsage,
+  type UserUsageResponse,
+} from './usage.service';

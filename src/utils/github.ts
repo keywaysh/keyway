@@ -19,6 +19,7 @@ interface GitHubTokenResponse {
 }
 
 interface GitHubRepo {
+  private?: boolean;
   owner?: {
     login: string;
   };
@@ -311,5 +312,36 @@ export async function getUserFromToken(accessToken: string) {
     };
   } catch (error) {
     throw new UnauthorizedError('Invalid or expired GitHub access token');
+  }
+}
+
+/**
+ * Get repository info including visibility (public/private)
+ * Returns null if repo doesn't exist or user doesn't have access
+ */
+export async function getRepoInfo(
+  accessToken: string,
+  repoFullName: string
+): Promise<{ isPrivate: boolean } | null> {
+  const [owner, repo] = repoFullName.split('/');
+
+  try {
+    const response = await fetch(`${GITHUB_API_BASE}/repos/${owner}/${repo}`, {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        Accept: 'application/vnd.github.v3+json',
+      },
+    });
+
+    if (!response.ok) {
+      return null;
+    }
+
+    const data = (await response.json()) as GitHubRepo;
+    return {
+      isPrivate: data.private === true,
+    };
+  } catch {
+    return null;
   }
 }

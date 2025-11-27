@@ -98,3 +98,21 @@ export class ServiceUnavailableError extends AppError {
     super(503, 'SERVICE_UNAVAILABLE', message);
   }
 }
+
+/**
+ * 403 - Plan Limit Reached
+ * Special error for when a user exceeds their plan limits
+ */
+export class PlanLimitError extends AppError {
+  constructor(message: string, public readonly upgradeUrl = 'https://keyway.sh/upgrade') {
+    super(403, 'PLAN_LIMIT_REACHED', message, { upgrade_url: upgradeUrl });
+  }
+
+  toJSON() {
+    return {
+      error: this.code,
+      message: this.message,
+      upgrade_url: this.upgradeUrl,
+    };
+  }
+}
