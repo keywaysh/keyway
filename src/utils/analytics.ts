@@ -101,6 +101,8 @@ export const AnalyticsEvents = {
   AUTH_FAILURE: 'api_auth_failure',
   USER_CREATED: 'api_user_created',
   API_ERROR: 'api_error',
+  DEVICE_VERIFY_PAGE_VIEW: 'api_device_verify_page_view',
+  DEVICE_VERIFY_SUBMIT: 'api_device_verify_submit',
 } as const;
 
 /**

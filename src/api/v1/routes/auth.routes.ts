@@ -382,6 +382,11 @@ export async function authRoutes(fastify: FastifyInstance) {
     const userCode = query.user_code || '';
     const autoSubmit = userCode.length === 9;
 
+    // Track funnel: page view
+    trackEvent('anonymous', AnalyticsEvents.DEVICE_VERIFY_PAGE_VIEW, {
+      hasCode: autoSubmit,
+    });
+
     reply.type('text/html').send(renderVerifyPage(userCode, autoSubmit));
   });
 
@@ -400,6 +405,11 @@ export async function authRoutes(fastify: FastifyInstance) {
   }, async (request, reply) => {
     const body = request.body as { user_code: string };
     const userCode = body.user_code.trim().toUpperCase();
+
+    // Track funnel: form submitted
+    trackEvent('anonymous', AnalyticsEvents.DEVICE_VERIFY_SUBMIT, {
+      codeLength: userCode.length,
+    });
 
     const deviceCodeRecord = await db.query.deviceCodes.findFirst({
       where: eq(deviceCodes.userCode, userCode),
