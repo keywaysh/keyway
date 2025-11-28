@@ -213,7 +213,12 @@ export async function authRoutes(fastify: FastifyInstance) {
         });
       }
     } catch (error) {
-      fastify.log.error({ err: error }, 'OAuth callback error');
+      fastify.log.error({
+        err: error,
+        errorMessage: error instanceof Error ? error.message : 'Unknown error',
+        errorStack: error instanceof Error ? error.stack : undefined,
+        state: query.state?.substring(0, 50),
+      }, 'OAuth callback error');
       trackEvent('anonymous', AnalyticsEvents.AUTH_FAILURE, {
         error: error instanceof Error ? error.message : 'Unknown error',
       });
@@ -353,7 +358,16 @@ export async function authRoutes(fastify: FastifyInstance) {
       });
     }
 
-    if (deviceCodeRecord.status === 'approved' && deviceCodeRecord.user) {
+    if (deviceCodeRecord.status === 'approved') {
+      if (!deviceCodeRecord.user) {
+        fastify.log.error({
+          deviceCodeId: deviceCodeRecord.id,
+          userId: deviceCodeRecord.userId,
+          status: deviceCodeRecord.status,
+        }, 'Device code approved but user not loaded');
+        throw new Error('User not found for approved device code');
+      }
+
       const keywayToken = generateKeywayToken({
         userId: deviceCodeRecord.user.id,
         githubId: deviceCodeRecord.user.githubId,
