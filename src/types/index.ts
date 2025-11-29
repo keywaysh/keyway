@@ -5,7 +5,8 @@ import { z } from 'zod';
 // ============================================
 
 // Default environments for new vaults
-export const DEFAULT_ENVIRONMENTS = ['local', 'dev', 'staging', 'production'] as const;
+// Maps to common .env file conventions: .env -> development, .env.staging -> staging, etc.
+export const DEFAULT_ENVIRONMENTS = ['local', 'development', 'staging', 'production'] as const;
 
 // ============================================
 // Shared Validation Patterns

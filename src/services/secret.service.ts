@@ -58,7 +58,8 @@ export async function getSecretsForVault(
 export async function upsertSecret(
   input: CreateSecretInput
 ): Promise<{ id: string; status: 'created' | 'updated' }> {
-  const encryptedData = await getEncryptionService().encrypt(input.value);
+  const encryptionService = await getEncryptionService();
+  const encryptedData = await encryptionService.encrypt(input.value);
 
   // Check if secret already exists for this key+environment
   const existingSecret = await db.query.secrets.findFirst({
@@ -131,7 +132,8 @@ export async function updateSecret(
   }
 
   if (input.value) {
-    const encryptedData = await getEncryptionService().encrypt(input.value);
+    const encryptionService = await getEncryptionService();
+    const encryptedData = await encryptionService.encrypt(input.value);
     updateData.encryptedValue = encryptedData.encryptedContent;
     updateData.iv = encryptedData.iv;
     updateData.authTag = encryptedData.authTag;

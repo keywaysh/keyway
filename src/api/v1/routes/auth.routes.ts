@@ -173,7 +173,21 @@ export async function authRoutes(fastify: FastifyInstance) {
           domain,
         });
 
-        const redirectUrl = (stateData.redirectUri as string | null) || (isProduction ? 'https://keyway.sh/dashboard' : 'http://localhost:5173/dashboard');
+        // In development with different ports, pass token via URL for frontend to set cookies
+        // In production, cookies work because same domain
+        let redirectUrl = (stateData.redirectUri as string | null) || (isProduction ? 'https://keyway.sh/dashboard' : 'http://localhost:3100/dashboard');
+
+        // If redirect URL is to a different port (dev mode), pass token via URL param
+        const backendHost = request.headers.host || '';
+        const redirectUrlObj = new URL(redirectUrl);
+        if (!isProduction && backendHost.split(':')[0] === redirectUrlObj.hostname && backendHost !== `${redirectUrlObj.hostname}:${redirectUrlObj.port}`) {
+          // Different ports on localhost - use callback with token
+          const callbackUrl = new URL('/auth/callback', redirectUrl);
+          callbackUrl.searchParams.set('token', keywayToken);
+          callbackUrl.searchParams.set('redirect', redirectUrlObj.pathname);
+          redirectUrl = callbackUrl.toString();
+        }
+
         return reply.redirect(redirectUrl);
       } else if (stateData.deviceCodeId) {
         await db

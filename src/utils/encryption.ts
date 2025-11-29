@@ -62,13 +62,24 @@ class LocalEncryptionService implements IEncryptionService {
   }
 }
 
-// Singleton instance - swap this for RemoteEncryptionService when ready
-const encryptionService: IEncryptionService = new LocalEncryptionService();
+// Singleton instance - lazily initialized
+let encryptionService: IEncryptionService | null = null;
 
 /**
  * Get the encryption service instance
+ * Uses RemoteEncryptionService if CRYPTO_SERVICE_URL is set, otherwise LocalEncryptionService
  */
-export function getEncryptionService(): IEncryptionService {
+export async function getEncryptionService(): Promise<IEncryptionService> {
+  if (!encryptionService) {
+    if (process.env.CRYPTO_SERVICE_URL) {
+      const { RemoteEncryptionService } = await import('./remoteEncryption.js');
+      encryptionService = new RemoteEncryptionService(process.env.CRYPTO_SERVICE_URL);
+      console.log(`Using remote encryption service at ${process.env.CRYPTO_SERVICE_URL}`);
+    } else {
+      encryptionService = new LocalEncryptionService();
+      console.log('Using local encryption service');
+    }
+  }
   return encryptionService;
 }
 

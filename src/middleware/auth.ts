@@ -173,15 +173,16 @@ export function requireEnvironmentAccess(permissionType: PermissionType) {
       throw new UnauthorizedError('Authentication required');
     }
 
-    // Get repo and environment from params or body
+    // Get repo and environment from params, query, or body
     const params = request.params as { repo?: string; env?: string };
+    const query = request.query as { repo?: string; environment?: string };
     const body = request.body as { repoFullName?: string; environment?: string };
 
     const repoFullName = params.repo
       ? decodeURIComponent(params.repo)
-      : body?.repoFullName;
+      : query.repo || body?.repoFullName;
 
-    const environment = params.env || body?.environment;
+    const environment = params.env || query.environment || body?.environment;
 
     if (!repoFullName) {
       throw new ForbiddenError('Repository name required');

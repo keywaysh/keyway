@@ -2,35 +2,43 @@ FROM node:20-alpine AS builder
 
 WORKDIR /app
 
+# Install pnpm
+RUN corepack enable && corepack prepare pnpm@latest --activate
+
 # Copy package files
-COPY package*.json ./
+COPY package.json pnpm-lock.yaml ./
 
 # Install all dependencies
-RUN npm install
+RUN pnpm install --frozen-lockfile
 
-# Copy source code
+# Copy source code and proto
 COPY src ./src
+COPY proto ./proto
 COPY tsconfig.json ./
 
 # Build
-RUN npm run build
+RUN pnpm run build
 
 # Production image
 FROM node:20-alpine
 
 WORKDIR /app
 
+# Install pnpm
+RUN corepack enable && corepack prepare pnpm@latest --activate
+
 # Copy package files
-COPY package*.json ./
+COPY package.json pnpm-lock.yaml ./
 
 # Install only production dependencies
 ENV NODE_ENV=production
-RUN npm install --omit=dev
+RUN pnpm install --frozen-lockfile --prod
 
-# Copy built files
+# Copy built files and proto
 COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/proto ./proto
 
-# Expose port (Railway/Fly.io will override with PORT env var)
+# Expose port
 EXPOSE 8080
 
 # Health check

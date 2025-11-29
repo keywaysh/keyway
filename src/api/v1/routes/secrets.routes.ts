@@ -141,8 +141,9 @@ export async function secretsRoutes(fastify: FastifyInstance) {
     let created = 0;
     let updated = 0;
 
+    const encryptionService = await getEncryptionService();
     for (const [key, value] of secretEntries) {
-      const encryptedData = await getEncryptionService().encrypt(value);
+      const encryptedData = await encryptionService.encrypt(value);
       const existing = existingByKey.get(key);
 
       if (existing) {
@@ -271,9 +272,10 @@ export async function secretsRoutes(fastify: FastifyInstance) {
     }
 
     // Decrypt and build content
+    const encryptionService = await getEncryptionService();
     const secretsMap: Record<string, string> = {};
     for (const secret of envSecrets) {
-      secretsMap[secret.key] = await getEncryptionService().decrypt({
+      secretsMap[secret.key] = await encryptionService.decrypt({
         encryptedContent: secret.encryptedValue,
         iv: secret.iv,
         authTag: secret.authTag,

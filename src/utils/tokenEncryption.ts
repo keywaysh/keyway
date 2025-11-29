@@ -15,7 +15,8 @@ export interface EncryptedToken {
  * @returns Encrypted token data ready for database storage
  */
 export async function encryptAccessToken(accessToken: string): Promise<EncryptedToken> {
-  const encrypted = await getEncryptionService().encrypt(accessToken);
+  const encryptionService = await getEncryptionService();
+  const encrypted = await encryptionService.encrypt(accessToken);
   return {
     encryptedAccessToken: encrypted.encryptedContent,
     accessTokenIv: encrypted.iv,
@@ -29,7 +30,8 @@ export async function encryptAccessToken(accessToken: string): Promise<Encrypted
  * @returns Decrypted plaintext GitHub access token
  */
 export async function decryptAccessToken(encryptedToken: EncryptedToken): Promise<string> {
-  return getEncryptionService().decrypt({
+  const encryptionService = await getEncryptionService();
+  return encryptionService.decrypt({
     encryptedContent: encryptedToken.encryptedAccessToken,
     iv: encryptedToken.accessTokenIv,
     authTag: encryptedToken.accessTokenAuthTag,
