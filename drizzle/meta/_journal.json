@@ -106,6 +106,13 @@
       "when": 1764383800000,
       "tag": "0014_add_environment_actions",
       "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "5",
+      "when": 1764470400000,
+      "tag": "0015_add_encryption_version",
+      "breakpoints": true
     }
   ]
 }

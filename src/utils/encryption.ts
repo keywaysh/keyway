@@ -3,6 +3,12 @@ import { config } from '../config';
 
 const { algorithm, key: ENCRYPTION_KEY, ivLength: IV_LENGTH, authTagLength: AUTH_TAG_LENGTH } = config.encryption;
 
+/**
+ * Current encryption version - increment when changing algorithms
+ * Version 1: AES-256-GCM
+ */
+export const CURRENT_ENCRYPTION_VERSION = 1;
+
 export interface EncryptedData {
   encryptedContent: string;
   iv: string;

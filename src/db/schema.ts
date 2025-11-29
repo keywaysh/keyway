@@ -82,6 +82,7 @@ export const users = pgTable('users', {
   encryptedAccessToken: text('encrypted_access_token').notNull(),
   accessTokenIv: text('access_token_iv').notNull(),
   accessTokenAuthTag: text('access_token_auth_tag').notNull(),
+  tokenEncryptionVersion: integer('token_encryption_version').notNull().default(1),
   // Plan and billing fields
   plan: userPlanEnum('plan').notNull().default('free'),
   billingStatus: billingStatusEnum('billing_status').default('active'),
@@ -111,6 +112,7 @@ export const secrets = pgTable('secrets', {
   encryptedValue: text('encrypted_value').notNull(),
   iv: text('iv').notNull(),
   authTag: text('auth_tag').notNull(),
+  encryptionVersion: integer('encryption_version').notNull().default(1),
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
 });
