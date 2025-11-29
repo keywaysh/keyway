@@ -34,7 +34,7 @@ async function upsertUser(githubUser: { githubId: number; username: string; emai
     where: eq(users.githubId, githubUser.githubId),
   });
 
-  const encryptedToken = encryptAccessToken(accessToken);
+  const encryptedToken = await encryptAccessToken(accessToken);
 
   if (existingUser) {
     const [updatedUser] = await db

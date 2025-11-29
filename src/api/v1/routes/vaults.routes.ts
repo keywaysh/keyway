@@ -154,7 +154,7 @@ export async function vaultsRoutes(fastify: FastifyInstance) {
     });
 
     if (!user) {
-      const encryptedToken = encryptAccessToken(accessToken);
+      const encryptedToken = await encryptAccessToken(accessToken);
       const [newUser] = await db
         .insert(users)
         .values({

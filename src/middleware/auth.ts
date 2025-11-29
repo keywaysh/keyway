@@ -68,7 +68,7 @@ export async function authenticateGitHub(
 
     // Attach to request for use in route handlers
     // Decrypt the GitHub access token stored in DB for API calls
-    request.accessToken = decryptAccessToken({
+    request.accessToken = await decryptAccessToken({
       encryptedAccessToken: user.encryptedAccessToken,
       accessTokenIv: user.accessTokenIv,
       accessTokenAuthTag: user.accessTokenAuthTag,

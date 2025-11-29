@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { authenticateGitHub, requireEnvironmentAccess } from '../../../middleware/auth';
 import { db, users, vaults, secrets } from '../../../db';
 import { eq, and, inArray } from 'drizzle-orm';
-import { encrypt, decrypt, sanitizeForLogging } from '../../../utils/encryption';
+import { getEncryptionService, sanitizeForLogging } from '../../../utils/encryption';
 import { sendData, NotFoundError, BadRequestError } from '../../../lib';
 import { trackEvent, AnalyticsEvents } from '../../../utils/analytics';
 import { logActivity, extractRequestInfo, detectPlatform } from '../../../services';
@@ -142,7 +142,7 @@ export async function secretsRoutes(fastify: FastifyInstance) {
     let updated = 0;
 
     for (const [key, value] of secretEntries) {
-      const encryptedData = encrypt(value);
+      const encryptedData = await getEncryptionService().encrypt(value);
       const existing = existingByKey.get(key);
 
       if (existing) {
@@ -273,7 +273,7 @@ export async function secretsRoutes(fastify: FastifyInstance) {
     // Decrypt and build content
     const secretsMap: Record<string, string> = {};
     for (const secret of envSecrets) {
-      secretsMap[secret.key] = decrypt({
+      secretsMap[secret.key] = await getEncryptionService().decrypt({
         encryptedContent: secret.encryptedValue,
         iv: secret.iv,
         authTag: secret.authTag,
