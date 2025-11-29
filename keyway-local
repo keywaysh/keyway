@@ -1,0 +1,9 @@
+#!/bin/bash
+# Run keyway CLI against local docker-compose stack
+# Usage: ./keyway-local <command> [args...]
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+
+NODE_TLS_REJECT_UNAUTHORIZED=0 \
+KEYWAY_API_URL=https://localhost/api \
+node "$SCRIPT_DIR/keyway-cli/dist/cli.js" "$@"
