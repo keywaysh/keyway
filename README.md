@@ -1,41 +1,83 @@
-# Website
+# Keyway Documentation
 
-This website is built using [Docusaurus](https://docusaurus.io/), a modern static website generator.
+Official documentation for [Keyway](https://keyway.sh) - GitHub-native secrets management for dev teams.
 
-## Installation
+**Live docs**: [docs.keyway.sh](https://docs.keyway.sh)
+
+## What is Keyway?
+
+Keyway is a secrets manager that uses GitHub as the source of truth for access control. If you have access to a repo, you get access to its secrets.
 
 ```bash
-yarn
+# Install
+npm install -g @keywaysh/cli
+
+# Login with GitHub
+keyway login
+
+# Push your .env to Keyway
+keyway push
+
+# Pull secrets on another machine
+keyway pull
+```
+
+## Documentation Structure
+
+```
+docs/
+├── intro.md              # What is Keyway?
+├── quickstart/           # Getting started guides
+│   ├── install.md
+│   ├── first-vault.md
+│   └── team-sharing.md
+├── guides/               # How-to guides
+│   ├── environments.md
+│   ├── ci-cd.md
+│   └── security.md
+├── api/                  # API reference
+│   └── endpoints.md
+└── reference/            # CLI & config reference
+    ├── cli.md
+    └── env-files.md
 ```
 
 ## Local Development
 
 ```bash
-yarn start
+# Install dependencies
+pnpm install
+
+# Start dev server (http://localhost:3000)
+pnpm start
+
+# Build for production
+pnpm build
+
+# Serve production build locally
+pnpm serve
 ```
 
-This command starts a local development server and opens up a browser window. Most changes are reflected live without having to restart the server.
+## Tech Stack
 
-## Build
+- [Docusaurus 3](https://docusaurus.io/) - Documentation framework
+- Deployed on Cloudflare Pages
 
-```bash
-yarn build
-```
+## Contributing
 
-This command generates static content into the `build` directory and can be served using any static contents hosting service.
+1. Edit markdown files in `docs/`
+2. Preview locally with `pnpm start`
+3. Submit a PR
 
-## Deployment
+## Related Repositories
 
-Using SSH:
+| Repo | Description |
+|------|-------------|
+| [keyway-backend](https://github.com/keywaysh/keyway-backend) | Fastify API server |
+| [keyway-cli](https://github.com/keywaysh/keyway-cli) | CLI tool (`@keywaysh/cli`) |
+| [keyway-site](https://github.com/keywaysh/keyway-site) | Marketing site & dashboard |
+| [keyway-crypto](https://github.com/NicolasRitouet/keyway-crypto) | Go encryption microservice |
 
-```bash
-USE_SSH=true yarn deploy
-```
+## License
 
-Not using SSH:
-
-```bash
-GIT_USER=<Your GitHub username> yarn deploy
-```
-
-If you are using GitHub pages for hosting, this command is a convenient way to build the website and push to the `gh-pages` branch.
+MIT
