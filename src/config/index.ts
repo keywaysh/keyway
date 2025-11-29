@@ -24,7 +24,6 @@ const envSchema = z.object({
   // GitHub OAuth
   GITHUB_CLIENT_ID: z.string().min(1, 'GITHUB_CLIENT_ID is required'),
   GITHUB_CLIENT_SECRET: z.string().min(1, 'GITHUB_CLIENT_SECRET is required'),
-  GITHUB_REDIRECT_URI: z.string().url().optional(),
 
   // Analytics
   POSTHOG_API_KEY: z.string().optional(),
@@ -83,7 +82,6 @@ export const config = {
   github: {
     clientId: env.GITHUB_CLIENT_ID,
     clientSecret: env.GITHUB_CLIENT_SECRET,
-    redirectUri: env.GITHUB_REDIRECT_URI,
     apiBaseUrl: 'https://api.github.com',
   },
 
