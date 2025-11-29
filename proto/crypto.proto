@@ -1,0 +1,39 @@
+syntax = "proto3";
+package keyway.crypto;
+option go_package = "./pb";
+
+service CryptoService {
+  rpc Encrypt(EncryptRequest) returns (EncryptResponse);
+  rpc Decrypt(DecryptRequest) returns (DecryptResponse);
+  rpc HealthCheck(Empty) returns (HealthResponse);
+}
+
+message EncryptRequest {
+  bytes plaintext = 1;
+  uint32 version = 2;
+}
+
+message EncryptResponse {
+  bytes ciphertext = 1;
+  bytes iv = 2;
+  bytes auth_tag = 3;
+  uint32 version = 4;
+}
+
+message DecryptRequest {
+  bytes ciphertext = 1;
+  bytes iv = 2;
+  bytes auth_tag = 3;
+  uint32 version = 4;
+}
+
+message DecryptResponse {
+  bytes plaintext = 1;
+}
+
+message Empty {}
+
+message HealthResponse {
+  bool healthy = 1;
+  string version = 2;
+}
