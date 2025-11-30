@@ -2,6 +2,7 @@ import * as grpc from '@grpc/grpc-js';
 import * as protoLoader from '@grpc/proto-loader';
 import path from 'path';
 import type { IEncryptionService, EncryptedData } from './encryption';
+import { DEFAULT_ENCRYPTION_VERSION } from './encryption';
 
 interface CryptoClient {
   Encrypt: (
@@ -156,7 +157,7 @@ export class RemoteEncryptionService implements IEncryptionService {
   private async encryptOnce(content: string): Promise<EncryptedData> {
     return new Promise((resolve, reject) => {
       this.client.Encrypt(
-        { plaintext: Buffer.from(content, 'utf-8'), version: 1 },
+        { plaintext: Buffer.from(content, 'utf-8'), version: 0 }, // 0 = use current version
         (err, response) => {
           if (err) {
             return reject(formatGrpcError(err as Error & { code?: number; details?: string }, this.serviceUrl, 'encrypt'));
@@ -165,6 +166,7 @@ export class RemoteEncryptionService implements IEncryptionService {
             encryptedContent: Buffer.from(response.ciphertext).toString('hex'),
             iv: Buffer.from(response.iv).toString('hex'),
             authTag: Buffer.from(response.authTag).toString('hex'),
+            version: response.version,
           });
         }
       );
@@ -182,7 +184,7 @@ export class RemoteEncryptionService implements IEncryptionService {
           ciphertext: Buffer.from(data.encryptedContent, 'hex'),
           iv: Buffer.from(data.iv, 'hex'),
           authTag: Buffer.from(data.authTag, 'hex'),
-          version: 1,
+          version: data.version ?? DEFAULT_ENCRYPTION_VERSION,
         },
         (err, response) => {
           if (err) {

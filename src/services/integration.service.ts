@@ -50,6 +50,7 @@ async function encryptProviderToken(token: string) {
     encryptedAccessToken: encrypted.encryptedContent,
     accessTokenIv: encrypted.iv,
     accessTokenAuthTag: encrypted.authTag,
+    accessTokenVersion: encrypted.version ?? 1,
   };
 }
 
@@ -58,12 +59,14 @@ async function decryptProviderToken(connection: {
   encryptedAccessToken: string;
   accessTokenIv: string;
   accessTokenAuthTag: string;
+  accessTokenVersion?: number | null;
 }): Promise<string> {
   const encryptionService = await getEncryptionService();
   return encryptionService.decrypt({
     encryptedContent: connection.encryptedAccessToken,
     iv: connection.accessTokenIv,
     authTag: connection.accessTokenAuthTag,
+    version: connection.accessTokenVersion ?? 1,
   });
 }
 
@@ -72,6 +75,7 @@ async function decryptProviderRefreshToken(connection: {
   encryptedRefreshToken: string | null;
   refreshTokenIv: string | null;
   refreshTokenAuthTag: string | null;
+  refreshTokenVersion?: number | null;
 }): Promise<string | null> {
   if (!connection.encryptedRefreshToken || !connection.refreshTokenIv || !connection.refreshTokenAuthTag) {
     return null;
@@ -81,6 +85,7 @@ async function decryptProviderRefreshToken(connection: {
     encryptedContent: connection.encryptedRefreshToken,
     iv: connection.refreshTokenIv,
     authTag: connection.refreshTokenAuthTag,
+    version: connection.refreshTokenVersion ?? 1,
   });
 }
 
@@ -92,6 +97,7 @@ async function safeDecryptSecret(secret: {
   encryptedValue: string;
   iv: string;
   authTag: string;
+  encryptionVersion?: number | null;
   key: string;
 }): Promise<{ key: string; value: string } | null> {
   try {
@@ -100,6 +106,7 @@ async function safeDecryptSecret(secret: {
       encryptedContent: secret.encryptedValue,
       iv: secret.iv,
       authTag: secret.authTag,
+      version: secret.encryptionVersion ?? 1,
     });
     return { key: secret.key, value };
   } catch (error) {
@@ -116,9 +123,11 @@ type ConnectionWithTokens = {
   encryptedAccessToken: string;
   accessTokenIv: string;
   accessTokenAuthTag: string;
+  accessTokenVersion?: number | null;
   encryptedRefreshToken: string | null;
   refreshTokenIv: string | null;
   refreshTokenAuthTag: string | null;
+  refreshTokenVersion?: number | null;
   tokenExpiresAt: Date | null;
 };
 
@@ -233,6 +242,7 @@ export async function createConnection(
       encryptedRefreshToken: encryptedRefresh.encryptedContent,
       refreshTokenIv: encryptedRefresh.iv,
       refreshTokenAuthTag: encryptedRefresh.authTag,
+      refreshTokenVersion: encryptedRefresh.version ?? 1,
     };
   }
 
@@ -777,6 +787,7 @@ async function executePull(
       encryptedValue: encrypted.encryptedContent,
       iv: encrypted.iv,
       authTag: encrypted.authTag,
+      encryptionVersion: encrypted.version ?? 1,
     });
     created++;
   }

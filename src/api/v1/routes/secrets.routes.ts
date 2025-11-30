@@ -153,6 +153,7 @@ export async function secretsRoutes(fastify: FastifyInstance) {
             encryptedValue: encryptedData.encryptedContent,
             iv: encryptedData.iv,
             authTag: encryptedData.authTag,
+            encryptionVersion: encryptedData.version ?? 1,
             updatedAt: new Date(),
           })
           .where(eq(secrets.id, existing.id));
@@ -165,6 +166,7 @@ export async function secretsRoutes(fastify: FastifyInstance) {
           encryptedValue: encryptedData.encryptedContent,
           iv: encryptedData.iv,
           authTag: encryptedData.authTag,
+          encryptionVersion: encryptedData.version ?? 1,
         });
         created++;
       }
@@ -279,6 +281,7 @@ export async function secretsRoutes(fastify: FastifyInstance) {
         encryptedContent: secret.encryptedValue,
         iv: secret.iv,
         authTag: secret.authTag,
+        version: secret.encryptionVersion ?? 1,
       });
     }
 

@@ -7,6 +7,7 @@ export interface EncryptedToken {
   encryptedAccessToken: string;
   accessTokenIv: string;
   accessTokenAuthTag: string;
+  tokenEncryptionVersion?: number;
 }
 
 /**
@@ -21,6 +22,7 @@ export async function encryptAccessToken(accessToken: string): Promise<Encrypted
     encryptedAccessToken: encrypted.encryptedContent,
     accessTokenIv: encrypted.iv,
     accessTokenAuthTag: encrypted.authTag,
+    tokenEncryptionVersion: encrypted.version ?? 1,
   };
 }
 
@@ -35,5 +37,6 @@ export async function decryptAccessToken(encryptedToken: EncryptedToken): Promis
     encryptedContent: encryptedToken.encryptedAccessToken,
     iv: encryptedToken.accessTokenIv,
     authTag: encryptedToken.accessTokenAuthTag,
+    version: encryptedToken.tokenEncryptionVersion ?? 1,
   });
 }

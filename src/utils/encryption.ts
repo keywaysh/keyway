@@ -1,15 +1,17 @@
 import { config } from '../config';
 
 /**
- * Current encryption version - increment when changing algorithms
- * Version 1: AES-256-GCM
+ * Default encryption version for backward compatibility
+ * Used when decrypting data that doesn't have a version stored
  */
-export const CURRENT_ENCRYPTION_VERSION = 1;
+export const DEFAULT_ENCRYPTION_VERSION = 1;
 
 export interface EncryptedData {
   encryptedContent: string;
   iv: string;
   authTag: string;
+  /** Key version used for encryption. Defaults to 1 for backward compatibility. */
+  version?: number;
 }
 
 /**

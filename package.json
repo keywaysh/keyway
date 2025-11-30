@@ -14,6 +14,7 @@
     "test:coverage": "vitest run --coverage",
     "db:generate": "drizzle-kit generate:pg",
     "db:migrate": "tsx src/db/migrate.ts",
+    "rotate-key": "tsx scripts/rotate-key.ts",
     "validate": "bash scripts/pre-push.sh",
     "deploy:check": "pnpm run type-check && pnpm run build"
   },

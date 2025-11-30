@@ -77,6 +77,7 @@ export async function upsertSecret(
         encryptedValue: encryptedData.encryptedContent,
         iv: encryptedData.iv,
         authTag: encryptedData.authTag,
+        encryptionVersion: encryptedData.version ?? 1,
         updatedAt: new Date(),
       })
       .where(eq(secrets.id, existingSecret.id));
@@ -93,6 +94,7 @@ export async function upsertSecret(
       encryptedValue: encryptedData.encryptedContent,
       iv: encryptedData.iv,
       authTag: encryptedData.authTag,
+      encryptionVersion: encryptedData.version ?? 1,
     })
     .returning();
 
@@ -122,6 +124,7 @@ export async function updateSecret(
     encryptedValue?: string;
     iv?: string;
     authTag?: string;
+    encryptionVersion?: number;
     updatedAt: Date;
   } = {
     updatedAt: new Date(),
@@ -137,6 +140,7 @@ export async function updateSecret(
     updateData.encryptedValue = encryptedData.encryptedContent;
     updateData.iv = encryptedData.iv;
     updateData.authTag = encryptedData.authTag;
+    updateData.encryptionVersion = encryptedData.version ?? 1;
   }
 
   await db.update(secrets).set(updateData).where(eq(secrets.id, secretId));
