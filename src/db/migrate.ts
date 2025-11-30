@@ -31,11 +31,28 @@ const runMigrations = async () => {
   const connection = postgres(process.env.DATABASE_URL, { max: 1 });
   const db = drizzle(connection);
 
-  console.log('Running migrations...');
+  // Count before
+  const before = await connection`
+    SELECT COUNT(*)::int as count FROM drizzle.__drizzle_migrations
+  `.catch(() => [{ count: 0 }]) as { count: number }[];
+  const countBefore = before[0]?.count || 0;
+
+  console.log(`Running migrations... (${countBefore} already applied)`);
 
   await migrate(db, { migrationsFolder: './drizzle' });
 
-  console.log('✅ Migrations completed!');
+  // Count after
+  const after = await connection`
+    SELECT COUNT(*)::int as count FROM drizzle.__drizzle_migrations
+  ` as { count: number }[];
+  const countAfter = after[0]?.count || 0;
+  const applied = countAfter - countBefore;
+
+  if (applied > 0) {
+    console.log(`✅ Applied ${applied} new migration(s) (total: ${countAfter})`);
+  } else {
+    console.log(`✅ Database is up to date (${countAfter} migrations)`);
+  }
 
   await connection.end();
   process.exit(0);
