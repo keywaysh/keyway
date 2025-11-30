@@ -115,19 +115,29 @@ Check the response for `"success": true` and `"failed": 0` for all categories.
 
 ### 6. Remove the Old Key
 
-> ⚠️ **CRITICAL**: Only remove the old key after ALL data has been successfully migrated with **0 failures**. If any secrets, provider tokens, or user tokens remain encrypted with the old key, they will become **permanently unrecoverable** once the key is removed. Always verify the rotation summary shows `Failed: 0` for all categories before proceeding.
+> ⚠️ **CRITICAL**: Only remove the old key after ALL data has been successfully migrated with **0 failures**. If any secrets, provider tokens, or user tokens remain encrypted with the old key, they will become **permanently unrecoverable** once the key is removed.
 
-Once all data is migrated, update the configuration to remove the old key:
+**First, verify ALL data is migrated:**
+
+```sql
+-- All should show version 2 only
+SELECT encryption_version, COUNT(*) FROM secrets GROUP BY encryption_version;
+SELECT token_encryption_version, COUNT(*) FROM users WHERE encrypted_access_token IS NOT NULL GROUP BY token_encryption_version;
+SELECT access_token_version, COUNT(*) FROM provider_connections GROUP BY access_token_version;
+```
+
+**Then update the configuration:**
 
 ```bash
+# ✅ Correct - keep the version number
 ENCRYPTION_KEYS="2:<new_key>"
+
+# ❌ WRONG - do NOT change the version number!
+ENCRYPTION_KEYS="1:<new_key>"   # Data expects version 2!
+ENCRYPTION_KEY=<new_key>         # Defaults to version 1!
 ```
 
-Or use single-key format with version 2:
-```bash
-ENCRYPTION_KEY=<new_key>
-# Note: This will use version 1, so keep using ENCRYPTION_KEYS format
-```
+> 💡 **Important**: Keep the old key backed up somewhere safe for a few days, just in case.
 
 Redeploy `keyway-crypto`.
 
