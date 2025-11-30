@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { config } from '../config';
-import { UnauthorizedError, ForbiddenError } from '../errors';
+import { UnauthorizedError } from '../lib';
 import type { CollaboratorRole } from '../db/schema';
 
 const GITHUB_API_BASE = config.github.apiBaseUrl;

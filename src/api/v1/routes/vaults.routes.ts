@@ -6,8 +6,7 @@ import { eq, and } from 'drizzle-orm';
 import { getVaultPermissions, getDefaultPermission } from '../../../utils/permissions';
 import { encryptAccessToken } from '../../../utils/tokenEncryption';
 import type { CollaboratorRole } from '../../../db/schema';
-import { sendData, sendPaginatedData, sendCreated, sendNoContent, NotFoundError, ForbiddenError, ConflictError, buildPaginationMeta, parsePagination } from '../../../lib';
-import { PlanLimitError } from '../../../errors';
+import { sendData, sendPaginatedData, sendCreated, sendNoContent, NotFoundError, ForbiddenError, ConflictError, PlanLimitError, buildPaginationMeta, parsePagination } from '../../../lib';
 import {
   getVaultsForUser,
   getVaultByRepo,

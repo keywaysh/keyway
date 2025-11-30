@@ -215,3 +215,29 @@ export class ServiceUnavailableError extends ApiError {
     this.name = 'ServiceUnavailableError';
   }
 }
+
+/**
+ * 403 - Plan Limit Reached
+ * Special error for when a user exceeds their plan limits
+ */
+export class PlanLimitError extends ApiError {
+  public readonly upgradeUrl: string;
+
+  constructor(detail: string, upgradeUrl = 'https://keyway.sh/upgrade') {
+    super({
+      type: 'plan-limit-reached',
+      title: 'Plan Limit Reached',
+      status: 403,
+      detail,
+    });
+    this.name = 'PlanLimitError';
+    this.upgradeUrl = upgradeUrl;
+  }
+
+  toProblemDetails(traceId?: string): ProblemDetails & { upgradeUrl: string } {
+    return {
+      ...super.toProblemDetails(traceId),
+      upgradeUrl: this.upgradeUrl,
+    };
+  }
+}

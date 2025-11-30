@@ -10,6 +10,7 @@ export {
   RateLimitError,
   InternalError,
   ServiceUnavailableError,
+  PlanLimitError,
   type ProblemDetails,
   type FieldError,
 } from './errors';

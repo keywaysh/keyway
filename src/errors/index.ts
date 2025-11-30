@@ -1,4 +1,16 @@
 /**
+ * @deprecated This error system is deprecated. Use RFC 7807 errors from `src/lib/errors.ts` instead.
+ *
+ * Migration guide:
+ * - Import from '../lib' instead of '../errors'
+ * - Use ApiError subclasses (BadRequestError, NotFoundError, etc.)
+ * - Error responses will use RFC 7807 Problem Details format
+ *
+ * This file will be removed in a future version.
+ */
+
+/**
+ * @deprecated Use ApiError from '../lib' instead
  * Base error class for all application errors
  */
 export class AppError extends Error {

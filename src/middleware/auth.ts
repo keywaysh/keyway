@@ -1,5 +1,5 @@
 import { FastifyRequest, FastifyReply } from 'fastify';
-import { UnauthorizedError, ForbiddenError } from '../errors';
+import { UnauthorizedError, ForbiddenError } from '../lib';
 import { getUserFromToken, hasRepoAccess, hasAdminAccess, getUserRole } from '../utils/github';
 import { verifyKeywayToken } from '../utils/jwt';
 import { decryptAccessToken } from '../utils/tokenEncryption';

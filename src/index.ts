@@ -7,7 +7,7 @@ import cookie from '@fastify/cookie';
 import { ZodError } from 'zod';
 import { config } from './config';
 import { AppError } from './errors';
-import { ApiError } from './lib';
+import { ApiError, ValidationError } from './lib';
 import { apiV1Routes } from './api/v1';
 import { initAnalytics, shutdownAnalytics, trackEvent, AnalyticsEvents } from './utils/analytics';
 import { sql as dbConnection } from './db';
@@ -141,24 +141,51 @@ fastify.setErrorHandler((error: Error & { statusCode?: number; validation?: unkn
     headers: sanitizeHeaders(request.headers),
   }, 'Request error');
 
-  // Track error in analytics
+  // Track error in analytics (supports both ApiError and AppError)
+  const errorCode = error instanceof ApiError
+    ? error.type.split('/').pop() || error.name
+    : error instanceof AppError
+      ? error.code
+      : error.name;
+
   trackEvent(
     (request as any).user?.id || 'anonymous',
     AnalyticsEvents.API_ERROR,
     {
       endpoint: request.url,
       method: request.method,
-      errorCode: error instanceof AppError ? error.code : error.name,
+      errorCode,
       errorType: error.constructor.name,
     }
   );
 
-  // Handle RFC 7807 API errors (new)
+  // Handle RFC 7807 API errors (primary system)
   if (error instanceof ApiError) {
     return reply.status(error.status).send(error.toProblemDetails(request.id));
   }
 
-  // Handle custom application errors (legacy)
+  // Handle Zod validation errors - convert to RFC 7807
+  if (error instanceof ZodError) {
+    const validationError = ValidationError.fromZodError(error);
+    return reply.status(400).send(validationError.toProblemDetails(request.id));
+  }
+
+  // Handle Fastify validation errors - convert to RFC 7807
+  if (error.validation) {
+    const validationError = new ValidationError(
+      error.message || 'Invalid request data',
+      Array.isArray(error.validation)
+        ? error.validation.map((v: { instancePath?: string; params?: { missingProperty?: string }; message?: string }) => ({
+            field: v.instancePath?.replace(/^\//, '') || v.params?.missingProperty || 'unknown',
+            code: 'invalid',
+            message: v.message || 'Invalid value',
+          }))
+        : []
+    );
+    return reply.status(400).send(validationError.toProblemDetails(request.id));
+  }
+
+  // Handle custom application errors (legacy - to be deprecated)
   if (error instanceof AppError) {
     return reply.status(error.statusCode).send({
       ...error.toJSON(),
@@ -166,43 +193,27 @@ fastify.setErrorHandler((error: Error & { statusCode?: number; validation?: unkn
     });
   }
 
-  // Handle Zod validation errors
-  if (error instanceof ZodError) {
-    return reply.status(400).send({
-      error: 'VALIDATION_ERROR',
-      message: 'Invalid request data',
-      details: error.errors,
-      requestId: request.id,
-    });
-  }
-
-  // Handle Fastify validation errors
-  if (error.validation) {
-    return reply.status(400).send({
-      error: 'VALIDATION_ERROR',
-      message: error.message,
-      details: error.validation,
-      requestId: request.id,
-    });
-  }
-
-  // Handle rate limit errors
+  // Handle rate limit errors (from @fastify/rate-limit plugin)
   if (error.statusCode === 429) {
     return reply.status(429).send({
-      error: 'RATE_LIMIT_EXCEEDED',
-      message: 'Too many requests, please try again later',
-      requestId: request.id,
+      type: 'https://api.keyway.sh/errors/rate-limited',
+      title: 'Too Many Requests',
+      status: 429,
+      detail: 'Too many requests, please try again later',
+      traceId: request.id,
     });
   }
 
-  // Default to 500 Internal Server Error
+  // Default to 500 Internal Server Error (RFC 7807 format)
   const statusCode = error.statusCode || 500;
   return reply.status(statusCode).send({
-    error: 'INTERNAL_SERVER_ERROR',
-    message: config.server.isProduction
+    type: 'https://api.keyway.sh/errors/internal-error',
+    title: 'Internal Server Error',
+    status: statusCode,
+    detail: config.server.isProduction
       ? 'An unexpected error occurred'
       : error.message,
-    requestId: request.id,
+    traceId: request.id,
   });
 });
 

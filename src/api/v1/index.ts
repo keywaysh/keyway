@@ -5,6 +5,7 @@ import { vaultsRoutes } from './routes/vaults.routes';
 import { secretsRoutes } from './routes/secrets.routes';
 import { activityRoutes } from './routes/activity.routes';
 import { billingRoutes } from './routes/billing.routes';
+import { integrationsRoutes } from './routes/integrations.routes';
 
 /**
  * API v1 Router
@@ -18,4 +19,12 @@ export async function apiV1Routes(fastify: FastifyInstance) {
   fastify.register(secretsRoutes, { prefix: '/secrets' });
   fastify.register(activityRoutes, { prefix: '/activity' });
   fastify.register(billingRoutes, { prefix: '/billing' });
+  fastify.register(integrationsRoutes, { prefix: '/integrations' });
+
+  // Health check for v1
+  fastify.get('/health', async () => ({
+    version: 'v1',
+    status: 'ok',
+    timestamp: new Date().toISOString(),
+  }));
 }

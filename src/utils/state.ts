@@ -4,9 +4,13 @@ import { config } from '../config';
 /**
  * Sign a state object using HMAC-SHA256
  * Returns format: base64url(payload).base64url(signature)
+ * State expires after 10 minutes by default
  */
-export function signState(data: Record<string, unknown>): string {
-  const payload = Buffer.from(JSON.stringify(data)).toString('base64url');
+export function signState(data: Record<string, unknown>, expiresInMs = 10 * 60 * 1000): string {
+  const payload = Buffer.from(JSON.stringify({
+    ...data,
+    exp: Date.now() + expiresInMs,
+  })).toString('base64url');
   const signature = crypto
     .createHmac('sha256', config.jwt.secret)
     .update(payload)
@@ -16,7 +20,7 @@ export function signState(data: Record<string, unknown>): string {
 
 /**
  * Verify and decode a signed state
- * Returns null if signature is invalid
+ * Returns null if signature is invalid or state has expired
  */
 export function verifyState(signed: string): Record<string, unknown> | null {
   try {
@@ -39,7 +43,14 @@ export function verifyState(signed: string): Record<string, unknown> | null {
       return null;
     }
 
-    return JSON.parse(Buffer.from(payload, 'base64url').toString());
+    const data = JSON.parse(Buffer.from(payload, 'base64url').toString());
+
+    // Check expiration
+    if (data.exp && typeof data.exp === 'number' && data.exp < Date.now()) {
+      return null;
+    }
+
+    return data;
   } catch {
     return null;
   }

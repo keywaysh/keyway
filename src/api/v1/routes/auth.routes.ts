@@ -7,7 +7,7 @@ import { trackEvent, identifyUser, AnalyticsEvents, getSignupSource } from '../.
 import { generateDeviceCode, generateUserCode, DEVICE_FLOW_CONFIG } from '../../../utils/deviceCodes';
 import { generateKeywayToken, getTokenExpiresAt } from '../../../utils/jwt';
 import { config } from '../../../config';
-import { NotFoundError } from '../../../lib';
+import { NotFoundError, BadRequestError, ForbiddenError } from '../../../lib';
 import { authenticateGitHub } from '../../../middleware/auth';
 import { encryptAccessToken } from '../../../utils/tokenEncryption';
 import { signState, verifyState } from '../../../utils/state';
@@ -89,20 +89,14 @@ export async function authRoutes(fastify: FastifyInstance) {
     }
 
     if (!query.code || !query.state) {
-      return reply.status(400).send({
-        error: 'MissingParams',
-        message: 'Missing code or state parameter',
-      });
+      throw new BadRequestError('Missing code or state parameter');
     }
 
     try {
       // Verify signed state to prevent CSRF attacks (CRIT-2 fix)
       const stateData = verifyState(query.state);
       if (!stateData) {
-        return reply.status(400).send({
-          error: 'InvalidState',
-          message: 'Invalid or tampered state parameter',
-        });
+        throw new BadRequestError('Invalid or tampered state parameter');
       }
       const accessToken = await exchangeCodeForToken(query.code);
       const githubUser = await getUserFromToken(accessToken);
@@ -232,10 +226,7 @@ export async function authRoutes(fastify: FastifyInstance) {
 
         return reply.type('text/html').send(renderSuccessPage(user.username));
       } else {
-        return reply.status(400).send({
-          error: 'InvalidState',
-          message: 'Invalid state parameter',
-        });
+        throw new BadRequestError('Invalid state parameter');
       }
     } catch (error) {
       fastify.log.error({
@@ -280,10 +271,7 @@ export async function authRoutes(fastify: FastifyInstance) {
 
       if (!isAllowed) {
         fastify.log.warn({ redirectUri }, 'Blocked redirect to non-allowed origin');
-        return reply.status(400).send({
-          error: 'InvalidRedirectUri',
-          message: 'The redirect_uri is not in the allowed origins list',
-        });
+        throw new BadRequestError('The redirect_uri is not in the allowed origins list');
       }
     }
 
@@ -359,8 +347,10 @@ export async function authRoutes(fastify: FastifyInstance) {
         .set({ status: 'expired' })
         .where(eq(deviceCodes.deviceCode, body.deviceCode));
 
+      // Note: Device flow responses intentionally include 'status' for CLI compatibility
       return reply.status(400).send({
         status: 'expired',
+        error: 'device_code_expired',
         message: 'The device code has expired. Please restart the authentication flow.',
       });
     }
@@ -370,15 +360,19 @@ export async function authRoutes(fastify: FastifyInstance) {
     }
 
     if (deviceCodeRecord.status === 'denied') {
+      // Note: Device flow responses intentionally include 'status' for CLI compatibility
       return reply.status(403).send({
         status: 'denied',
+        error: 'authorization_denied',
         message: 'User denied the authorization request.',
       });
     }
 
     if (deviceCodeRecord.status === 'expired') {
+      // Note: Device flow responses intentionally include 'status' for CLI compatibility
       return reply.status(400).send({
         status: 'expired',
+        error: 'device_code_expired',
         message: 'The device code has expired.',
       });
     }

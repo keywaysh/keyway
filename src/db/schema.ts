@@ -64,6 +64,19 @@ export const userPlanEnum = pgEnum('user_plan', [
   'team',
 ]);
 
+// Provider sync status
+export const syncStatusEnum = pgEnum('sync_status', [
+  'success',
+  'failed',
+  'partial',
+]);
+
+// Provider sync direction
+export const syncDirectionEnum = pgEnum('sync_direction', [
+  'push',  // Keyway → Provider
+  'pull',  // Provider → Keyway
+]);
+
 // Billing status types
 export const billingStatusEnum = pgEnum('billing_status', [
   'active',
@@ -201,6 +214,58 @@ export const usageMetrics = pgTable('usage_metrics', {
   lastComputed: timestamp('last_computed').notNull().defaultNow(),
 });
 
+// Provider connections (OAuth tokens for Vercel, Netlify, etc.)
+export const providerConnections = pgTable('provider_connections', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  provider: text('provider').notNull(), // 'vercel', 'netlify', 'railway'
+  providerUserId: text('provider_user_id'), // ID of user on provider
+  providerTeamId: text('provider_team_id'), // ID of team/org if applicable
+  // Encrypted OAuth tokens (AES-256-GCM)
+  encryptedAccessToken: text('encrypted_access_token').notNull(),
+  accessTokenIv: text('access_token_iv').notNull(),
+  accessTokenAuthTag: text('access_token_auth_tag').notNull(),
+  encryptedRefreshToken: text('encrypted_refresh_token'),
+  refreshTokenIv: text('refresh_token_iv'),
+  refreshTokenAuthTag: text('refresh_token_auth_tag'),
+  tokenExpiresAt: timestamp('token_expires_at'),
+  scopes: text('scopes').array(),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+});
+
+// Vault sync configurations (links a vault to a provider project)
+export const vaultSyncs = pgTable('vault_syncs', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  vaultId: uuid('vault_id').notNull().references(() => vaults.id, { onDelete: 'cascade' }),
+  connectionId: uuid('connection_id').notNull().references(() => providerConnections.id, { onDelete: 'cascade' }),
+  provider: text('provider').notNull(),
+  providerProjectId: text('provider_project_id').notNull(),
+  providerProjectName: text('provider_project_name'), // Human-readable name
+  keywayEnvironment: text('keyway_environment').notNull().default('production'),
+  providerEnvironment: text('provider_environment').notNull().default('production'),
+  autoSync: boolean('auto_sync').notNull().default(false),
+  lastSyncedAt: timestamp('last_synced_at'),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+});
+
+// Sync logs (audit trail for each sync operation)
+export const syncLogs = pgTable('sync_logs', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  syncId: uuid('sync_id').references(() => vaultSyncs.id, { onDelete: 'set null' }),
+  vaultId: uuid('vault_id').notNull().references(() => vaults.id, { onDelete: 'cascade' }),
+  provider: text('provider').notNull(),
+  direction: syncDirectionEnum('direction').notNull(),
+  status: syncStatusEnum('status').notNull(),
+  secretsCreated: integer('secrets_created').notNull().default(0),
+  secretsUpdated: integer('secrets_updated').notNull().default(0),
+  secretsDeleted: integer('secrets_deleted').notNull().default(0),
+  secretsSkipped: integer('secrets_skipped').notNull().default(0),
+  error: text('error'),
+  triggeredBy: uuid('triggered_by').references(() => users.id, { onDelete: 'set null' }),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+});
+
 // Relations
 export const usersRelations = relations(users, ({ many, one }) => ({
   vaults: many(vaults),
@@ -210,6 +275,7 @@ export const usersRelations = relations(users, ({ many, one }) => ({
   pullEvents: many(pullEvents),
   securityAlerts: many(securityAlerts),
   usageMetrics: one(usageMetrics),
+  providerConnections: many(providerConnections),
 }));
 
 export const usageMetricsRelations = relations(usageMetrics, ({ one }) => ({
@@ -229,6 +295,8 @@ export const vaultsRelations = relations(vaults, ({ one, many }) => ({
   activityLogs: many(activityLogs),
   pullEvents: many(pullEvents),
   securityAlerts: many(securityAlerts),
+  vaultSyncs: many(vaultSyncs),
+  syncLogs: many(syncLogs),
 }));
 
 export const secretsRelations = relations(secrets, ({ one }) => ({
@@ -297,6 +365,41 @@ export const securityAlertsRelations = relations(securityAlerts, ({ one }) => ({
   }),
 }));
 
+export const providerConnectionsRelations = relations(providerConnections, ({ one, many }) => ({
+  user: one(users, {
+    fields: [providerConnections.userId],
+    references: [users.id],
+  }),
+  vaultSyncs: many(vaultSyncs),
+}));
+
+export const vaultSyncsRelations = relations(vaultSyncs, ({ one, many }) => ({
+  vault: one(vaults, {
+    fields: [vaultSyncs.vaultId],
+    references: [vaults.id],
+  }),
+  connection: one(providerConnections, {
+    fields: [vaultSyncs.connectionId],
+    references: [providerConnections.id],
+  }),
+  syncLogs: many(syncLogs),
+}));
+
+export const syncLogsRelations = relations(syncLogs, ({ one }) => ({
+  sync: one(vaultSyncs, {
+    fields: [syncLogs.syncId],
+    references: [vaultSyncs.id],
+  }),
+  vault: one(vaults, {
+    fields: [syncLogs.vaultId],
+    references: [vaults.id],
+  }),
+  triggeredByUser: one(users, {
+    fields: [syncLogs.triggeredBy],
+    references: [users.id],
+  }),
+}));
+
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
 export type Vault = typeof vaults.$inferSelect;
@@ -324,3 +427,11 @@ export type ActivityPlatform = typeof activityPlatformEnum.enumValues[number];
 export type SecurityAlertType = typeof securityAlertTypeEnum.enumValues[number];
 export type UserPlan = typeof userPlanEnum.enumValues[number];
 export type BillingStatus = typeof billingStatusEnum.enumValues[number];
+export type SyncStatus = typeof syncStatusEnum.enumValues[number];
+export type SyncDirection = typeof syncDirectionEnum.enumValues[number];
+export type ProviderConnection = typeof providerConnections.$inferSelect;
+export type NewProviderConnection = typeof providerConnections.$inferInsert;
+export type VaultSync = typeof vaultSyncs.$inferSelect;
+export type NewVaultSync = typeof vaultSyncs.$inferInsert;
+export type SyncLog = typeof syncLogs.$inferSelect;
+export type NewSyncLog = typeof syncLogs.$inferInsert;

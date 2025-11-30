@@ -71,7 +71,7 @@ describe('Environment Routes', () => {
       const { getVaultByRepoInternal } = await import('../../src/services');
       (getVaultByRepoInternal as any).mockResolvedValue({
         ...mockVault,
-        environments: ['local', 'dev', 'staging', 'production'],
+        environments: ['local', 'development', 'staging', 'production'],
       });
 
       const response = await app.inject({
@@ -81,7 +81,7 @@ describe('Environment Routes', () => {
 
       expect(response.statusCode).toBe(200);
       const body = JSON.parse(response.body);
-      expect(body.data.environments).toEqual(['local', 'dev', 'staging', 'production']);
+      expect(body.data.environments).toEqual(['local', 'development', 'staging', 'production']);
     });
 
     it('should return default environments for vault without environments field', async () => {
@@ -98,7 +98,7 @@ describe('Environment Routes', () => {
 
       expect(response.statusCode).toBe(200);
       const body = JSON.parse(response.body);
-      expect(body.data.environments).toEqual(['local', 'dev', 'staging', 'production']);
+      expect(body.data.environments).toEqual(['local', 'development', 'staging', 'production']);
     });
 
     it('should return 404 for non-existent vault', async () => {
@@ -121,7 +121,7 @@ describe('Environment Routes', () => {
 
       (getVaultByRepoInternal as any).mockResolvedValue({
         ...mockVault,
-        environments: ['local', 'dev', 'staging', 'production'],
+        environments: ['local', 'development', 'staging', 'production'],
       });
 
       const response = await app.inject({
@@ -169,7 +169,7 @@ describe('Environment Routes', () => {
       const { getVaultByRepoInternal } = await import('../../src/services');
       (getVaultByRepoInternal as any).mockResolvedValue({
         ...mockVault,
-        environments: ['local', 'dev', 'staging', 'production'],
+        environments: ['local', 'development', 'staging', 'production'],
       });
 
       const response = await app.inject({
@@ -189,21 +189,21 @@ describe('Environment Routes', () => {
 
       (getVaultByRepoInternal as any).mockResolvedValue({
         ...mockVault,
-        environments: ['local', 'dev', 'staging', 'production'],
+        environments: ['local', 'development', 'staging', 'production'],
       });
 
       const response = await app.inject({
         method: 'PATCH',
-        url: '/v1/vaults/testuser/test-repo/environments/dev',
-        payload: { newName: 'development' },
+        url: '/v1/vaults/testuser/test-repo/environments/staging',
+        payload: { newName: 'qa' },
       });
 
       expect(response.statusCode).toBe(200);
       const body = JSON.parse(response.body);
-      expect(body.data.oldName).toBe('dev');
-      expect(body.data.newName).toBe('development');
-      expect(body.data.environments).toContain('development');
-      expect(body.data.environments).not.toContain('dev');
+      expect(body.data.oldName).toBe('staging');
+      expect(body.data.newName).toBe('qa');
+      expect(body.data.environments).toContain('qa');
+      expect(body.data.environments).not.toContain('staging');
 
       // Should run in transaction
       expect(db.transaction).toHaveBeenCalled();
@@ -213,7 +213,7 @@ describe('Environment Routes', () => {
       const { getVaultByRepoInternal } = await import('../../src/services');
       (getVaultByRepoInternal as any).mockResolvedValue({
         ...mockVault,
-        environments: ['local', 'dev', 'staging', 'production'],
+        environments: ['local', 'development', 'staging', 'production'],
       });
 
       const response = await app.inject({
@@ -229,12 +229,12 @@ describe('Environment Routes', () => {
       const { getVaultByRepoInternal } = await import('../../src/services');
       (getVaultByRepoInternal as any).mockResolvedValue({
         ...mockVault,
-        environments: ['local', 'dev', 'staging', 'production'],
+        environments: ['local', 'development', 'staging', 'production'],
       });
 
       const response = await app.inject({
         method: 'PATCH',
-        url: '/v1/vaults/testuser/test-repo/environments/dev',
+        url: '/v1/vaults/testuser/test-repo/environments/staging',
         payload: { newName: 'local' },
       });
 
@@ -249,18 +249,18 @@ describe('Environment Routes', () => {
 
       (getVaultByRepoInternal as any).mockResolvedValue({
         ...mockVault,
-        environments: ['local', 'dev', 'staging', 'production'],
+        environments: ['local', 'development', 'staging', 'production'],
       });
 
       const response = await app.inject({
         method: 'DELETE',
-        url: '/v1/vaults/testuser/test-repo/environments/dev',
+        url: '/v1/vaults/testuser/test-repo/environments/staging',
       });
 
       expect(response.statusCode).toBe(200);
       const body = JSON.parse(response.body);
-      expect(body.data.deleted).toBe('dev');
-      expect(body.data.environments).not.toContain('dev');
+      expect(body.data.deleted).toBe('staging');
+      expect(body.data.environments).not.toContain('staging');
 
       // Should run in transaction
       expect(db.transaction).toHaveBeenCalled();
@@ -270,7 +270,7 @@ describe('Environment Routes', () => {
       const { getVaultByRepoInternal } = await import('../../src/services');
       (getVaultByRepoInternal as any).mockResolvedValue({
         ...mockVault,
-        environments: ['local', 'dev', 'staging', 'production'],
+        environments: ['local', 'development', 'staging', 'production'],
       });
 
       const response = await app.inject({

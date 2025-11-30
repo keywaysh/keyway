@@ -38,6 +38,10 @@ const envSchema = z.object({
   // Security detection (optional - ipinfo.io works without token for 50k req/month)
   IPINFO_TOKEN: z.string().optional(),
 
+  // Provider integrations (optional)
+  VERCEL_CLIENT_ID: z.string().optional(),
+  VERCEL_CLIENT_SECRET: z.string().optional(),
+
   // Email (Resend)
   RESEND_API_KEY: z.string().optional(),
 });
@@ -99,6 +103,13 @@ export const config = {
   security: {
     ipinfoToken: env.IPINFO_TOKEN,
   },
+
+  vercel: env.VERCEL_CLIENT_ID && env.VERCEL_CLIENT_SECRET
+    ? {
+        clientId: env.VERCEL_CLIENT_ID,
+        clientSecret: env.VERCEL_CLIENT_SECRET,
+      }
+    : undefined,
 
   email: {
     resendApiKey: env.RESEND_API_KEY,
