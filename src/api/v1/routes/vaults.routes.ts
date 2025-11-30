@@ -189,6 +189,7 @@ export async function vaultsRoutes(fastify: FastifyInstance) {
         repoFullName: body.repoFullName,
         ownerId: user.id,
         isPrivate: repoInfo.isPrivate,
+        environments: [...DEFAULT_ENVIRONMENTS],
       })
       .returning();
 
