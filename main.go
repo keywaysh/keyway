@@ -22,10 +22,13 @@ type server struct {
 }
 
 func (s *server) Encrypt(ctx context.Context, req *pb.EncryptRequest) (*pb.EncryptResponse, error) {
+	log.Printf("[Encrypt] Received request, plaintext size: %d bytes", len(req.Plaintext))
 	ciphertext, iv, authTag, err := s.engine.Encrypt(req.Plaintext)
 	if err != nil {
+		log.Printf("[Encrypt] Error: %v", err)
 		return nil, err
 	}
+	log.Printf("[Encrypt] Success, ciphertext size: %d bytes", len(ciphertext))
 	return &pb.EncryptResponse{
 		Ciphertext: ciphertext,
 		Iv:         iv,
@@ -35,14 +38,18 @@ func (s *server) Encrypt(ctx context.Context, req *pb.EncryptRequest) (*pb.Encry
 }
 
 func (s *server) Decrypt(ctx context.Context, req *pb.DecryptRequest) (*pb.DecryptResponse, error) {
+	log.Printf("[Decrypt] Received request, ciphertext size: %d bytes", len(req.Ciphertext))
 	plaintext, err := s.engine.Decrypt(req.Ciphertext, req.Iv, req.AuthTag)
 	if err != nil {
+		log.Printf("[Decrypt] Error: %v", err)
 		return nil, err
 	}
+	log.Printf("[Decrypt] Success, plaintext size: %d bytes", len(plaintext))
 	return &pb.DecryptResponse{Plaintext: plaintext}, nil
 }
 
 func (s *server) HealthCheck(ctx context.Context, req *pb.Empty) (*pb.HealthResponse, error) {
+	log.Printf("[HealthCheck] Received request")
 	return &pb.HealthResponse{Healthy: true, Version: version}, nil
 }
 
