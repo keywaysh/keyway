@@ -42,6 +42,12 @@ interface GitHubCollaborator {
   };
 }
 
+interface GitHubTokenErrorResponse {
+  error?: string;
+  error_description?: string;
+  error_uri?: string;
+}
+
 /**
  * Exchange GitHub OAuth code for access token
  */
@@ -63,10 +69,16 @@ export async function exchangeCodeForToken(code: string): Promise<string> {
     throw new Error(`GitHub OAuth token exchange failed: ${response.statusText}`);
   }
 
-  const data = (await response.json()) as GitHubTokenResponse;
+  const data = (await response.json()) as GitHubTokenResponse & GitHubTokenErrorResponse;
+
+  // GitHub returns 200 even on errors, with error details in the body
+  if (data.error) {
+    const errorMessage = data.error_description || data.error;
+    throw new Error(`GitHub OAuth error: ${errorMessage} (${data.error})`);
+  }
 
   if (!data.access_token) {
-    throw new Error('No access token received from GitHub');
+    throw new Error('No access token received from GitHub (unexpected empty response)');
   }
 
   return data.access_token;
