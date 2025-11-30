@@ -827,6 +827,328 @@ func BenchmarkConcurrentEncrypt(b *testing.B) {
 	})
 }
 
+// ============================================================================
+// MultiEngine Tests
+// ============================================================================
+
+const testKeyHex2 = "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210"
+
+func TestNewMultiEngine(t *testing.T) {
+	keys := map[uint32]string{
+		1: testKeyHex,
+		2: testKeyHex2,
+	}
+
+	engine, err := NewMultiEngine(keys)
+	if err != nil {
+		t.Fatalf("NewMultiEngine failed: %v", err)
+	}
+
+	if engine.CurrentVersion() != 2 {
+		t.Errorf("CurrentVersion = %d, want 2", engine.CurrentVersion())
+	}
+}
+
+func TestNewMultiEngineEmpty(t *testing.T) {
+	_, err := NewMultiEngine(map[uint32]string{})
+	if err == nil {
+		t.Error("Expected error for empty keys")
+	}
+}
+
+func TestNewMultiEngineInvalidKey(t *testing.T) {
+	keys := map[uint32]string{
+		1: "invalid",
+	}
+
+	_, err := NewMultiEngine(keys)
+	if err == nil {
+		t.Error("Expected error for invalid key")
+	}
+}
+
+func TestMultiEngineEncryptUsesCurrentVersion(t *testing.T) {
+	keys := map[uint32]string{
+		1: testKeyHex,
+		2: testKeyHex2,
+	}
+
+	engine, _ := NewMultiEngine(keys)
+
+	plaintext := []byte("test secret")
+	_, _, _, version, err := engine.Encrypt(plaintext)
+	if err != nil {
+		t.Fatalf("Encrypt failed: %v", err)
+	}
+
+	if version != 2 {
+		t.Errorf("Encrypted with version %d, want 2", version)
+	}
+}
+
+func TestMultiEngineDecryptWithCorrectVersion(t *testing.T) {
+	keys := map[uint32]string{
+		1: testKeyHex,
+		2: testKeyHex2,
+	}
+
+	engine, _ := NewMultiEngine(keys)
+
+	plaintext := []byte("test secret")
+	ciphertext, iv, authTag, version, _ := engine.Encrypt(plaintext)
+
+	decrypted, err := engine.Decrypt(ciphertext, iv, authTag, version)
+	if err != nil {
+		t.Fatalf("Decrypt failed: %v", err)
+	}
+
+	if !bytes.Equal(plaintext, decrypted) {
+		t.Errorf("Decrypted = %q, want %q", decrypted, plaintext)
+	}
+}
+
+func TestMultiEngineDecryptWithWrongVersion(t *testing.T) {
+	keys := map[uint32]string{
+		1: testKeyHex,
+		2: testKeyHex2,
+	}
+
+	engine, _ := NewMultiEngine(keys)
+
+	plaintext := []byte("test secret")
+	ciphertext, iv, authTag, _, _ := engine.Encrypt(plaintext) // Encrypts with version 2
+
+	// Try to decrypt with version 1 (wrong key)
+	_, err := engine.Decrypt(ciphertext, iv, authTag, 1)
+	if err == nil {
+		t.Error("Expected decryption to fail with wrong version")
+	}
+}
+
+func TestMultiEngineDecryptWithMissingVersion(t *testing.T) {
+	keys := map[uint32]string{
+		1: testKeyHex,
+	}
+
+	engine, _ := NewMultiEngine(keys)
+
+	plaintext := []byte("test secret")
+	ciphertext, iv, authTag, _, _ := engine.Encrypt(plaintext)
+
+	// Try to decrypt with non-existent version
+	_, err := engine.Decrypt(ciphertext, iv, authTag, 99)
+	if err == nil {
+		t.Error("Expected error for missing version")
+	}
+}
+
+func TestMultiEngineKeyRotation(t *testing.T) {
+	// Simulate key rotation scenario
+	// 1. Start with just key 1
+	keys1 := map[uint32]string{
+		1: testKeyHex,
+	}
+	engine1, _ := NewMultiEngine(keys1)
+
+	plaintext := []byte("secret before rotation")
+	ciphertext1, iv1, authTag1, version1, _ := engine1.Encrypt(plaintext)
+
+	if version1 != 1 {
+		t.Errorf("Version before rotation = %d, want 1", version1)
+	}
+
+	// 2. Add new key (rotation in progress)
+	keys2 := map[uint32]string{
+		1: testKeyHex,
+		2: testKeyHex2,
+	}
+	engine2, _ := NewMultiEngine(keys2)
+
+	// Can still decrypt old data
+	decrypted1, err := engine2.Decrypt(ciphertext1, iv1, authTag1, version1)
+	if err != nil {
+		t.Fatalf("Failed to decrypt old data after adding new key: %v", err)
+	}
+	if !bytes.Equal(plaintext, decrypted1) {
+		t.Error("Old data decryption mismatch")
+	}
+
+	// New encryptions use version 2
+	ciphertext2, iv2, authTag2, version2, _ := engine2.Encrypt(plaintext)
+	if version2 != 2 {
+		t.Errorf("Version after rotation = %d, want 2", version2)
+	}
+
+	// 3. After full rotation, remove old key
+	keys3 := map[uint32]string{
+		2: testKeyHex2,
+	}
+	engine3, _ := NewMultiEngine(keys3)
+
+	// Can decrypt new data
+	decrypted2, err := engine3.Decrypt(ciphertext2, iv2, authTag2, version2)
+	if err != nil {
+		t.Fatalf("Failed to decrypt new data after removing old key: %v", err)
+	}
+	if !bytes.Equal(plaintext, decrypted2) {
+		t.Error("New data decryption mismatch")
+	}
+
+	// Cannot decrypt old data (key removed)
+	_, err = engine3.Decrypt(ciphertext1, iv1, authTag1, version1)
+	if err == nil {
+		t.Error("Should fail to decrypt old data after old key removed")
+	}
+}
+
+func TestMultiEngineHasVersion(t *testing.T) {
+	keys := map[uint32]string{
+		1: testKeyHex,
+		3: testKeyHex2,
+	}
+
+	engine, _ := NewMultiEngine(keys)
+
+	if !engine.HasVersion(1) {
+		t.Error("HasVersion(1) should be true")
+	}
+	if engine.HasVersion(2) {
+		t.Error("HasVersion(2) should be false")
+	}
+	if !engine.HasVersion(3) {
+		t.Error("HasVersion(3) should be true")
+	}
+}
+
+func TestMultiEngineAvailableVersions(t *testing.T) {
+	keys := map[uint32]string{
+		1: testKeyHex,
+		5: testKeyHex2,
+	}
+
+	engine, _ := NewMultiEngine(keys)
+	versions := engine.AvailableVersions()
+
+	if len(versions) != 2 {
+		t.Errorf("AvailableVersions length = %d, want 2", len(versions))
+	}
+
+	// Check both versions are present (order not guaranteed)
+	hasV1, hasV5 := false, false
+	for _, v := range versions {
+		if v == 1 {
+			hasV1 = true
+		}
+		if v == 5 {
+			hasV5 = true
+		}
+	}
+	if !hasV1 || !hasV5 {
+		t.Errorf("AvailableVersions = %v, want [1, 5]", versions)
+	}
+}
+
+func TestMultiEngineCurrentVersionIsHighest(t *testing.T) {
+	tests := []struct {
+		versions []uint32
+		expected uint32
+	}{
+		{[]uint32{1}, 1},
+		{[]uint32{1, 2}, 2},
+		{[]uint32{5, 1, 3}, 5},
+		{[]uint32{100, 1, 50}, 100},
+	}
+
+	for _, tt := range tests {
+		keys := make(map[uint32]string)
+		for _, v := range tt.versions {
+			keys[v] = testKeyHex
+		}
+
+		engine, _ := NewMultiEngine(keys)
+		if engine.CurrentVersion() != tt.expected {
+			t.Errorf("CurrentVersion for %v = %d, want %d", tt.versions, engine.CurrentVersion(), tt.expected)
+		}
+	}
+}
+
+func TestMultiEngineConcurrentAccess(t *testing.T) {
+	keys := map[uint32]string{
+		1: testKeyHex,
+		2: testKeyHex2,
+	}
+
+	engine, _ := NewMultiEngine(keys)
+
+	const goroutines = 50
+	const iterations = 100
+
+	var wg sync.WaitGroup
+	errors := make(chan error, goroutines*iterations)
+
+	for g := 0; g < goroutines; g++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for i := 0; i < iterations; i++ {
+				plaintext := []byte("concurrent multi-engine test")
+				ciphertext, iv, authTag, version, err := engine.Encrypt(plaintext)
+				if err != nil {
+					errors <- err
+					return
+				}
+
+				decrypted, err := engine.Decrypt(ciphertext, iv, authTag, version)
+				if err != nil {
+					errors <- err
+					return
+				}
+
+				if !bytes.Equal(plaintext, decrypted) {
+					errors <- err
+					return
+				}
+			}
+		}()
+	}
+
+	wg.Wait()
+	close(errors)
+
+	for err := range errors {
+		t.Errorf("Concurrent multi-engine error: %v", err)
+	}
+}
+
+func BenchmarkMultiEngineEncrypt(b *testing.B) {
+	keys := map[uint32]string{
+		1: testKeyHex,
+		2: testKeyHex2,
+	}
+	engine, _ := NewMultiEngine(keys)
+	plaintext := []byte("Typical secret value")
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		engine.Encrypt(plaintext)
+	}
+}
+
+func BenchmarkMultiEngineDecrypt(b *testing.B) {
+	keys := map[uint32]string{
+		1: testKeyHex,
+		2: testKeyHex2,
+	}
+	engine, _ := NewMultiEngine(keys)
+	plaintext := []byte("Typical secret value")
+	ciphertext, iv, authTag, version, _ := engine.Encrypt(plaintext)
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		engine.Decrypt(ciphertext, iv, authTag, version)
+	}
+}
+
 // Helper function
 func min(a, b int) int {
 	if a < b {
