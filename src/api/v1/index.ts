@@ -18,11 +18,4 @@ export async function apiV1Routes(fastify: FastifyInstance) {
   fastify.register(secretsRoutes, { prefix: '/secrets' });
   fastify.register(activityRoutes, { prefix: '/activity' });
   fastify.register(billingRoutes, { prefix: '/billing' });
-
-  // Health check for v1
-  fastify.get('/health', async () => ({
-    version: 'v1',
-    status: 'ok',
-    timestamp: new Date().toISOString(),
-  }));
 }
