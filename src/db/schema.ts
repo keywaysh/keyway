@@ -164,10 +164,10 @@ export const environmentPermissions = pgTable('environment_permissions', {
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
 });
 
-// Activity logs for audit trail
+// Activity logs for audit trail (preserved on user/vault deletion for compliance)
 export const activityLogs = pgTable('activity_logs', {
   id: uuid('id').primaryKey().defaultRandom(),
-  userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  userId: uuid('user_id').references(() => users.id, { onDelete: 'set null' }),
   vaultId: uuid('vault_id').references(() => vaults.id, { onDelete: 'set null' }),
   action: activityActionEnum('action').notNull(),
   platform: activityPlatformEnum('platform').notNull(),
@@ -177,11 +177,11 @@ export const activityLogs = pgTable('activity_logs', {
   createdAt: timestamp('created_at').notNull().defaultNow(),
 });
 
-// Pull events for security detection
+// Pull events for security detection (preserved on user/vault deletion for compliance)
 export const pullEvents = pgTable('pull_events', {
   id: uuid('id').primaryKey().defaultRandom(),
-  userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
-  vaultId: uuid('vault_id').notNull().references(() => vaults.id, { onDelete: 'cascade' }),
+  userId: uuid('user_id').references(() => users.id, { onDelete: 'set null' }),
+  vaultId: uuid('vault_id').references(() => vaults.id, { onDelete: 'set null' }),
   deviceId: text('device_id').notNull(),
   ip: text('ip').notNull(),
   userAgent: text('user_agent'),
@@ -192,11 +192,11 @@ export const pullEvents = pgTable('pull_events', {
   createdAt: timestamp('created_at').notNull().defaultNow(),
 });
 
-// Security alerts
+// Security alerts (preserved on user/vault deletion for compliance)
 export const securityAlerts = pgTable('security_alerts', {
   id: uuid('id').primaryKey().defaultRandom(),
-  userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
-  vaultId: uuid('vault_id').notNull().references(() => vaults.id, { onDelete: 'cascade' }),
+  userId: uuid('user_id').references(() => users.id, { onDelete: 'set null' }),
+  vaultId: uuid('vault_id').references(() => vaults.id, { onDelete: 'set null' }),
   deviceId: text('device_id').notNull(),
   alertType: securityAlertTypeEnum('alert_type').notNull(),
   message: text('message').notNull(),

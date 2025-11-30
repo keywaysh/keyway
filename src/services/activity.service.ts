@@ -76,10 +76,14 @@ export async function getActivityForUser(
       action: log.action,
       vaultId: log.vaultId,
       repoFullName: log.vault?.repoFullName || metadata?.repoFullName || null,
-      actor: {
+      actor: log.user ? {
         id: log.user.id,
         username: log.user.username,
         avatarUrl: log.user.avatarUrl,
+      } : {
+        id: log.userId || 'deleted',
+        username: metadata?.username || 'Deleted User',
+        avatarUrl: null,
       },
       platform: log.platform,
       metadata,
