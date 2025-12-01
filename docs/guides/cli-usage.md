@@ -16,7 +16,7 @@ The Keyway CLI is designed for daily workflow integration. This guide covers com
 keyway pull
 
 # Pull for a specific environment
-keyway pull --env staging
+keyway pull -e staging
 ```
 
 ### Push after adding new secrets
@@ -26,37 +26,31 @@ keyway pull --env staging
 keyway push
 
 # Push to a specific environment
-keyway push --env production
+keyway push -e production
 ```
 
 ## Working with multiple environments
 
 Most projects have several environments. Keyway makes it easy to switch between them.
 
-### List available environments
-
-```bash
-keyway env list
-```
-
 ### Pull from different environments
 
 ```bash
-# Development
-keyway pull --env dev
+# Development (default)
+keyway pull
 
 # Staging for testing
-keyway pull --env staging
+keyway pull -e staging
 
 # Production (be careful!)
-keyway pull --env production
+keyway pull -e production
 ```
 
 ### Compare environments
 
 ```bash
 # Pull staging to compare with local
-keyway pull --env staging --output .env.staging
+keyway pull -e staging -f .env.staging
 diff .env .env.staging
 ```
 
@@ -109,10 +103,10 @@ Keyway looks for these files in order:
 
 ```bash
 # Read from custom file
-keyway push --file .env.development
+keyway push -f .env.development
 
 # Write to custom file
-keyway pull --output .env.local
+keyway pull -f .env.local
 ```
 
 ### Gitignore setup

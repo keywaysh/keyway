@@ -15,17 +15,30 @@ These options work with all commands:
 |--------|-------------|
 | `--help`, `-h` | Show help |
 | `--version`, `-V` | Show version |
-| `--verbose` | Enable debug output |
+| `--no-login-prompt` | Fail instead of prompting to login if unauthenticated (useful for CI/CD) |
 
 ## keyway login
 
 Authenticate with Keyway using GitHub OAuth.
 
 ```bash
-keyway login
+keyway login [options]
 ```
 
+**Options:**
+
+| Option | Description |
+|--------|-------------|
+| `--token` | Authenticate using a GitHub fine-grained PAT instead of OAuth |
+
 Opens a browser for GitHub authentication. After approval, your token is stored locally.
+
+**Using a Personal Access Token:**
+
+```bash
+keyway login --token
+# You will be prompted to enter your GitHub fine-grained PAT
+```
 
 **Stored in:** `~/.config/keyway/config.json`
 
@@ -48,18 +61,12 @@ Removes the locally stored token.
 Initialize a vault for the current repository.
 
 ```bash
-keyway init [options]
+keyway init
 ```
-
-**Options:**
-
-| Option | Description |
-|--------|-------------|
-| `--repo <owner/repo>` | Specify repository (default: auto-detect from git) |
 
 **Requirements:**
 - Admin access on the GitHub repository
-- Git repository with GitHub remote
+- Git repository with GitHub remote (auto-detected)
 
 **Example:**
 
@@ -83,9 +90,9 @@ keyway push [options]
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `--env <name>` | `local` | Target environment |
-| `--file <path>` | `.env` | Source file path |
-| `--yes`, `-y` | `false` | Skip confirmation |
+| `-e, --env <name>` | `development` | Target environment |
+| `-f, --file <path>` | `.env` | Source file path |
+| `-y, --yes` | `false` | Skip confirmation |
 
 **Behavior:**
 - Syncs the entire environment
@@ -95,14 +102,14 @@ keyway push [options]
 **Example:**
 
 ```bash
-# Push to local environment
+# Push to development environment (default)
 keyway push
 
 # Push to production
-keyway push --env production
+keyway push -e production
 
 # Push from custom file
-keyway push --file .env.production --env production
+keyway push -f .env.production -e production
 ```
 
 ---
@@ -119,101 +126,18 @@ keyway pull [options]
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `--env <name>` | `local` | Source environment |
-| `--output <path>` | `.env` | Output file path |
-| `--yes`, `-y` | `false` | Skip confirmation (overwrite) |
+| `-e, --env <name>` | `development` | Source environment |
+| `-f, --file <path>` | `.env` | Output file path |
+| `-y, --yes` | `false` | Skip confirmation (overwrite) |
 
 **Example:**
 
 ```bash
-# Pull local environment
+# Pull development environment (default)
 keyway pull
 
 # Pull staging to custom file
-keyway pull --env staging --output .env.staging
-```
-
----
-
-## keyway env
-
-Manage vault environments.
-
-### keyway env list
-
-List all environments in the vault.
-
-```bash
-keyway env list
-```
-
-**Output:**
-
-```
-Environments for owner/repo:
-  - local
-  - dev
-  - staging
-  - production
-```
-
-### keyway env create
-
-Create a new environment.
-
-```bash
-keyway env create <name>
-```
-
-**Requirements:** Admin access
-
-**Naming rules:**
-- 2-30 characters
-- Lowercase letters, numbers, dashes, underscores
-- Must start with a letter
-
-**Example:**
-
-```bash
-keyway env create preview
-```
-
-### keyway env rename
-
-Rename an environment.
-
-```bash
-keyway env rename <old-name> <new-name>
-```
-
-**Requirements:** Admin access
-
-All secrets are automatically moved to the new environment name.
-
-**Example:**
-
-```bash
-keyway env rename dev development
-```
-
-### keyway env delete
-
-Delete an environment and all its secrets.
-
-```bash
-keyway env delete <name>
-```
-
-**Requirements:** Admin access
-
-:::warning
-This permanently deletes all secrets in the environment.
-:::
-
-**Example:**
-
-```bash
-keyway env delete preview
+keyway pull -e staging -f .env.staging
 ```
 
 ---
@@ -223,8 +147,15 @@ keyway env delete preview
 Run diagnostic checks.
 
 ```bash
-keyway doctor
+keyway doctor [options]
 ```
+
+**Options:**
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--json` | `false` | Output results as JSON for machine processing |
+| `--strict` | `false` | Treat warnings as failures |
 
 **Checks performed:**
 
@@ -255,20 +186,97 @@ All checks passed!
 
 ---
 
-## keyway whoami
+## keyway connect
 
-Show current user information.
+Connect to an external provider for secret syncing.
 
 ```bash
-keyway whoami
+keyway connect <provider>
 ```
 
-**Output:**
+**Supported providers:**
+- `vercel` - Vercel deployment platform
+
+**Example:**
+
+```bash
+keyway connect vercel
+# Opens browser to authorize Keyway with Vercel
+```
+
+After connecting, you can use `keyway sync` to push secrets to the provider.
+
+---
+
+## keyway connections
+
+List your connected providers.
+
+```bash
+keyway connections
+```
+
+**Example output:**
 
 ```
-Logged in as: octocat
-GitHub ID: 12345
-Token expires: 2025-02-15
+Connected providers:
+  - vercel (connected on 2025-01-15)
+```
+
+---
+
+## keyway disconnect
+
+Disconnect from a provider.
+
+```bash
+keyway disconnect <provider>
+```
+
+**Example:**
+
+```bash
+keyway disconnect vercel
+```
+
+---
+
+## keyway sync
+
+Sync secrets between Keyway and a provider.
+
+```bash
+keyway sync <provider> [options]
+```
+
+**Options:**
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `-e, --environment <env>` | `production` | Keyway environment to sync from |
+| `--provider-env <env>` | `production` | Provider environment to sync to |
+| `--project <project>` | - | Provider project name or ID |
+| `--pull` | `false` | Import secrets from provider to Keyway (reverse sync) |
+| `--allow-delete` | `false` | Allow deleting secrets not present in source |
+| `-y, --yes` | `false` | Skip confirmation prompt |
+
+**Example:**
+
+```bash
+# Sync production secrets to Vercel
+keyway sync vercel
+
+# Sync staging environment to Vercel preview
+keyway sync vercel -e staging --provider-env preview
+
+# Sync to a specific Vercel project
+keyway sync vercel --project my-app
+
+# Import secrets from Vercel into Keyway
+keyway sync vercel --pull
+
+# Sync and delete secrets not in Keyway
+keyway sync vercel --allow-delete -y
 ```
 
 ---

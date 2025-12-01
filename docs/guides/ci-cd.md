@@ -40,7 +40,7 @@ jobs:
         run: npm install -g @keywaysh/cli
 
       - name: Pull secrets
-        run: keyway pull --env production --yes
+        run: keyway pull -e production -y
         env:
           KEYWAY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -54,7 +54,7 @@ GitHub Actions provides a `GITHUB_TOKEN` automatically. For public repos or repo
 
 ```yaml
 - name: Pull secrets
-  run: keyway pull --env production --yes
+  run: keyway pull -e production -y
   env:
     KEYWAY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 ```
@@ -65,7 +65,7 @@ For cross-repo access or more control, use a PAT:
 
 ```yaml
 - name: Pull secrets
-  run: keyway pull --env production --yes
+  run: keyway pull -e production -y
   env:
     KEYWAY_TOKEN: ${{ secrets.KEYWAY_PAT }}
 ```
@@ -97,7 +97,7 @@ deploy:
   before_script:
     - npm install -g @keywaysh/cli
   script:
-    - keyway pull --env production --yes
+    - keyway pull -e production -y
     - ./deploy.sh
   variables:
     KEYWAY_TOKEN: $KEYWAY_PAT
@@ -121,7 +121,7 @@ jobs:
           command: npm install -g @keywaysh/cli
       - run:
           name: Pull secrets
-          command: keyway pull --env production --yes
+          command: keyway pull -e production -y
           environment:
             KEYWAY_TOKEN: ${KEYWAY_PAT}
       - run:
@@ -155,7 +155,7 @@ pipeline {
 
         stage('Pull Secrets') {
             steps {
-                sh 'keyway pull --env production --yes'
+                sh 'keyway pull -e production -y'
             }
         }
 
@@ -194,7 +194,7 @@ RUN npm run build
 ```yaml
 # GitHub Actions
 - name: Pull secrets
-  run: keyway pull --env production --yes --output .env.build
+  run: keyway pull -e production -y -f .env.build
 
 - name: Build Docker image
   run: |
@@ -219,7 +219,7 @@ RUN npm ci
 COPY . .
 
 # Pull secrets at container start
-CMD keyway pull --yes && npm start
+CMD keyway pull -y && npm start
 ```
 
 ## Vercel
@@ -229,7 +229,7 @@ Vercel has built-in environment variables, but you can sync from Keyway:
 ```yaml
 # GitHub Action to sync secrets to Vercel
 - name: Pull from Keyway
-  run: keyway pull --env production --yes
+  run: keyway pull -e production -y
 
 - name: Sync to Vercel
   run: |
@@ -261,7 +261,7 @@ jobs:
   deploy:
     needs: test
     steps:
-      - run: keyway pull --env production --yes
+      - run: keyway pull -e production -y
 ```
 
 ### 3. Don't log secrets
@@ -270,7 +270,7 @@ Ensure your CI doesn't log secret values:
 
 ```yaml
 - name: Pull secrets
-  run: keyway pull --env production --yes > /dev/null
+  run: keyway pull -e production -y > /dev/null
 ```
 
 ### 4. Rotate CI tokens

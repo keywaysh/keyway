@@ -32,9 +32,7 @@ When you request secrets, Keyway:
 Repository admins can:
 
 - Initialize vaults (`keyway init`)
-- Create environments (`keyway env create`)
-- Rename environments (`keyway env rename`)
-- Delete environments (`keyway env delete`)
+- Create, rename, and delete environments (via dashboard or API)
 - Delete vaults
 - All read/write operations
 

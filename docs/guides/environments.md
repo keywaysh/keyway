@@ -18,12 +18,6 @@ Every new vault starts with four environments:
 
 ## Creating environments
 
-### Via CLI
-
-```bash
-keyway env create preview
-```
-
 ### Via API
 
 ```bash
@@ -43,17 +37,14 @@ curl -X POST https://api.keyway.sh/v1/vaults/owner/repo/environments \
 
 ### Feature branch environments
 
-Create environments for long-running feature branches:
+Create environments for long-running feature branches via the dashboard or API, then use the CLI:
 
 ```bash
-# Create environment for feature
-keyway env create feature-auth
-
 # Push feature-specific config
-keyway push --env feature-auth
+keyway push -e feature-auth
 
-# Clean up when done
-keyway env delete feature-auth
+# Pull when working on the feature
+keyway pull -e feature-auth
 ```
 
 ### Preview environments
@@ -61,21 +52,22 @@ keyway env delete feature-auth
 For preview deployments (Vercel, Netlify):
 
 ```bash
-# Create a preview environment
-keyway env create preview
-
-# Configure with preview-specific values
-keyway push --env preview
+# Configure preview environment via dashboard, then:
+keyway push -e preview
 ```
 
 ### Regional environments
 
-For multi-region deployments:
+For multi-region deployments, create environments via the dashboard:
+- `production-us`
+- `production-eu`
+- `production-asia`
+
+Then push to each:
 
 ```bash
-keyway env create production-us
-keyway env create production-eu
-keyway env create production-asia
+keyway push -e production-us -f .env.us
+keyway push -e production-eu -f .env.eu
 ```
 
 ## Copying secrets between environments
@@ -84,36 +76,23 @@ Keyway doesn't have a built-in copy command, but you can do it manually:
 
 ```bash
 # Pull from source
-keyway pull --env staging --output .env.temp
+keyway pull -e staging -f .env.temp
 
 # Push to destination
-keyway push --env production --file .env.temp
+keyway push -e production -f .env.temp
 
 # Clean up
 rm .env.temp
 ```
 
-## Renaming environments
+## Managing environments
 
-Rename an environment while preserving all its secrets:
+Environment management (create, rename, delete) is done via:
 
-```bash
-keyway env rename dev development
-```
+- **Dashboard**: Visit your vault at `https://keyway.sh/{owner}/{repo}`
+- **API**: Use the environments API endpoints
 
-All secrets are automatically updated to the new environment name.
-
-## Deleting environments
-
-:::warning
-Deleting an environment permanently removes all secrets in that environment.
-:::
-
-```bash
-keyway env delete preview
-```
-
-You cannot delete the last remaining environment in a vault.
+You can also manage environments programmatically via the API.
 
 ## Best practices
 

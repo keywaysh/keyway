@@ -215,7 +215,7 @@ Response:
 ### Via CLI
 
 ```bash
-keyway whoami
+keyway doctor
 ```
 
-Shows current plan and usage summary.
+Shows current authentication status and repository access level.
