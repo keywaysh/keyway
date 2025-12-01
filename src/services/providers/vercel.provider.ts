@@ -3,6 +3,7 @@
  * Handles OAuth and Environment Variables API for Vercel
  */
 
+import crypto from 'crypto';
 import {
   Provider,
   TokenResponse,
@@ -15,6 +16,23 @@ import { config } from '../../config';
 
 const VERCEL_API_BASE = 'https://api.vercel.com';
 const VERCEL_OAUTH_BASE = 'https://vercel.com';
+
+/**
+ * Generate PKCE code_verifier and code_challenge
+ * Required for Vercel's "Sign in with Vercel" OAuth flow
+ */
+function generatePKCE(): { codeVerifier: string; codeChallenge: string } {
+  // Generate random 43-128 character code_verifier
+  const codeVerifier = crypto.randomBytes(32).toString('base64url');
+
+  // Create SHA256 hash and base64url encode for code_challenge
+  const codeChallenge = crypto
+    .createHash('sha256')
+    .update(codeVerifier)
+    .digest('base64url');
+
+  return { codeVerifier, codeChallenge };
+}
 const DEFAULT_TIMEOUT_MS = 30000; // 30 seconds
 
 // Logger for provider operations - sanitizes context to prevent token leakage
@@ -161,27 +179,48 @@ export const vercelProvider: Provider = {
   name: 'vercel',
   displayName: 'Vercel',
 
-  getAuthorizationUrl(state: string, redirectUri: string): string {
+  getAuthorizationUrl(state: string, redirectUri: string): { url: string; codeVerifier?: string } {
+    const { codeVerifier, codeChallenge } = generatePKCE();
+
     const params = new URLSearchParams({
       client_id: config.vercel?.clientId || '',
       redirect_uri: redirectUri,
+      response_type: 'code',
+      code_challenge: codeChallenge,
+      code_challenge_method: 'S256',
       state,
     });
-    return `${VERCEL_API_BASE}/oauth/authorize?${params.toString()}`;
+
+    return {
+      url: `${VERCEL_OAUTH_BASE}/oauth/authorize?${params.toString()}`,
+      codeVerifier,
+    };
   },
 
-  async exchangeCodeForToken(code: string, redirectUri: string): Promise<TokenResponse> {
-    const response = await fetch(`${VERCEL_API_BASE}/v2/oauth/access_token`, {
+  async exchangeCodeForToken(code: string, redirectUri: string, codeVerifier?: string): Promise<TokenResponse> {
+    const body: Record<string, string> = {
+      grant_type: 'authorization_code',
+      client_id: config.vercel?.clientId || '',
+      code,
+      redirect_uri: redirectUri,
+    };
+
+    // Add client_secret if configured
+    if (config.vercel?.clientSecret) {
+      body.client_secret = config.vercel.clientSecret;
+    }
+
+    // Add PKCE code_verifier if provided
+    if (codeVerifier) {
+      body.code_verifier = codeVerifier;
+    }
+
+    const response = await fetch(`${VERCEL_API_BASE}/login/oauth/token`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded',
       },
-      body: new URLSearchParams({
-        client_id: config.vercel?.clientId || '',
-        client_secret: config.vercel?.clientSecret || '',
-        code,
-        redirect_uri: redirectUri,
-      }),
+      body: new URLSearchParams(body),
     });
 
     const data = await response.json() as {
@@ -203,7 +242,6 @@ export const vercelProvider: Provider = {
     return {
       accessToken: data.access_token,
       tokenType: data.token_type || 'Bearer',
-      // Vercel tokens don't expire, but we could set a long expiry for rotation purposes
     };
   },
 

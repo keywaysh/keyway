@@ -47,11 +47,11 @@ export interface Provider {
    * OAuth Methods
    */
 
-  /** Generate the OAuth authorization URL */
-  getAuthorizationUrl(state: string, redirectUri: string): string;
+  /** Generate the OAuth authorization URL and optional PKCE code_verifier */
+  getAuthorizationUrl(state: string, redirectUri: string): { url: string; codeVerifier?: string };
 
   /** Exchange authorization code for access token */
-  exchangeCodeForToken(code: string, redirectUri: string): Promise<TokenResponse>;
+  exchangeCodeForToken(code: string, redirectUri: string, codeVerifier?: string): Promise<TokenResponse>;
 
   /** Refresh an expired access token */
   refreshToken?(refreshToken: string): Promise<TokenResponse>;

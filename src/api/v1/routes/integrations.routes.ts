@@ -180,18 +180,22 @@ export async function integrationsRoutes(fastify: FastifyInstance) {
       }
     }
 
-    // Sign state to prevent CSRF
+    const callbackUri = buildCallbackUrl(request, providerName);
+    const { url: authUrl, codeVerifier } = provider.getAuthorizationUrl('', callbackUri);
+
+    // Sign state to prevent CSRF (include codeVerifier for PKCE)
     const state = signState({
       type: 'provider_oauth',
       provider: providerName,
       userId: request.githubUser!.githubId,
       redirectUri: validatedRedirectUri,
+      codeVerifier, // Store for token exchange
     });
 
-    const callbackUri = buildCallbackUrl(request, providerName);
-    const authUrl = provider.getAuthorizationUrl(state, callbackUri);
+    // Replace empty state in URL with signed state
+    const finalUrl = authUrl.replace('state=', `state=${encodeURIComponent(state)}`);
 
-    return reply.redirect(authUrl);
+    return reply.redirect(finalUrl);
   });
 
   /**
@@ -223,9 +227,10 @@ export async function integrationsRoutes(fastify: FastifyInstance) {
         throw new BadRequestError('Invalid or tampered state parameter');
       }
 
-      // Exchange code for token
+      // Exchange code for token (include codeVerifier for PKCE if present)
       const callbackUri = buildCallbackUrl(request, providerName);
-      const tokenResponse = await provider.exchangeCodeForToken(query.code, callbackUri);
+      const codeVerifier = stateData.codeVerifier as string | undefined;
+      const tokenResponse = await provider.exchangeCodeForToken(query.code, callbackUri, codeVerifier);
 
       // Get provider user info
       const providerUser = await provider.getUser(tokenResponse.accessToken);
