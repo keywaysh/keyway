@@ -1,9 +1,11 @@
 /**
  * Vercel Provider Implementation
  * Handles OAuth and Environment Variables API for Vercel
+ *
+ * Uses Vercel Marketplace Integration OAuth flow (not "Sign in with Vercel")
+ * which provides access to projects and environment variables.
  */
 
-import crypto from 'crypto';
 import {
   Provider,
   TokenResponse,
@@ -15,24 +17,8 @@ import {
 import { config } from '../../config';
 
 const VERCEL_API_BASE = 'https://api.vercel.com';
-const VERCEL_OAUTH_BASE = 'https://vercel.com';
+const VERCEL_INTEGRATION_SLUG = 'keyway';
 
-/**
- * Generate PKCE code_verifier and code_challenge
- * Required for Vercel's "Sign in with Vercel" OAuth flow
- */
-function generatePKCE(): { codeVerifier: string; codeChallenge: string } {
-  // Generate random 43-128 character code_verifier
-  const codeVerifier = crypto.randomBytes(32).toString('base64url');
-
-  // Create SHA256 hash and base64url encode for code_challenge
-  const codeChallenge = crypto
-    .createHash('sha256')
-    .update(codeVerifier)
-    .digest('base64url');
-
-  return { codeVerifier, codeChallenge };
-}
 const DEFAULT_TIMEOUT_MS = 30000; // 30 seconds
 
 // Logger for provider operations - sanitizes context to prevent token leakage
@@ -179,43 +165,29 @@ export const vercelProvider: Provider = {
   name: 'vercel',
   displayName: 'Vercel',
 
-  getAuthorizationUrl(state: string, redirectUri: string): { url: string; codeVerifier?: string } {
-    const { codeVerifier, codeChallenge } = generatePKCE();
-
+  getAuthorizationUrl(state: string, _redirectUri: string): { url: string; codeVerifier?: string } {
+    // Vercel Integration OAuth flow - redirect to integration install page
+    // The redirect_uri is configured in the Vercel dashboard, not passed here
     const params = new URLSearchParams({
-      client_id: config.vercel?.clientId || '',
-      redirect_uri: redirectUri,
-      response_type: 'code',
-      code_challenge: codeChallenge,
-      code_challenge_method: 'S256',
       state,
     });
 
     return {
-      url: `${VERCEL_OAUTH_BASE}/oauth/authorize?${params.toString()}`,
-      codeVerifier,
+      url: `https://vercel.com/integrations/${VERCEL_INTEGRATION_SLUG}/new?${params.toString()}`,
+      // No PKCE needed for Integration OAuth flow
     };
   },
 
-  async exchangeCodeForToken(code: string, redirectUri: string, codeVerifier?: string): Promise<TokenResponse> {
+  async exchangeCodeForToken(code: string, redirectUri: string, _codeVerifier?: string): Promise<TokenResponse> {
+    // Vercel Integration uses /v2/oauth/access_token endpoint
     const body: Record<string, string> = {
-      grant_type: 'authorization_code',
-      client_id: config.vercel?.clientId || '',
       code,
+      client_id: config.vercel?.clientId || '',
+      client_secret: config.vercel?.clientSecret || '',
       redirect_uri: redirectUri,
     };
 
-    // Add client_secret if configured
-    if (config.vercel?.clientSecret) {
-      body.client_secret = config.vercel.clientSecret;
-    }
-
-    // Add PKCE code_verifier if provided
-    if (codeVerifier) {
-      body.code_verifier = codeVerifier;
-    }
-
-    const response = await fetch(`${VERCEL_API_BASE}/login/oauth/token`, {
+    const response = await fetch(`${VERCEL_API_BASE}/v2/oauth/access_token`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded',
@@ -226,7 +198,9 @@ export const vercelProvider: Provider = {
     const data = await response.json() as {
       access_token?: string;
       token_type?: string;
-      team_id?: string;
+      team_id?: string | null;
+      user_id?: string;
+      installation_id?: string;
       error?: string;
       error_description?: string;
     };
@@ -242,24 +216,27 @@ export const vercelProvider: Provider = {
     return {
       accessToken: data.access_token,
       tokenType: data.token_type || 'Bearer',
+      // Store team_id and user_id in scope for later retrieval
+      scope: data.team_id ? `team:${data.team_id}` : undefined,
     };
   },
 
   async getUser(accessToken: string): Promise<ProviderUser> {
-    // Use OIDC userinfo endpoint for "Sign in with Vercel" tokens
+    // Use REST API /v2/user endpoint for Integration tokens
     const data = await vercelFetch<{
-      sub: string;              // User ID
-      email?: string;
-      email_verified?: boolean;
-      name?: string;
-      preferred_username?: string;
-      picture?: string;
-    }>(`${VERCEL_API_BASE}/login/oauth/userinfo`, accessToken);
+      user: {
+        id: string;
+        email: string;
+        name?: string;
+        username: string;
+        avatar?: string;
+      };
+    }>(`${VERCEL_API_BASE}/v2/user`, accessToken);
 
     return {
-      id: data.sub,
-      username: data.preferred_username || data.email || data.sub,
-      email: data.email,
+      id: data.user.id,
+      username: data.user.username,
+      email: data.user.email,
     };
   },
 

@@ -110,7 +110,7 @@ vi.mock('../../src/utils/state', () => ({
     provider: 'vercel',
     userId: mockUser.githubId,
     redirectUri: null,
-    codeVerifier: 'test-code-verifier-123',
+    // Integration OAuth doesn't use PKCE
   }),
 }));
 
@@ -132,8 +132,8 @@ vi.mock('../../src/services/providers', () => ({
     name: 'vercel',
     displayName: 'Vercel',
     getAuthorizationUrl: vi.fn().mockReturnValue({
-      url: 'https://vercel.com/oauth/authorize?client_id=test&state=',
-      codeVerifier: 'test-code-verifier-123',
+      url: 'https://vercel.com/integrations/keyway/new?state=',
+      // Integration OAuth doesn't use PKCE
     }),
     exchangeCodeForToken: vi.fn().mockResolvedValue({
       accessToken: 'vercel-access-token',
