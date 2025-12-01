@@ -431,6 +431,17 @@ export async function integrationsRoutes(fastify: FastifyInstance) {
   });
 }
 
+// Keyway logo SVG
+const keywayLogoSvg = `<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" class="logo-icon">
+  <path d="M12 2L2 7l10 5 10-5-10-5z" fill="currentColor"/>
+  <path d="M2 17l10 5 10-5M2 12l10 5 10-5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+</svg>`;
+
+// Provider icons
+const providerIcons: Record<string, string> = {
+  vercel: `<svg viewBox="0 0 76 65" fill="currentColor" class="provider-icon"><path d="M37.5274 0L75.0548 65H0L37.5274 0Z"/></svg>`,
+};
+
 // HTML template helpers
 function renderErrorPage(title: string, message: string): string {
   return `<!DOCTYPE html>
@@ -439,20 +450,103 @@ function renderErrorPage(title: string, message: string): string {
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Keyway - ${title}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 20px; }
-    .container { background: white; border-radius: 12px; padding: 40px; max-width: 480px; width: 100%; box-shadow: 0 20px 60px rgba(0,0,0,0.3); text-align: center; }
-    h1 { font-size: 28px; margin-bottom: 12px; color: #c53030; }
-    p { color: #4a5568; margin-bottom: 24px; line-height: 1.6; }
-    .logo { font-size: 48px; margin-bottom: 20px; }
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #f9fafb;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+    }
+    .card {
+      background: white;
+      border-radius: 16px;
+      padding: 48px 40px;
+      max-width: 420px;
+      width: 100%;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1), 0 1px 2px rgba(0,0,0,0.06);
+      border: 1px solid #e5e7eb;
+      text-align: center;
+    }
+    .logo {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      margin-bottom: 32px;
+      color: #111827;
+      font-weight: 700;
+      font-size: 20px;
+    }
+    .logo-icon {
+      width: 28px;
+      height: 28px;
+      color: #10b981;
+    }
+    .icon-container {
+      width: 56px;
+      height: 56px;
+      background: #fef2f2;
+      border-radius: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin: 0 auto 24px;
+    }
+    .icon-container svg {
+      width: 28px;
+      height: 28px;
+      color: #dc2626;
+    }
+    h1 {
+      font-size: 24px;
+      font-weight: 600;
+      color: #111827;
+      margin-bottom: 8px;
+    }
+    p {
+      color: #6b7280;
+      line-height: 1.6;
+      font-size: 15px;
+    }
+    .help-link {
+      margin-top: 32px;
+      padding-top: 24px;
+      border-top: 1px solid #e5e7eb;
+    }
+    .help-link a {
+      color: #10b981;
+      text-decoration: none;
+      font-size: 14px;
+      font-weight: 500;
+    }
+    .help-link a:hover {
+      text-decoration: underline;
+    }
   </style>
 </head>
 <body>
-  <div class="container">
-    <div class="logo">⚠️</div>
+  <div class="card">
+    <div class="logo">
+      ${keywayLogoSvg}
+      <span>Keyway</span>
+    </div>
+    <div class="icon-container">
+      <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
+      </svg>
+    </div>
     <h1>${title}</h1>
     <p>${message}</p>
+    <div class="help-link">
+      <a href="https://keyway.sh">Return to Keyway</a>
+    </div>
   </div>
 </body>
 </html>`;
@@ -460,29 +554,164 @@ function renderErrorPage(title: string, message: string): string {
 
 function renderSuccessPage(provider: string, username: string): string {
   const providerName = provider.charAt(0).toUpperCase() + provider.slice(1);
+  const providerIcon = providerIcons[provider] || '';
+
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Keyway - Connected to ${providerName}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 20px; }
-    .container { background: white; border-radius: 12px; padding: 40px; max-width: 480px; width: 100%; box-shadow: 0 20px 60px rgba(0,0,0,0.3); text-align: center; }
-    h1 { font-size: 28px; margin-bottom: 12px; color: #38a169; }
-    p { color: #4a5568; margin-bottom: 24px; line-height: 1.6; }
-    .logo { font-size: 48px; margin-bottom: 20px; }
-    .user-info { background: #f7fafc; padding: 16px; border-radius: 8px; margin-top: 20px; }
-    .user-info strong { color: #2d3748; }
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #f9fafb;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+    }
+    .card {
+      background: white;
+      border-radius: 16px;
+      padding: 48px 40px;
+      max-width: 420px;
+      width: 100%;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1), 0 1px 2px rgba(0,0,0,0.06);
+      border: 1px solid #e5e7eb;
+      text-align: center;
+    }
+    .logo {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      margin-bottom: 32px;
+      color: #111827;
+      font-weight: 700;
+      font-size: 20px;
+    }
+    .logo-icon {
+      width: 28px;
+      height: 28px;
+      color: #10b981;
+    }
+    .success-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: #ecfdf5;
+      color: #059669;
+      padding: 6px 12px;
+      border-radius: 20px;
+      font-size: 13px;
+      font-weight: 500;
+      margin-bottom: 24px;
+    }
+    .success-badge svg {
+      width: 16px;
+      height: 16px;
+    }
+    .provider-box {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      padding: 16px;
+      background: #f9fafb;
+      border-radius: 12px;
+      margin-bottom: 24px;
+    }
+    .provider-icon-wrapper {
+      width: 40px;
+      height: 40px;
+      background: #111827;
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .provider-icon {
+      width: 20px;
+      height: 20px;
+      color: white;
+    }
+    .provider-name {
+      font-weight: 600;
+      color: #111827;
+      font-size: 16px;
+    }
+    h1 {
+      font-size: 24px;
+      font-weight: 600;
+      color: #111827;
+      margin-bottom: 8px;
+    }
+    p {
+      color: #6b7280;
+      line-height: 1.6;
+      font-size: 15px;
+    }
+    .user-info {
+      margin-top: 24px;
+      padding: 12px 16px;
+      background: #f9fafb;
+      border-radius: 8px;
+      font-size: 14px;
+      color: #374151;
+    }
+    .user-info strong {
+      color: #111827;
+    }
+    .terminal-hint {
+      margin-top: 32px;
+      padding: 16px;
+      background: #111827;
+      border-radius: 10px;
+      font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
+      font-size: 13px;
+      color: #9ca3af;
+      text-align: left;
+    }
+    .terminal-hint .prompt {
+      color: #10b981;
+    }
+    .terminal-hint .command {
+      color: white;
+    }
   </style>
 </head>
 <body>
-  <div class="container">
-    <div class="logo">✅</div>
-    <h1>Connected to ${providerName}!</h1>
-    <p>You have successfully connected your ${providerName} account. You can now close this window and return to the terminal.</p>
-    <div class="user-info"><strong>Connected as:</strong> ${username}</div>
+  <div class="card">
+    <div class="logo">
+      ${keywayLogoSvg}
+      <span>Keyway</span>
+    </div>
+    <div class="success-badge">
+      <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/>
+      </svg>
+      Connected successfully
+    </div>
+    <div class="provider-box">
+      <div class="provider-icon-wrapper">
+        ${providerIcon}
+      </div>
+      <span class="provider-name">${providerName}</span>
+    </div>
+    <h1>You're all set!</h1>
+    <p>Your ${providerName} account is now connected to Keyway. You can close this window and return to your terminal.</p>
+    <div class="user-info">
+      <strong>Connected as:</strong> ${username}
+    </div>
+    <div class="terminal-hint">
+      <span class="prompt">$</span> <span class="command">keyway sync ${provider}</span>
+    </div>
   </div>
 </body>
 </html>`;
