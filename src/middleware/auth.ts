@@ -94,11 +94,15 @@ export async function authenticateGitHub(
         request.githubUser = githubUser;
         return;
       } catch (githubError) {
+        // Clear invalid cookie and return 401
+        reply.clearCookie('keyway_session', { path: '/' });
         throw new UnauthorizedError('Invalid access token');
       }
     }
 
-    throw error;
+    // Any other JWT error (expired, malformed, wrong secret) - clear cookie and return 401
+    reply.clearCookie('keyway_session', { path: '/' });
+    throw new UnauthorizedError('Invalid or expired token');
   }
 }
 
