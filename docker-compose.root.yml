@@ -1,0 +1,71 @@
+services:
+  db:
+    image: postgres:16-alpine
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: keyway
+      POSTGRES_PASSWORD: keyway
+      POSTGRES_DB: keyway
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U keyway"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  crypto:
+    build: ./keyway-crypto
+    environment:
+      - ENCRYPTION_KEY=${ENCRYPTION_KEY}
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z localhost 50051 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+
+  backend:
+    build: ./keyway-backend
+    environment:
+      - PORT=8080
+      - NODE_ENV=development
+      - DATABASE_URL=postgresql://keyway:keyway@db:5432/keyway
+      - CRYPTO_SERVICE_URL=crypto:50051
+      - ENCRYPTION_KEY=${ENCRYPTION_KEY}
+      - JWT_SECRET=${JWT_SECRET}
+      - GITHUB_CLIENT_ID=${GITHUB_CLIENT_ID}
+      - GITHUB_CLIENT_SECRET=${GITHUB_CLIENT_SECRET}
+      - ALLOWED_ORIGINS=https://localhost
+    depends_on:
+      db:
+        condition: service_healthy
+      crypto:
+        condition: service_healthy
+
+  site:
+    build:
+      context: ./keyway-site
+      args:
+        - NEXT_PUBLIC_KEYWAY_API_URL=https://localhost/api
+    depends_on:
+      - backend
+
+  caddy:
+    image: caddy:2-alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - site
+      - backend
+
+volumes:
+  postgres_data:
+  caddy_data:
+  caddy_config:

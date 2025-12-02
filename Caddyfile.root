@@ -1,0 +1,18 @@
+{
+	local_certs
+}
+
+localhost {
+	handle {
+		reverse_proxy site:3000
+	}
+
+	handle /api/* {
+		uri strip_prefix /api
+		reverse_proxy backend:8080
+	}
+
+	handle /v1/* {
+		reverse_proxy backend:8080
+	}
+}
