@@ -1,6 +1,8 @@
 import { db, vaults, secrets } from '../db';
-import { eq, desc } from 'drizzle-orm';
+import { eq, desc, and, asc } from 'drizzle-orm';
 import { getRepoPermission, getRepoAccessAndPermission } from '../utils/github';
+import type { UserPlan } from '../db/schema';
+import { PLANS } from '../config/plans';
 
 // Helper to get GitHub avatar URL for a repo owner
 function getGitHubAvatarUrl(owner: string): string {
@@ -28,6 +30,7 @@ export interface VaultListItem {
   environments: string[];
   permission: string | null;
   isPrivate: boolean;
+  isReadOnly: boolean;
   updatedAt: string;
 }
 
@@ -41,8 +44,32 @@ export interface VaultDetails {
   environments: string[];
   permission: string | null;
   isPrivate: boolean;
+  isReadOnly: boolean;
   createdAt: string;
   updatedAt: string;
+}
+
+/**
+ * Get private vaults ordered by creation date for determining read-only status.
+ * Returns a Set of excess vault IDs (vaults beyond the plan limit).
+ */
+async function getExcessPrivateVaultIds(userId: string, plan: UserPlan): Promise<Set<string>> {
+  const limit = PLANS[plan].maxPrivateRepos;
+
+  // If unlimited, no vaults are excess
+  if (limit === Infinity) {
+    return new Set();
+  }
+
+  // Get private vaults ordered by creation date (FIFO - oldest first)
+  const privateVaults = await db
+    .select({ id: vaults.id })
+    .from(vaults)
+    .where(and(eq(vaults.ownerId, userId), eq(vaults.isPrivate, true)))
+    .orderBy(asc(vaults.createdAt));
+
+  // Vaults beyond the limit are "excess" (read-only)
+  return new Set(privateVaults.slice(limit).map(v => v.id));
 }
 
 /**
@@ -50,7 +77,8 @@ export interface VaultDetails {
  */
 export async function getVaultsForUser(
   userId: string,
-  accessToken: string
+  accessToken: string,
+  plan: UserPlan
 ): Promise<VaultListItem[]> {
   const ownedVaults = await db.query.vaults.findMany({
     where: eq(vaults.ownerId, userId),
@@ -59,6 +87,9 @@ export async function getVaultsForUser(
     },
     orderBy: [desc(vaults.updatedAt)],
   });
+
+  // Get excess vault IDs for read-only determination
+  const excessVaultIds = await getExcessPrivateVaultIds(userId, plan);
 
   const vaultList = await Promise.all(
     ownedVaults.map(async (vault) => {
@@ -73,6 +104,9 @@ export async function getVaultsForUser(
       // Fetch user's permission for this repo
       const permission = await getRepoPermission(accessToken, vault.repoFullName);
 
+      // Private vaults beyond plan limit are read-only
+      const isReadOnly = vault.isPrivate && excessVaultIds.has(vault.id);
+
       return {
         id: vault.id,
         repoOwner,
@@ -82,6 +116,7 @@ export async function getVaultsForUser(
         environments,
         permission,
         isPrivate: vault.isPrivate,
+        isReadOnly,
         updatedAt: vault.updatedAt.toISOString(),
       };
     })
@@ -95,7 +130,8 @@ export async function getVaultsForUser(
  */
 export async function getVaultByRepo(
   repoFullName: string,
-  accessToken: string
+  accessToken: string,
+  plan: UserPlan
 ): Promise<{ vault: VaultDetails; hasAccess: boolean }> {
   const vault = await db.query.vaults.findFirst({
     where: eq(vaults.repoFullName, repoFullName),
@@ -126,6 +162,10 @@ export async function getVaultByRepo(
     environments.push('default');
   }
 
+  // Determine if vault is read-only based on plan limits
+  const excessVaultIds = await getExcessPrivateVaultIds(vault.ownerId, plan);
+  const isReadOnly = vault.isPrivate && excessVaultIds.has(vault.id);
+
   return {
     vault: {
       id: vault.id,
@@ -137,6 +177,7 @@ export async function getVaultByRepo(
       environments,
       permission,
       isPrivate: vault.isPrivate,
+      isReadOnly,
       createdAt: vault.createdAt.toISOString(),
       updatedAt: vault.updatedAt.toISOString(),
     },

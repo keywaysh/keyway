@@ -4,10 +4,11 @@ import { authenticateGitHub, requireEnvironmentAccess } from '../../../middlewar
 import { db, users, vaults, secrets } from '../../../db';
 import { eq, and, inArray } from 'drizzle-orm';
 import { getEncryptionService, sanitizeForLogging } from '../../../utils/encryption';
-import { sendData, NotFoundError, BadRequestError } from '../../../lib';
+import { sendData, NotFoundError, BadRequestError, PlanLimitError } from '../../../lib';
 import { trackEvent, AnalyticsEvents } from '../../../utils/analytics';
 import { logActivity, extractRequestInfo, detectPlatform } from '../../../services';
 import { processPullEvent, generateDeviceId } from '../../../services/security.service';
+import { canWriteToVault } from '../../../services/usage.service';
 import { repoFullNameSchema, DEFAULT_ENVIRONMENTS } from '../../../types';
 
 // Security limits for secrets
@@ -107,6 +108,18 @@ export async function secretsRoutes(fastify: FastifyInstance) {
       throw new NotFoundError('Vault not found. Run keyway init first.');
     }
 
+    // Check plan limit for write access (soft limit for downgraded users)
+    const user = await db.query.users.findFirst({
+      where: eq(users.githubId, githubUser.githubId),
+    });
+
+    if (user) {
+      const writeCheck = await canWriteToVault(user.id, user.plan, vault.id, vault.isPrivate);
+      if (!writeCheck.allowed) {
+        throw new PlanLimitError(writeCheck.reason!);
+      }
+    }
+
     // Validate environment exists in vault's environment list
     const vaultEnvs = vault.environments && vault.environments.length > 0
       ? vault.environments
@@ -187,10 +200,7 @@ export async function secretsRoutes(fastify: FastifyInstance) {
       .set({ updatedAt: new Date() })
       .where(eq(vaults.id, vault.id));
 
-    const user = await db.query.users.findFirst({
-      where: eq(users.githubId, githubUser.githubId),
-    });
-
+    // Note: 'user' was already fetched above for plan limit check
     trackEvent(user?.id || 'anonymous', AnalyticsEvents.SECRETS_PUSHED, {
       repoFullName: body.repoFullName,
       environment: body.environment,

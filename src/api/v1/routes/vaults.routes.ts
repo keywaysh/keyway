@@ -22,6 +22,8 @@ import {
   detectPlatform,
   checkVaultCreationAllowed,
   computeUserUsage,
+  canWriteToVault,
+  getPrivateVaultAccess,
 } from '../../../services';
 import { hasRepoAccess, getRepoInfo } from '../../../utils/github';
 import { trackEvent, AnalyticsEvents } from '../../../utils/analytics';
@@ -117,7 +119,7 @@ export async function vaultsRoutes(fastify: FastifyInstance) {
       });
     }
 
-    const vaultList = await getVaultsForUser(user.id, accessToken);
+    const vaultList = await getVaultsForUser(user.id, accessToken, user.plan);
 
     // Apply pagination (in-memory for now, could be optimized)
     const paginatedVaults = vaultList.slice(pagination.offset, pagination.offset + pagination.limit);
@@ -233,9 +235,18 @@ export async function vaultsRoutes(fastify: FastifyInstance) {
   }, async (request, reply) => {
     const params = request.params as { owner: string; repo: string };
     const repoFullName = `${params.owner}/${params.repo}`;
+    const githubUser = request.githubUser!;
     const accessToken = request.accessToken!;
 
-    const { vault, hasAccess } = await getVaultByRepo(repoFullName, accessToken);
+    // Get user to determine plan for isReadOnly calculation
+    const user = await db.query.users.findFirst({
+      where: eq(users.githubId, githubUser.githubId),
+    });
+
+    // Default to 'free' plan if user not found (shouldn't happen but safe fallback)
+    const userPlan = user?.plan ?? 'free';
+
+    const { vault, hasAccess } = await getVaultByRepo(repoFullName, accessToken, userPlan);
 
     if (!vault || !hasAccess) {
       throw new NotFoundError(`Vault '${repoFullName}' not found or you don't have access`);
@@ -374,6 +385,12 @@ export async function vaultsRoutes(fastify: FastifyInstance) {
       throw new ForbiddenError('User not found in database');
     }
 
+    // Check plan limit for write access (soft limit for downgraded users)
+    const writeCheck = await canWriteToVault(user.id, user.plan, vault.id, vault.isPrivate);
+    if (!writeCheck.allowed) {
+      throw new PlanLimitError(writeCheck.reason!);
+    }
+
     const result = await upsertSecret({
       vaultId: vault.id,
       key: body.key,
@@ -435,6 +452,12 @@ export async function vaultsRoutes(fastify: FastifyInstance) {
       throw new ForbiddenError('User not found in database');
     }
 
+    // Check plan limit for write access (soft limit for downgraded users)
+    const writeCheck = await canWriteToVault(user.id, user.plan, vault.id, vault.isPrivate);
+    if (!writeCheck.allowed) {
+      throw new PlanLimitError(writeCheck.reason!);
+    }
+
     const updatedSecret = await updateSecret(params.secretId, vault.id, {
       key: body.name,
       value: body.value,
@@ -483,6 +506,12 @@ export async function vaultsRoutes(fastify: FastifyInstance) {
     });
     if (!user) {
       throw new ForbiddenError('User not found in database');
+    }
+
+    // Check plan limit for write access (soft limit for downgraded users)
+    const writeCheck = await canWriteToVault(user.id, user.plan, vault.id, vault.isPrivate);
+    if (!writeCheck.allowed) {
+      throw new PlanLimitError(writeCheck.reason!);
     }
 
     const deletedSecret = await deleteSecret(params.secretId, vault.id);
