@@ -389,3 +389,26 @@ export const EnvironmentPermissionBodySchema = z.object({
 });
 
 export type EnvironmentPermissionBody = z.infer<typeof EnvironmentPermissionBodySchema>;
+
+// ============================================
+// Contributors API Types
+// ============================================
+
+// Contributor schema - represents a GitHub collaborator with their permission
+export const ContributorSchema = z.object({
+  login: z.string(),
+  avatarUrl: z.string(),
+  htmlUrl: z.string(),
+  permission: PermissionLevelSchema,
+});
+
+export type Contributor = z.infer<typeof ContributorSchema>;
+
+// GET /v1/vaults/:owner/:repo/contributors - Contributors list response
+export const ContributorsResponseSchema = z.object({
+  repoId: z.string(),
+  provider: z.literal('github'),
+  contributors: z.array(ContributorSchema),
+});
+
+export type ContributorsResponse = z.infer<typeof ContributorsResponseSchema>;

@@ -359,3 +359,85 @@ export async function getRepoInfo(
     return null;
   }
 }
+
+/**
+ * Collaborator info returned by the contributors endpoint
+ */
+export interface RepoCollaborator {
+  login: string;
+  avatarUrl: string;
+  htmlUrl: string;
+  permission: CollaboratorRole;
+}
+
+/**
+ * GitHub API response for collaborators list
+ */
+interface GitHubCollaboratorListItem {
+  login: string;
+  avatar_url: string;
+  html_url: string;
+  role_name: 'pull' | 'triage' | 'push' | 'maintain' | 'admin';
+}
+
+/**
+ * Get all collaborators for a repository with their permission levels
+ * Requires admin access to the repository
+ */
+export async function getRepoCollaborators(
+  accessToken: string,
+  owner: string,
+  repo: string
+): Promise<RepoCollaborator[]> {
+  const collaborators: RepoCollaborator[] = [];
+  let page = 1;
+  const perPage = 100;
+
+  // Map GitHub's role_name to our CollaboratorRole type
+  const roleMap: Record<string, CollaboratorRole> = {
+    pull: 'read',
+    triage: 'triage',
+    push: 'write',
+    maintain: 'maintain',
+    admin: 'admin',
+  };
+
+  while (true) {
+    const response = await fetch(
+      `${GITHUB_API_BASE}/repos/${owner}/${repo}/collaborators?per_page=${perPage}&page=${page}`,
+      {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          Accept: 'application/vnd.github.v3+json',
+        },
+      }
+    );
+
+    if (!response.ok) {
+      if (response.status === 403) {
+        throw new Error('Admin access required to view collaborators');
+      }
+      throw new Error(`Failed to fetch collaborators: ${response.statusText}`);
+    }
+
+    const data = (await response.json()) as GitHubCollaboratorListItem[];
+
+    for (const collab of data) {
+      collaborators.push({
+        login: collab.login,
+        avatarUrl: collab.avatar_url,
+        htmlUrl: collab.html_url,
+        permission: roleMap[collab.role_name] || 'read',
+      });
+    }
+
+    // Check if there are more pages
+    if (data.length < perPage) {
+      break;
+    }
+
+    page++;
+  }
+
+  return collaborators;
+}

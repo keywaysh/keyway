@@ -25,7 +25,7 @@ import {
   canWriteToVault,
   getPrivateVaultAccess,
 } from '../../../services';
-import { hasRepoAccess, getRepoInfo } from '../../../utils/github';
+import { hasRepoAccess, getRepoInfo, getRepoCollaborators } from '../../../utils/github';
 import { trackEvent, AnalyticsEvents } from '../../../utils/analytics';
 import { repoFullNameSchema, DEFAULT_ENVIRONMENTS } from '../../../types';
 import { getSecurityAlerts } from '../../../services/security.service';
@@ -958,5 +958,38 @@ export async function vaultsRoutes(fastify: FastifyInstance) {
         deviceId: a.pullEvent.deviceId,
       } : null,
     })), { requestId: request.id });
+  });
+
+  // ============================================
+  // Contributors routes
+  // ============================================
+
+  /**
+   * GET /:owner/:repo/contributors
+   * Get all collaborators for a repository with their permission levels
+   * Requires admin access to the repository
+   */
+  fastify.get('/:owner/:repo/contributors', {
+    preHandler: [authenticateGitHub, requireAdminAccess],
+  }, async (request, reply) => {
+    const params = request.params as { owner: string; repo: string };
+    const { owner, repo } = params;
+    const repoFullName = `${owner}/${repo}`;
+    const accessToken = request.accessToken!;
+
+    // Check if vault exists
+    const vault = await getVaultByRepoInternal(repoFullName);
+    if (!vault) {
+      throw new NotFoundError('Vault not found');
+    }
+
+    // Fetch collaborators from GitHub API
+    const contributors = await getRepoCollaborators(accessToken, owner, repo);
+
+    return sendData(reply, {
+      repoId: repoFullName,
+      provider: 'github',
+      contributors,
+    }, { requestId: request.id });
   });
 }
