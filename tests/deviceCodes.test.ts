@@ -45,11 +45,12 @@ describe('Device Codes (Security Critical)', () => {
   });
 
   describe('generateUserCode', () => {
-    it('should generate a formatted user code (XXXX-XXXX)', () => {
+    it('should generate a formatted user code (XXXXX-XXXXX)', () => {
       const code = generateUserCode();
 
-      expect(code).toMatch(/^[A-Z0-9]{4}-[A-Z0-9]{4}$/);
-      expect(code).toHaveLength(9); // 8 chars + 1 hyphen
+      // CRIT-1 fix: Increased to 10 chars for ~48 bits of entropy
+      expect(code).toMatch(/^[A-Z0-9]{5}-[A-Z0-9]{5}$/);
+      expect(code).toHaveLength(11); // 10 chars + 1 hyphen
     });
 
     it('should not contain confusing characters (0, O, 1, I, L)', () => {
@@ -89,11 +90,11 @@ describe('Device Codes (Security Critical)', () => {
     it('should be easy to read and type', () => {
       const code = generateUserCode();
 
-      // Format is XXXX-XXXX
+      // Format is XXXXX-XXXXX (CRIT-1 fix: 10 chars)
       const parts = code.split('-');
       expect(parts).toHaveLength(2);
-      expect(parts[0]).toHaveLength(4);
-      expect(parts[1]).toHaveLength(4);
+      expect(parts[0]).toHaveLength(5);
+      expect(parts[1]).toHaveLength(5);
     });
   });
 

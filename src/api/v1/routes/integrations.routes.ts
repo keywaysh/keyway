@@ -22,11 +22,12 @@ import { signState, verifyState } from '../../../utils/state';
 import { config } from '../../../config';
 import { db, vaults, users } from '../../../db';
 import { eq } from 'drizzle-orm';
-import { NotFoundError, ForbiddenError, BadRequestError } from '../../../lib';
-import { hasRepoAccess } from '../../../utils/github';
+import { NotFoundError, ForbiddenError, BadRequestError, PlanLimitError } from '../../../lib';
+import { hasRepoAccess, hasAdminAccess, getUserRole } from '../../../utils/github';
 import { providerConnections } from '../../../db/schema';
 import { and } from 'drizzle-orm';
 import { sendData, sendNoContent } from '../../../lib/response';
+import { canConnectProvider } from '../../../config/plans';
 
 // Allowed redirect origins for OAuth callbacks
 const ALLOWED_REDIRECT_ORIGINS = [
@@ -87,6 +88,23 @@ async function verifyVaultAccess(accessToken: string, owner: string, repo: strin
 
   if (!vault) {
     throw new NotFoundError('Vault not found');
+  }
+
+  return vault;
+}
+
+// Helper to verify vault access with write permission (for sync push)
+async function verifyVaultWriteAccess(accessToken: string, owner: string, repo: string, username: string) {
+  const vault = await verifyVaultAccess(accessToken, owner, repo);
+  const repoFullName = `${owner}/${repo}`;
+
+  // Get user's role to check write permission
+  const role = await getUserRole(accessToken, repoFullName, username);
+
+  // write, maintain, admin can write
+  const canWrite = role && ['write', 'maintain', 'admin'].includes(role);
+  if (!canWrite) {
+    throw new ForbiddenError('You need write access to this repository to sync secrets');
   }
 
   return vault;
@@ -243,6 +261,16 @@ export async function integrationsRoutes(fastify: FastifyInstance) {
         throw new NotFoundError('User not found. Please log in again.');
       }
 
+      // Check provider limit before creating connection
+      const existingConnections = await listConnections(user.id);
+      const providerCheck = canConnectProvider(user.plan, existingConnections.length);
+      if (!providerCheck.allowed) {
+        return reply.type('text/html').send(renderErrorPage(
+          'Provider Limit Reached',
+          `${providerCheck.reason} <a href="https://keyway.sh/upgrade">Upgrade your plan</a> to connect more providers.`
+        ));
+      }
+
       // Store connection
       await createConnection(
         user.id,
@@ -383,14 +411,21 @@ export async function integrationsRoutes(fastify: FastifyInstance) {
     const { owner, repo } = request.params as { owner: string; repo: string };
     const body = SyncBodySchema.parse(request.body);
 
-    const vault = await verifyVaultAccess(request.accessToken!, owner, repo);
-
     const user = await db.query.users.findFirst({
       where: eq(users.githubId, request.githubUser!.githubId),
     });
 
     if (!user) {
       throw new NotFoundError('User not found');
+    }
+
+    // For push operations, require write access to the repository
+    // For pull operations, read access is sufficient
+    let vault;
+    if (body.direction === 'push') {
+      vault = await verifyVaultWriteAccess(request.accessToken!, owner, repo, request.githubUser!.username);
+    } else {
+      vault = await verifyVaultAccess(request.accessToken!, owner, repo);
     }
 
     // Verify the connection belongs to the authenticated user

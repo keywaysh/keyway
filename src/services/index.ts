@@ -16,6 +16,7 @@ export {
   updateSecret,
   deleteSecret,
   getSecretById,
+  secretExists,
   type SecretListItem,
   type CreateSecretInput,
   type UpdateSecretInput,

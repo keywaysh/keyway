@@ -71,10 +71,14 @@ export async function usersRoutes(fastify: FastifyInstance) {
         limits: {
           maxPublicRepos: formatLimit(freeLimits.maxPublicRepos),
           maxPrivateRepos: formatLimit(freeLimits.maxPrivateRepos),
+          maxProviders: formatLimit(freeLimits.maxProviders),
+          maxEnvironmentsPerVault: formatLimit(freeLimits.maxEnvironmentsPerVault),
+          maxSecretsPerPrivateVault: formatLimit(freeLimits.maxSecretsPerPrivateVault),
         },
         usage: {
           public: 0,
           private: 0,
+          providers: 0,
         },
       }, { requestId: request.id });
     }

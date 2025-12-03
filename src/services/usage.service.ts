@@ -1,5 +1,5 @@
-import { db, users, vaults, usageMetrics } from '../db';
-import { eq, and, sql, asc } from 'drizzle-orm';
+import { db, users, vaults, usageMetrics, secrets, providerConnections } from '../db';
+import { eq, and, sql, asc, count } from 'drizzle-orm';
 import type { UserPlan } from '../db/schema';
 import { getPlanLimits, formatLimit, canCreateRepo, PLANS } from '../config/plans';
 
@@ -19,8 +19,13 @@ export interface UserUsageResponse {
   limits: {
     maxPublicRepos: string | number;
     maxPrivateRepos: string | number;
+    maxProviders: string | number;
+    maxEnvironmentsPerVault: string | number;
+    maxSecretsPerPrivateVault: string | number;
   };
-  usage: UserUsage;
+  usage: UserUsage & {
+    providers: number;
+  };
 }
 
 /**
@@ -94,10 +99,24 @@ export async function getUserUsage(userId: string): Promise<UserUsage> {
 }
 
 /**
+ * Get provider connection count for a user
+ */
+async function getProviderCount(userId: string): Promise<number> {
+  const result = await db
+    .select({ count: count() })
+    .from(providerConnections)
+    .where(eq(providerConnections.userId, userId));
+  return result[0]?.count ?? 0;
+}
+
+/**
  * Get full usage response for the /users/me/usage endpoint
  */
 export async function getUserUsageResponse(userId: string, plan: UserPlan): Promise<UserUsageResponse> {
-  const usage = await getUserUsage(userId);
+  const [usage, providerCount] = await Promise.all([
+    getUserUsage(userId),
+    getProviderCount(userId),
+  ]);
   const limits = getPlanLimits(plan);
 
   return {
@@ -105,8 +124,14 @@ export async function getUserUsageResponse(userId: string, plan: UserPlan): Prom
     limits: {
       maxPublicRepos: formatLimit(limits.maxPublicRepos),
       maxPrivateRepos: formatLimit(limits.maxPrivateRepos),
+      maxProviders: formatLimit(limits.maxProviders),
+      maxEnvironmentsPerVault: formatLimit(limits.maxEnvironmentsPerVault),
+      maxSecretsPerPrivateVault: formatLimit(limits.maxSecretsPerPrivateVault),
     },
-    usage,
+    usage: {
+      ...usage,
+      providers: providerCount,
+    },
   };
 }
 

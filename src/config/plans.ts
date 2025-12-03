@@ -9,11 +9,17 @@ export interface PlanLimits {
   maxPublicRepos: number;
   /** Maximum number of private repositories allowed */
   maxPrivateRepos: number;
+  /** Maximum number of provider connections (Vercel, etc.) */
+  maxProviders: number;
+  /** Maximum number of environments per vault */
+  maxEnvironmentsPerVault: number;
+  /** Maximum number of secrets per private vault (public vaults are unlimited) */
+  maxSecretsPerPrivateVault: number;
 }
 
 /**
  * Plan definitions
- * - free: Unlimited public repos, 1 private repo
+ * - free: Limited features (1 private repo, 1 provider, 2 envs, 20 secrets)
  * - pro: Unlimited everything
  * - team: Unlimited everything (for organizations)
  */
@@ -21,14 +27,23 @@ export const PLANS: Record<UserPlan, PlanLimits> = {
   free: {
     maxPublicRepos: Infinity,
     maxPrivateRepos: 1,
+    maxProviders: 1,
+    maxEnvironmentsPerVault: 2,
+    maxSecretsPerPrivateVault: 20,
   },
   pro: {
     maxPublicRepos: Infinity,
     maxPrivateRepos: Infinity,
+    maxProviders: Infinity,
+    maxEnvironmentsPerVault: Infinity,
+    maxSecretsPerPrivateVault: Infinity,
   },
   team: {
     maxPublicRepos: Infinity,
     maxPrivateRepos: Infinity,
+    maxProviders: Infinity,
+    maxEnvironmentsPerVault: Infinity,
+    maxSecretsPerPrivateVault: Infinity,
   },
 } as const;
 
@@ -85,4 +100,68 @@ export function canCreateRepo(
  */
 export function formatLimit(limit: number): string | number {
   return limit === Infinity ? 'unlimited' : limit;
+}
+
+/**
+ * Check if a plan allows connecting another provider
+ */
+export function canConnectProvider(
+  plan: UserPlan,
+  currentProviderCount: number
+): { allowed: boolean; reason?: string } {
+  const limits = getPlanLimits(plan);
+
+  if (currentProviderCount >= limits.maxProviders) {
+    return {
+      allowed: false,
+      reason: `Your ${plan} plan allows ${limits.maxProviders} provider connection${limits.maxProviders === 1 ? '' : 's'}. Upgrade to connect more providers.`,
+    };
+  }
+
+  return { allowed: true };
+}
+
+/**
+ * Check if a plan allows creating another environment in a vault
+ */
+export function canCreateEnvironment(
+  plan: UserPlan,
+  currentEnvironmentCount: number
+): { allowed: boolean; reason?: string } {
+  const limits = getPlanLimits(plan);
+
+  if (currentEnvironmentCount >= limits.maxEnvironmentsPerVault) {
+    return {
+      allowed: false,
+      reason: `Your ${plan} plan allows ${limits.maxEnvironmentsPerVault} environment${limits.maxEnvironmentsPerVault === 1 ? '' : 's'} per vault. Upgrade to create more.`,
+    };
+  }
+
+  return { allowed: true };
+}
+
+/**
+ * Check if a plan allows creating another secret in a private vault
+ * Public vaults have no secret limit
+ */
+export function canCreateSecret(
+  plan: UserPlan,
+  currentSecretCount: number,
+  isPrivateVault: boolean
+): { allowed: boolean; reason?: string } {
+  // Public vaults have no secret limit
+  if (!isPrivateVault) {
+    return { allowed: true };
+  }
+
+  const limits = getPlanLimits(plan);
+
+  if (currentSecretCount >= limits.maxSecretsPerPrivateVault) {
+    return {
+      allowed: false,
+      reason: `Your ${plan} plan allows ${limits.maxSecretsPerPrivateVault} secrets per private vault. Upgrade to add more secrets.`,
+    };
+  }
+
+  return { allowed: true };
 }

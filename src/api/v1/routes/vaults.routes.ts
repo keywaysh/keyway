@@ -7,6 +7,7 @@ import { getVaultPermissions, getDefaultPermission } from '../../../utils/permis
 import { encryptAccessToken } from '../../../utils/tokenEncryption';
 import type { CollaboratorRole } from '../../../db/schema';
 import { sendData, sendPaginatedData, sendCreated, sendNoContent, NotFoundError, ForbiddenError, ConflictError, PlanLimitError, buildPaginationMeta, parsePagination } from '../../../lib';
+import { canCreateEnvironment, canCreateSecret } from '../../../config/plans';
 import {
   getVaultsForUser,
   getVaultByRepo,
@@ -17,6 +18,7 @@ import {
   upsertSecret,
   updateSecret,
   deleteSecret,
+  secretExists,
   logActivity,
   extractRequestInfo,
   detectPlatform,
@@ -25,7 +27,7 @@ import {
   canWriteToVault,
   getPrivateVaultAccess,
 } from '../../../services';
-import { hasRepoAccess, getRepoInfo, getRepoCollaborators } from '../../../utils/github';
+import { hasRepoAccess, getRepoInfo, getRepoCollaborators, getUserRole } from '../../../utils/github';
 import { trackEvent, AnalyticsEvents } from '../../../utils/analytics';
 import { repoFullNameSchema, DEFAULT_ENVIRONMENTS } from '../../../types';
 import { getSecurityAlerts } from '../../../services/security.service';
@@ -378,6 +380,13 @@ export async function vaultsRoutes(fastify: FastifyInstance) {
       throw new ForbiddenError('You do not have access to this vault');
     }
 
+    // Check GitHub write permission (write, maintain, or admin)
+    const role = await getUserRole(accessToken, vault.repoFullName, githubUser.username);
+    const canWriteGitHub = role && ['write', 'maintain', 'admin'].includes(role);
+    if (!canWriteGitHub) {
+      throw new ForbiddenError('You need write access to this repository to create or update secrets');
+    }
+
     const user = await db.query.users.findFirst({
       where: eq(users.githubId, githubUser.githubId),
     });
@@ -389,6 +398,18 @@ export async function vaultsRoutes(fastify: FastifyInstance) {
     const writeCheck = await canWriteToVault(user.id, user.plan, vault.id, vault.isPrivate);
     if (!writeCheck.allowed) {
       throw new PlanLimitError(writeCheck.reason!);
+    }
+
+    // Check secret count limit for private vaults (only for new secrets, not updates)
+    if (vault.isPrivate) {
+      const exists = await secretExists(vault.id, body.key, body.environment);
+      if (!exists) {
+        const currentCount = await getSecretsCount(vault.id);
+        const secretCheck = canCreateSecret(user.plan, currentCount, vault.isPrivate);
+        if (!secretCheck.allowed) {
+          throw new PlanLimitError(secretCheck.reason!);
+        }
+      }
     }
 
     const result = await upsertSecret({
@@ -445,6 +466,13 @@ export async function vaultsRoutes(fastify: FastifyInstance) {
       throw new ForbiddenError('You do not have access to this vault');
     }
 
+    // Check GitHub write permission (write, maintain, or admin)
+    const role = await getUserRole(accessToken, vault.repoFullName, githubUser.username);
+    const canWriteGitHub = role && ['write', 'maintain', 'admin'].includes(role);
+    if (!canWriteGitHub) {
+      throw new ForbiddenError('You need write access to this repository to update secrets');
+    }
+
     const user = await db.query.users.findFirst({
       where: eq(users.githubId, githubUser.githubId),
     });
@@ -499,6 +527,13 @@ export async function vaultsRoutes(fastify: FastifyInstance) {
     const hasAccess = await hasRepoAccess(accessToken, vault.repoFullName);
     if (!hasAccess) {
       throw new ForbiddenError('You do not have access to this vault');
+    }
+
+    // Check GitHub write permission (write, maintain, or admin)
+    const role = await getUserRole(accessToken, vault.repoFullName, githubUser.username);
+    const canWriteGitHub = role && ['write', 'maintain', 'admin'].includes(role);
+    if (!canWriteGitHub) {
+      throw new ForbiddenError('You need write access to this repository to delete secrets');
     }
 
     const user = await db.query.users.findFirst({
@@ -583,10 +618,24 @@ export async function vaultsRoutes(fastify: FastifyInstance) {
       throw new NotFoundError('Vault not found');
     }
 
+    // Get user for plan check
+    const user = await db.query.users.findFirst({
+      where: eq(users.githubId, githubUser.githubId),
+    });
+    if (!user) {
+      throw new ForbiddenError('User not found in database');
+    }
+
     // Get current environments, fallback to defaults
     const currentEnvs = vault.environments && vault.environments.length > 0
       ? vault.environments
       : [...DEFAULT_ENVIRONMENTS];
+
+    // Check plan limit for environments
+    const envCheck = canCreateEnvironment(user.plan, currentEnvs.length);
+    if (!envCheck.allowed) {
+      throw new PlanLimitError(envCheck.reason!);
+    }
 
     // Check for duplicates
     if (currentEnvs.includes(body.name)) {
@@ -601,19 +650,14 @@ export async function vaultsRoutes(fastify: FastifyInstance) {
       .where(eq(vaults.id, vault.id));
 
     // Log activity
-    const user = await db.query.users.findFirst({
-      where: eq(users.githubId, githubUser.githubId),
+    await logActivity({
+      userId: user.id,
+      action: 'environment_created',
+      platform: detectPlatform(request),
+      vaultId: vault.id,
+      metadata: { environment: body.name, repoFullName },
+      ...extractRequestInfo(request),
     });
-    if (user) {
-      await logActivity({
-        userId: user.id,
-        action: 'environment_created',
-        platform: detectPlatform(request),
-        vaultId: vault.id,
-        metadata: { environment: body.name, repoFullName },
-        ...extractRequestInfo(request),
-      });
-    }
 
     fastify.log.info({ repoFullName, environment: body.name }, 'Environment created');
 

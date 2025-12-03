@@ -72,8 +72,8 @@ describe('Auth Routes', () => {
       expect(body).toHaveProperty('expiresIn');
       expect(body).toHaveProperty('interval');
 
-      // User code should be in format XXXX-XXXX
-      expect(body.userCode).toMatch(/^[A-Z0-9]{4}-[A-Z0-9]{4}$/);
+      // User code should be in format XXXXX-XXXXX (CRIT-1 fix: 10 chars)
+      expect(body.userCode).toMatch(/^[A-Z0-9]{5}-[A-Z0-9]{5}$/);
     });
 
     it('should accept optional repository parameter', async () => {

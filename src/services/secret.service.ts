@@ -215,3 +215,21 @@ export async function getSecretsCount(vaultId: string): Promise<number> {
 
   return result[0]?.count ?? 0;
 }
+
+/**
+ * Check if a secret exists by key+environment (for limit checking before upsert)
+ */
+export async function secretExists(
+  vaultId: string,
+  key: string,
+  environment: string
+): Promise<boolean> {
+  const existing = await db.query.secrets.findFirst({
+    where: and(
+      eq(secrets.vaultId, vaultId),
+      eq(secrets.key, key),
+      eq(secrets.environment, environment)
+    ),
+  });
+  return !!existing;
+}

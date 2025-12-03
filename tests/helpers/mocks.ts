@@ -2,6 +2,8 @@ import { vi } from 'vitest';
 
 /**
  * Mock user data for testing
+ * Note: plan defaults to 'pro' for tests to avoid limit checks
+ * Tests that need to verify limit enforcement should explicitly use mockFreeUser
  */
 export const mockUser = {
   id: 'test-user-id-123',
@@ -10,11 +12,20 @@ export const mockUser = {
   email: 'test@example.com',
   avatarUrl: 'https://github.com/testuser.png',
   accessToken: 'gho_testtoken123',
-  plan: 'free' as const,
+  plan: 'pro' as const,
   stripeCustomerId: null,
   stripeSubscriptionId: null,
   createdAt: new Date(),
   updatedAt: new Date(),
+};
+
+/**
+ * Mock Free plan user for testing plan limits
+ */
+export const mockFreeUser = {
+  ...mockUser,
+  id: 'test-free-user-id',
+  plan: 'free' as const,
 };
 
 /**
