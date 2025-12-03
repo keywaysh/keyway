@@ -56,31 +56,47 @@ Retry-After: 60
 
 | Resource | Limit |
 |----------|-------|
-| Vaults | 10 |
-| Secrets per vault | 100 |
-| Environments per vault | 10 |
+| Public repositories | Unlimited |
+| Private repositories | 1 |
+| Provider connections | 1 (Vercel, Netlify, etc.) |
+| Environments per vault | 2 |
+| Secrets per private vault | 20 |
+| Secrets per public vault | Unlimited |
 | Secret value size | 64 KB |
 | Push batch size | 100 secrets |
 
-### Pro plan
+:::tip Free plan FIFO behavior
+If you downgrade from Pro to Free with multiple private vaults, your **oldest private vault** remains fully writable. Newer private vaults become read-only until you upgrade again.
+:::
+
+### Pro plan ($9/month)
 
 | Resource | Limit |
 |----------|-------|
-| Vaults | Unlimited |
-| Secrets per vault | 1,000 |
-| Environments per vault | 50 |
+| Public repositories | Unlimited |
+| Private repositories | Unlimited |
+| Provider connections | Unlimited |
+| Environments per vault | Unlimited |
+| Secrets per vault | Unlimited |
 | Secret value size | 64 KB |
 | Push batch size | 500 secrets |
 
-### Team plan
+### Team plan ($29/month)
 
 | Resource | Limit |
 |----------|-------|
-| Vaults | Unlimited |
-| Secrets per vault | Unlimited |
+| Public repositories | Unlimited |
+| Private repositories | Unlimited |
+| Private organization repos | Unlimited |
+| Provider connections | Unlimited |
 | Environments per vault | Unlimited |
+| Secrets per vault | Unlimited |
 | Secret value size | 256 KB |
 | Push batch size | 1,000 secrets |
+
+:::info Team plan exclusive
+Only the Team plan allows creating vaults for **private organization repositories**. Free and Pro plans are limited to personal repositories.
+:::
 
 ---
 
@@ -199,18 +215,30 @@ Response:
 ```json
 {
   "data": {
-    "vaults": {
-      "count": 5,
-      "limit": 10
+    "plan": "free",
+    "limits": {
+      "maxPublicRepos": "unlimited",
+      "maxPrivateRepos": 1,
+      "maxProviders": 1,
+      "maxEnvironmentsPerVault": 2,
+      "maxSecretsPerPrivateVault": 20
     },
-    "secrets": {
-      "count": 42,
-      "limit": 1000
-    },
-    "plan": "free"
+    "usage": {
+      "public": 3,
+      "private": 1,
+      "providers": 1
+    }
+  },
+  "meta": {
+    "requestId": "550e8400-e29b-41d4-a716-446655440000"
   }
 }
 ```
+
+The response shows:
+- **plan**: Your current plan (`free`, `pro`, or `team`)
+- **limits**: Maximum allowed for each resource (`"unlimited"` for no limit)
+- **usage**: Current usage counts
 
 ### Via CLI
 

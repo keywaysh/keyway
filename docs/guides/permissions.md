@@ -20,12 +20,20 @@ When you request secrets, Keyway:
 
 ## Permission levels
 
-| GitHub Role | Keyway Access |
-|-------------|---------------|
-| **Admin** | Full access - create vault, manage environments, read/write secrets |
-| **Write** | Read and write secrets |
-| **Read** | Read secrets only |
-| **None** | No access |
+Keyway maps GitHub's collaborator roles directly to vault permissions:
+
+| GitHub Role | Keyway Access | Can Read | Can Write | Can Manage |
+|-------------|---------------|:--------:|:---------:|:----------:|
+| **Admin** | Full access | ✓ | ✓ | ✓ |
+| **Maintain** | Read/write | ✓ | ✓ | ✗ |
+| **Write** | Read/write | ✓ | ✓ | ✗ |
+| **Triage** | Read only | ✓ | ✗ | ✗ |
+| **Read** | Read only | ✓ | ✗ | ✗ |
+| **None** | No access | ✗ | ✗ | ✗ |
+
+:::info GitHub Role Hierarchy
+GitHub roles follow a hierarchy: `read` → `triage` → `write` → `maintain` → `admin`. Each role includes all permissions of the roles below it.
+:::
 
 ## Admin capabilities
 
@@ -33,30 +41,36 @@ Repository admins can:
 
 - Initialize vaults (`keyway init`)
 - Create, rename, and delete environments (via dashboard or API)
-- Delete vaults
+- Delete vaults entirely
 - All read/write operations
 
 ## Write access capabilities
 
-Users with write access can:
+Users with **write**, **maintain**, or **admin** roles can:
 
 - Push secrets (`keyway push`)
 - Pull secrets (`keyway pull`)
-- Create and update individual secrets
+- Create and update individual secrets via API
 - Delete individual secrets
+- Trigger syncs with providers (Vercel, Netlify, etc.)
+
+:::caution Write access required for modifications
+Starting from v1.0, all secret modification operations (create, update, delete) require **write access** on the GitHub repository. This ensures secrets can only be modified by users who can also modify the code.
+:::
 
 ## Read access capabilities
 
-Users with read-only access can:
+Users with **read** or **triage** roles can:
 
 - Pull secrets (`keyway pull`)
-- List secrets
-- View secret metadata
+- List secrets and view metadata
+- View vault configuration
 
-They cannot:
+They **cannot**:
 - Push or modify secrets
+- Create or delete secrets via API
 - Manage environments
-- Delete anything
+- Trigger provider syncs
 
 ## Managing team access
 
@@ -116,6 +130,25 @@ Give contractors read-only access on GitHub. They can pull secrets but cannot mo
 ### Rotating team off a project
 
 Remove them from the GitHub repository. Consider rotating any secrets they had access to.
+
+## Plan-based restrictions
+
+In addition to GitHub permissions, your Keyway plan determines what you can create:
+
+| Plan | Public Repos | Private Repos | Private Org Repos | Providers |
+|------|:------------:|:-------------:|:-----------------:|:---------:|
+| Free | Unlimited | 1 | ✗ | 1 |
+| Pro | Unlimited | Unlimited | ✗ | Unlimited |
+| Team | Unlimited | Unlimited | Unlimited | Unlimited |
+
+When you exceed plan limits:
+- **Creating new vaults**: You receive a `403 Forbidden` with an upgrade link
+- **Existing vaults**: Remain accessible (read-only for newer private vaults on Free)
+- **Downgrade behavior**: Uses FIFO - your oldest private vault stays writable
+
+See [Limits Reference](../reference/limits) for complete details.
+
+---
 
 ## Security considerations
 

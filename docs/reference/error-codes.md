@@ -72,7 +72,7 @@ Authentication is missing or invalid.
 You don't have permission for this operation.
 
 **Common causes:**
-- Insufficient repository access level
+- Insufficient repository access level (need write access for modifications)
 - Trying admin operations without admin access
 - Repository access revoked
 
@@ -83,7 +83,7 @@ You don't have permission for this operation.
   "type": "https://keyway.sh/errors/forbidden",
   "title": "Forbidden",
   "status": 403,
-  "detail": "Admin access required to delete environments"
+  "detail": "You need write access to this repository to create or update secrets"
 }
 ```
 
@@ -91,6 +91,46 @@ You don't have permission for this operation.
 - Check your access level on the GitHub repository
 - Contact a repository admin for elevated access
 - Verify you're accessing the correct repository
+
+---
+
+### 403 Plan Limit Exceeded
+
+**Type:** `plan-limit`
+
+You've reached a limit on your current plan.
+
+**Common causes:**
+- Trying to create more private repositories than allowed
+- Connecting more providers than your plan allows
+- Creating more environments than allowed per vault
+- Creating more secrets than allowed per private vault
+
+**Example response:**
+
+```json
+{
+  "type": "https://keyway.sh/errors/plan-limit",
+  "title": "Plan Limit Exceeded",
+  "status": 403,
+  "detail": "Free plan allows 1 private repo. Upgrade to Pro for unlimited private repos.",
+  "upgradeUrl": "https://app.keyway.sh/upgrade"
+}
+```
+
+**Plan limits quick reference:**
+
+| Resource | Free | Pro | Team |
+|----------|:----:|:---:|:----:|
+| Private repositories | 1 | ∞ | ∞ |
+| Provider connections | 1 | ∞ | ∞ |
+| Environments per vault | 2 | ∞ | ∞ |
+| Secrets per private vault | 20 | ∞ | ∞ |
+
+**Resolution:**
+- Upgrade your plan at the provided `upgradeUrl`
+- Delete unused resources to free up quota
+- Use public repositories (unlimited on all plans)
 
 ---
 
@@ -247,6 +287,7 @@ An unexpected error occurred on the server.
 | 5 | Network Error | Cannot reach Keyway API |
 | 6 | Git Error | Not a git repository or no remote |
 | 7 | File Error | Cannot read/write local files |
+| 8 | Plan Limit | Plan limit exceeded (includes upgrade link) |
 
 ---
 
