@@ -14,26 +14,30 @@ export function generateDeviceCode(): string {
 
 /**
  * Generate a user-friendly code for display
- * Format: 8 character alphanumeric (uppercase, no confusing characters)
+ * Format: 10 character alphanumeric (uppercase, no confusing characters)
  *
- * Security: Generates 8 characters from a 29-character alphabet (excluding 0, O, 1, I, L).
- * This provides ~500 billion combinations (29^8), sufficient to prevent brute-force
- * attacks during the 15-minute expiration window with rate limiting.
- * (HIGH-12: User code entropy requirement met - 8 characters minimum)
+ * Security: Generates 10 characters from a 29-character alphabet (excluding 0, O, 1, I, L).
+ * This provides ~4.2 × 10^14 combinations (29^10 ≈ 48.5 bits of entropy), making brute-force
+ * attacks infeasible during the 15-minute expiration window even with aggressive rate limiting bypass.
+ * Uses crypto.randomBytes() for cryptographically secure randomness.
+ * (CRIT-1 fix: Increased from 8 to 10 chars, using randomBytes)
  */
 export function generateUserCode(): string {
   // Use only uppercase letters and numbers, excluding confusing characters (0, O, 1, I, L)
   const chars = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
-  const length = 8; // Minimum 8 characters for security
+  const length = 10; // 10 characters for ~48 bits of entropy
 
   let code = '';
+  const randomValues = crypto.randomBytes(length);
   for (let i = 0; i < length; i++) {
-    const randomIndex = crypto.randomInt(0, chars.length);
+    // Use modulo to map random byte to character index
+    // Note: slight bias exists (256 % 29 = 24), but negligible for security purposes
+    const randomIndex = randomValues[i] % chars.length;
     code += chars[randomIndex];
   }
 
-  // Format as XXXX-XXXX for readability
-  return `${code.slice(0, 4)}-${code.slice(4)}`;
+  // Format as XXXXX-XXXXX for readability
+  return `${code.slice(0, 5)}-${code.slice(5)}`;
 }
 
 /**

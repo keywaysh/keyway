@@ -126,6 +126,22 @@ export class RemoteEncryptionService implements IEncryptionService {
 
   constructor(address: string = 'localhost:50051') {
     this.serviceUrl = address;
+
+    // Security: Only allow insecure gRPC for trusted networks
+    // Railway private networking doesn't provide TLS, but traffic is isolated
+    // (CRIT-2 fix: Validate address to prevent accidental exposure)
+    const isTrustedNetwork =
+      address.startsWith('localhost') ||
+      address.startsWith('127.0.0.1') ||
+      address.includes('.railway.internal');
+
+    if (!isTrustedNetwork) {
+      throw new Error(
+        `Crypto service address "${address}" is not on a trusted network. ` +
+          'Only localhost, 127.0.0.1, and *.railway.internal are allowed without TLS.'
+      );
+    }
+
     const protoPath = path.join(__dirname, '../../proto/crypto.proto');
     const packageDef = protoLoader.loadSync(protoPath, {
       keepCase: false,
