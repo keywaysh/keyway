@@ -33,28 +33,17 @@ function buildCallbackUrl(request: { headers: { 'x-forwarded-proto'?: string; ho
 
 // Helper to create or update user from GitHub data
 async function upsertUser(githubUser: { githubId: number; username: string; email: string | null; avatarUrl: string | null }, accessToken: string) {
-  const existingUser = await db.query.users.findFirst({
-    where: eq(users.githubId, githubUser.githubId),
-  });
-
   const encryptedToken = await encryptAccessToken(accessToken);
 
-  if (existingUser) {
-    const [updatedUser] = await db
-      .update(users)
-      .set({
-        username: githubUser.username,
-        email: githubUser.email,
-        avatarUrl: githubUser.avatarUrl,
-        ...encryptedToken,
-        updatedAt: new Date(),
-      })
-      .where(eq(users.githubId, githubUser.githubId))
-      .returning();
-    return { user: updatedUser, isNewUser: false };
-  }
+  // Check if user exists first (to determine isNewUser)
+  const existingUser = await db.query.users.findFirst({
+    where: eq(users.githubId, githubUser.githubId),
+    columns: { id: true },
+  });
 
-  const [newUser] = await db
+  // Use atomic upsert with ON CONFLICT to prevent race conditions
+  // This ensures we never create duplicate users for the same githubId
+  const [user] = await db
     .insert(users)
     .values({
       githubId: githubUser.githubId,
@@ -63,8 +52,19 @@ async function upsertUser(githubUser: { githubId: number; username: string; emai
       avatarUrl: githubUser.avatarUrl,
       ...encryptedToken,
     })
+    .onConflictDoUpdate({
+      target: users.githubId,
+      set: {
+        username: githubUser.username,
+        email: githubUser.email,
+        avatarUrl: githubUser.avatarUrl,
+        ...encryptedToken,
+        updatedAt: new Date(),
+      },
+    })
     .returning();
-  return { user: newUser, isNewUser: true };
+
+  return { user, isNewUser: !existingUser };
 }
 
 /**

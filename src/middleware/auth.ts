@@ -1,7 +1,7 @@
 import { FastifyRequest, FastifyReply } from 'fastify';
 import { UnauthorizedError, ForbiddenError } from '../lib';
 import { getUserFromToken, getUserRoleWithApp } from '../utils/github';
-import { verifyKeywayToken, generateKeywayToken, getTokenExpiresAt } from '../utils/jwt';
+import { verifyKeywayToken } from '../utils/jwt';
 import { decryptAccessToken } from '../utils/tokenEncryption';
 import { db, users, vaults } from '../db';
 import { eq } from 'drizzle-orm';
@@ -92,84 +92,35 @@ export async function authenticateGitHub(
   }
 
   // Step 2: Get user from database
-  request.log.info({ searchUserId: payload.userId }, 'Auth middleware: Searching for user in DB by userId');
-
   const user = await db.query.users.findFirst({
     where: eq(users.id, payload.userId),
   });
 
-  // If user not found by userId, try to find by githubId (more reliable than username)
-  // This handles the case where user was recreated with a new userId
-  let resolvedUser = user;
-
-  if (!resolvedUser) {
-    const userByGithubId = await db.query.users.findFirst({
-      where: eq(users.githubId, payload.githubId),
-    });
-
-    if (userByGithubId) {
-      request.log.warn({
-        searchedUserId: payload.userId,
-        actualUserId: userByGithubId.id,
-        username: payload.username,
-        githubId: payload.githubId,
-      }, 'Auth middleware: User found by githubId but with DIFFERENT userId - auto-healing with new token');
-
-      // Auto-heal: generate a new JWT with the correct userId and set it as a cookie
-      const newToken = generateKeywayToken({
-        userId: userByGithubId.id,
-        githubId: userByGithubId.githubId,
-        username: userByGithubId.username,
-      });
-
-      // Set the new token as a cookie (for web dashboard)
-      const isProduction = process.env.NODE_ENV === 'production';
-      const cookieOptions = {
-        path: '/',
-        httpOnly: true,
-        secure: isProduction,
-        sameSite: 'lax' as const,
-        maxAge: 7 * 24 * 60 * 60, // 7 days in seconds
-        ...(isProduction && { domain: '.keyway.sh' }),
-      };
-
-      reply.setCookie('keyway_session', newToken, cookieOptions);
-      request.log.info({ userId: userByGithubId.id }, 'Auth middleware: Auto-healed session with new JWT');
-
-      resolvedUser = userByGithubId;
-    } else {
-      request.log.warn({
-        userId: payload.userId,
-        username: payload.username,
-        githubId: payload.githubId,
-      }, 'Auth middleware: User not found in DB by userId or githubId');
-
-      throw new UnauthorizedError('User not found');
-    }
+  if (!user) {
+    request.log.warn({ userId: payload.userId }, 'Auth middleware: User not found in DB');
+    throw new UnauthorizedError('User not found');
   }
-
-  request.log.info({ userId: resolvedUser.id, username: resolvedUser.username }, 'Auth middleware: User found in DB');
 
   // Step 3: Decrypt the GitHub access token stored in DB
   try {
     request.accessToken = await decryptAccessToken({
-      encryptedAccessToken: resolvedUser.encryptedAccessToken,
-      accessTokenIv: resolvedUser.accessTokenIv,
-      accessTokenAuthTag: resolvedUser.accessTokenAuthTag,
-      tokenEncryptionVersion: resolvedUser.tokenEncryptionVersion ?? 1,
+      encryptedAccessToken: user.encryptedAccessToken,
+      accessTokenIv: user.accessTokenIv,
+      accessTokenAuthTag: user.accessTokenAuthTag,
+      tokenEncryptionVersion: user.tokenEncryptionVersion ?? 1,
     });
-    request.log.info({ username: resolvedUser.username }, 'Auth middleware: GitHub token decrypted successfully');
+    request.log.info({ username: user.username }, 'Auth middleware: GitHub token decrypted successfully');
   } catch (decryptError) {
     const errorMessage = decryptError instanceof Error ? decryptError.message : 'Unknown error';
-    request.log.error({ error: errorMessage, userId: resolvedUser.id }, 'Auth middleware: Failed to decrypt GitHub token');
+    request.log.error({ error: errorMessage, userId: user.id }, 'Auth middleware: Failed to decrypt GitHub token');
     throw new UnauthorizedError('Failed to decrypt stored credentials. Please re-authenticate.');
   }
 
   request.githubUser = {
-    githubId: resolvedUser.githubId,
-    username: resolvedUser.username,
-    email: resolvedUser.email,
-    avatarUrl: resolvedUser.avatarUrl,
+    githubId: user.githubId,
+    username: user.username,
+    email: user.email,
+    avatarUrl: user.avatarUrl,
   };
 }
 
