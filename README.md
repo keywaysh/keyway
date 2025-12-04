@@ -510,6 +510,21 @@ See [POSTHOG_CHECKLIST.md](./POSTHOG_CHECKLIST.md) for details.
 
 ## Troubleshooting
 
+### CLI Token Storage Locations
+
+The CLI stores credentials locally. Useful for debugging auth issues:
+
+**Config file** (via `conf` package):
+- macOS: `~/Library/Preferences/keyway-nodejs/config.json`
+- Linux: `~/.config/keyway-nodejs/config.json`
+- Windows: `%APPDATA%/keyway-nodejs/Config/config.json`
+
+**Encryption key**:
+- All platforms: `~/.keyway/.key`
+
+`keyway logout` clears the `auth` key but keeps the encryption key.
+For complete cleanup: `rm -rf ~/.keyway ~/Library/Preferences/keyway-nodejs` (macOS)
+
 ### "DATABASE_URL is not defined"
 
 Make sure you've created a `.env` file with your database connection string.

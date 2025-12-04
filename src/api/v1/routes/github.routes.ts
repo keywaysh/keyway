@@ -62,7 +62,7 @@ interface GitHubWebhookPayload {
  * GitHub App routes
  * POST /v1/github/check-installation - Check if GitHub App is installed for a repo
  * GET  /v1/github/installations - List user's installations
- * POST /v1/github/webhooks - Handle GitHub App webhooks
+ * POST /v1/github/webhook - Handle GitHub App webhooks
  */
 export async function githubRoutes(fastify: FastifyInstance) {
   /**
@@ -111,14 +111,10 @@ export async function githubRoutes(fastify: FastifyInstance) {
   });
 
   /**
-   * POST /webhooks
+   * POST /webhook
    * Handle GitHub App webhooks
    */
-  fastify.post('/webhooks', {
-    config: {
-      rawBody: true,
-    },
-  }, async (request: FastifyRequest, reply: FastifyReply) => {
+  const webhookHandler = async (request: FastifyRequest, reply: FastifyReply) => {
     // Check if webhook secret is configured
     if (!config.githubApp.webhookSecret) {
       fastify.log.warn('GitHub App webhook received but webhook secret not configured');
@@ -181,7 +177,16 @@ export async function githubRoutes(fastify: FastifyInstance) {
     }
 
     return reply.status(200).send({ received: true });
-  });
+  };
+
+  const webhookRouteConfig = {
+    config: {
+      rawBody: true,
+    },
+  };
+
+  // Register /webhook endpoint for GitHub App webhooks
+  fastify.post('/webhook', webhookRouteConfig, webhookHandler);
 }
 
 /**
