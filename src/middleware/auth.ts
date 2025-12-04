@@ -92,14 +92,38 @@ export async function authenticateGitHub(
   }
 
   // Step 2: Get user from database
+  request.log.info({ searchUserId: payload.userId }, 'Auth middleware: Searching for user in DB by userId');
+
   const user = await db.query.users.findFirst({
     where: eq(users.id, payload.userId),
   });
 
   if (!user) {
-    request.log.warn({ userId: payload.userId }, 'Auth middleware: User not found in DB');
+    // More detailed debugging: try to find by username to see if user exists under different ID
+    const userByUsername = await db.query.users.findFirst({
+      where: eq(users.username, payload.username),
+    });
+
+    if (userByUsername) {
+      request.log.error({
+        searchedUserId: payload.userId,
+        actualUserId: userByUsername.id,
+        username: payload.username,
+        githubIdInToken: payload.githubId,
+        githubIdInDb: userByUsername.githubId,
+      }, 'Auth middleware: User found by username but with DIFFERENT userId! JWT has stale userId.');
+    } else {
+      request.log.warn({
+        userId: payload.userId,
+        username: payload.username,
+        githubId: payload.githubId,
+      }, 'Auth middleware: User not found in DB by userId or username');
+    }
+
     throw new UnauthorizedError('User not found');
   }
+
+  request.log.info({ userId: user.id, username: user.username }, 'Auth middleware: User found in DB');
 
   // Step 3: Decrypt the GitHub access token stored in DB
   try {
