@@ -156,7 +156,8 @@ export const config = {
   email: {
     resendApiKey: env.RESEND_API_KEY,
     enabled: !!env.RESEND_API_KEY,
-    fromAddress: 'Keyway <hello@keyway.sh>',
+    fromAddress: 'Keyway <hello@mail.keyway.sh>',
+    replyToAddress: 'hello@keyway.sh',
   },
 
   admin: {

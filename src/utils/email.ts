@@ -17,6 +17,7 @@ export async function sendWelcomeEmail({ to, username }: WelcomeEmailParams): Pr
   try {
     await resend.emails.send({
       from: config.email.fromAddress,
+      replyTo: config.email.replyToAddress,
       to,
       subject: 'Welcome to Keyway!',
       html: getWelcomeEmailHtml(username),
