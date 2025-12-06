@@ -7,6 +7,41 @@ import { db, users, vaults } from '../db';
 import { eq } from 'drizzle-orm';
 import { hasEnvironmentPermission } from '../utils/permissions';
 import type { PermissionType } from '../db/schema';
+import { config } from '../config';
+
+/**
+ * Clear both session cookies (keyway_session and keyway_logged_in)
+ * Must match the domain/path used when setting them
+ */
+function clearSessionCookies(request: FastifyRequest, reply: FastifyReply) {
+  const isProduction = config.server.isProduction;
+  const host = (request.headers.host || '').split(':')[0];
+  const isLocalhost = host === 'localhost' || host === '127.0.0.1' || host.endsWith('.localhost');
+
+  let domain: string | undefined;
+  if (isProduction && !isLocalhost) {
+    const parts = host.split('.');
+    if (parts.length >= 2) {
+      domain = `.${parts.slice(-2).join('.')}`;
+    }
+  }
+
+  reply.clearCookie('keyway_session', {
+    path: '/',
+    httpOnly: true,
+    secure: isProduction,
+    sameSite: 'lax',
+    domain,
+  });
+
+  reply.clearCookie('keyway_logged_in', {
+    path: '/',
+    httpOnly: false,
+    secure: isProduction,
+    sameSite: 'lax',
+    domain,
+  });
+}
 
 // Extend Fastify request type
 declare module 'fastify' {
@@ -80,14 +115,14 @@ export async function authenticateGitHub(
       } catch (githubError) {
         const ghErrorMsg = githubError instanceof Error ? githubError.message : 'Unknown error';
         request.log.warn({ error: ghErrorMsg }, 'Auth middleware: GitHub token also invalid');
-        reply.clearCookie('keyway_session', { path: '/' });
+        clearSessionCookies(request, reply);
         throw new UnauthorizedError('Invalid access token');
       }
     }
 
     // JWT error (expired, malformed, wrong secret)
     request.log.warn({ error: errorMessage }, 'Auth middleware: JWT error, clearing cookie');
-    reply.clearCookie('keyway_session', { path: '/' });
+    clearSessionCookies(request, reply);
     throw new UnauthorizedError('Invalid or expired token');
   }
 
@@ -98,7 +133,7 @@ export async function authenticateGitHub(
 
   if (!user) {
     request.log.warn({ userId: payload.userId }, 'Auth middleware: User not found in DB');
-    reply.clearCookie('keyway_session', { path: '/' });
+    clearSessionCookies(request, reply);
     throw new UnauthorizedError('User not found');
   }
 
