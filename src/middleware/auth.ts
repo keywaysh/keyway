@@ -98,6 +98,7 @@ export async function authenticateGitHub(
 
   if (!user) {
     request.log.warn({ userId: payload.userId }, 'Auth middleware: User not found in DB');
+    reply.clearCookie('keyway_session', { path: '/' });
     throw new UnauthorizedError('User not found');
   }
 
