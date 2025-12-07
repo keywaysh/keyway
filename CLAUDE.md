@@ -151,7 +151,7 @@ curl https://api.keyway.sh/v1/path/value \
 ## Key Documentation Areas
 
 ### Plan Limits (`reference/limits.md`)
-- Free: 1 private repo, 1 provider, 2 envs, 20 secrets/private vault
+- Free: 1 private repo, 2 providers, 2 envs, 20 secrets/private vault
 - Pro ($9/mo): Unlimited
 - Team ($29/mo): Unlimited + private org repos
 

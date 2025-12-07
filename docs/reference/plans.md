@@ -32,7 +32,7 @@ Perfect for personal projects and open source.
 **Includes:**
 - Unlimited public repository vaults
 - 1 private repository vault
-- 1 provider connection (Vercel, Netlify, etc.)
+- 2 provider connections (Vercel, Railway, etc.)
 - 2 environments per vault (e.g., `local`, `production`)
 - 20 secrets per private vault
 - 7-day audit log retention
