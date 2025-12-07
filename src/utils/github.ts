@@ -324,6 +324,36 @@ export async function getUserRole(
       return 'admin';
     }
 
+    // For organization repos, check if user is an org owner/admin
+    if (repoData.owner?.type === 'Organization') {
+      try {
+        const orgMembershipResponse = await fetch(
+          `${GITHUB_API_BASE}/orgs/${owner}/memberships/${username}`,
+          {
+            headers: {
+              Authorization: `Bearer ${accessToken}`,
+              Accept: 'application/vnd.github.v3+json',
+            },
+          }
+        );
+
+        if (orgMembershipResponse.ok) {
+          const membership = (await orgMembershipResponse.json()) as { role: string; state: string };
+          console.log(`[GitHub] Org membership: user='${username}', org='${owner}', role=${membership.role}, state=${membership.state}`);
+
+          // Org owners have admin access to all repos in the org
+          if (membership.role === 'admin' && membership.state === 'active') {
+            console.log(`[GitHub] User '${username}' is org owner -> role=admin`);
+            return 'admin';
+          }
+        } else {
+          console.log(`[GitHub] Org membership check failed: status=${orgMembershipResponse.status}`);
+        }
+      } catch (error) {
+        console.log(`[GitHub] Org membership check error: ${error instanceof Error ? error.message : 'Unknown'}`);
+      }
+    }
+
     // Try to get detailed collaborator role (for orgs and invited collaborators)
     const collabResponse = await fetch(
       `${GITHUB_API_BASE}/repos/${owner}/${repo}/collaborators/${username}`,
