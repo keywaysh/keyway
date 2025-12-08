@@ -3,6 +3,7 @@ import { eq, desc, and, asc } from 'drizzle-orm';
 import { getUserRoleWithApp } from '../utils/github';
 import type { UserPlan } from '../db/schema';
 import { PLANS } from '../config/plans';
+import { DEFAULT_ENVIRONMENTS } from '../types';
 
 // Helper to get GitHub avatar URL for a repo owner
 function getGitHubAvatarUrl(owner: string): string {
@@ -105,11 +106,10 @@ export async function getVaultsForUser(
     ownedVaults.map(async (vault) => {
       const [repoOwner, repoName] = vault.repoFullName.split('/');
 
-      // Get unique environments from secrets
-      const environments = [...new Set(vault.secrets.map((s) => s.environment))];
-      if (environments.length === 0) {
-        environments.push('default');
-      }
+      // Use vault's defined environments, fallback to defaults for pre-migration vaults
+      const environments = vault.environments && vault.environments.length > 0
+        ? vault.environments
+        : [...DEFAULT_ENVIRONMENTS];
 
       // Fetch user's permission for this repo using GitHub App token
       const permission = await getUserRoleWithApp(vault.repoFullName, username);
@@ -174,11 +174,10 @@ export async function getVaultByRepo(
 
   const [repoOwner, repoName] = vault.repoFullName.split('/');
 
-  // Get unique environments
-  const environments = [...new Set(vault.secrets.map((s) => s.environment))];
-  if (environments.length === 0) {
-    environments.push('default');
-  }
+  // Use vault's defined environments, fallback to defaults for pre-migration vaults
+  const environments = vault.environments && vault.environments.length > 0
+    ? vault.environments
+    : [...DEFAULT_ENVIRONMENTS];
 
   // Determine if vault is read-only based on plan limits
   const excessVaultIds = await getExcessPrivateVaultIds(vault.ownerId, plan);

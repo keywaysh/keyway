@@ -178,6 +178,14 @@ const QUERIES = {
             id
             name
             createdAt
+            environments {
+              edges {
+                node {
+                  id
+                  name
+                }
+              }
+            }
             services {
               edges {
                 node {
@@ -367,6 +375,14 @@ export const railwayProvider: Provider = {
             id: string;
             name: string;
             createdAt: string;
+            environments?: {
+              edges: Array<{
+                node: {
+                  id: string;
+                  name: string;
+                };
+              }>;
+            };
             services?: {
               edges: Array<{
                 node: {
@@ -390,20 +406,32 @@ export const railwayProvider: Provider = {
     const data = await railwayGraphQL<ProjectsResponse>(QUERIES.projects, {}, accessToken);
 
     return data.projects.edges.map(({ node: p }) => {
-      // Try to find a linked GitHub repo from services
+      // Try to find a linked GitHub repo and service name from services
       let linkedRepo: string | undefined;
+      let serviceName: string | undefined;
       for (const service of p.services?.edges || []) {
+        // Use the first service name as the serviceName
+        if (!serviceName) {
+          serviceName = service.node.name;
+        }
         const repo = service.node.repoTriggers?.edges?.[0]?.node?.repository;
         if (repo) {
           linkedRepo = repo;
+          // If we found a linked repo, also use this service's name
+          serviceName = service.node.name;
           break;
         }
       }
 
+      // Extract environment names
+      const environments = p.environments?.edges.map(e => e.node.name) || [];
+
       return {
         id: p.id,
         name: p.name,
+        serviceName,
         linkedRepo,
+        environments,
         createdAt: new Date(p.createdAt),
       };
     });
@@ -448,20 +476,30 @@ export const railwayProvider: Provider = {
         accessToken
       );
 
-      // Try to find a linked GitHub repo
+      // Try to find a linked GitHub repo and service name
       let linkedRepo: string | undefined;
+      let serviceName: string | undefined;
       for (const service of data.project.services?.edges || []) {
+        if (!serviceName) {
+          serviceName = service.node.name;
+        }
         const repo = service.node.repoTriggers?.edges?.[0]?.node?.repository;
         if (repo) {
           linkedRepo = repo;
+          serviceName = service.node.name;
           break;
         }
       }
 
+      // Extract environment names
+      const environments = data.project.environments?.edges.map(e => e.node.name) || [];
+
       return {
         id: data.project.id,
         name: data.project.name,
+        serviceName,
         linkedRepo,
+        environments,
         createdAt: new Date(data.project.createdAt),
       };
     } catch (error) {

@@ -331,6 +331,154 @@ describe('Railway Provider', () => {
 
       expect(projects[0].linkedRepo).toBe('owner/backend-repo');
     });
+
+    it('should extract serviceName from service with linked repo', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({
+          data: {
+            projects: {
+              edges: [
+                {
+                  node: {
+                    id: 'proj-123',
+                    name: 'affectionate-success', // Random project name
+                    createdAt: '2024-01-01T00:00:00Z',
+                    environments: { edges: [] },
+                    services: {
+                      edges: [
+                        {
+                          node: {
+                            id: 'svc-1',
+                            name: 'keyway-backend', // Meaningful service name
+                            repoTriggers: {
+                              edges: [
+                                { node: { repository: 'owner/keyway' } }
+                              ]
+                            }
+                          }
+                        }
+                      ]
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        }),
+      });
+
+      const { railwayProvider } = await import('../src/services/providers/railway.provider');
+
+      const projects = await railwayProvider.listProjects('access-token');
+
+      expect(projects[0].name).toBe('affectionate-success');
+      expect(projects[0].serviceName).toBe('keyway-backend');
+      expect(projects[0].linkedRepo).toBe('owner/keyway');
+    });
+
+    it('should extract environments from project', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({
+          data: {
+            projects: {
+              edges: [
+                {
+                  node: {
+                    id: 'proj-123',
+                    name: 'my-app',
+                    createdAt: '2024-01-01T00:00:00Z',
+                    environments: {
+                      edges: [
+                        { node: { id: 'env-1', name: 'production' } },
+                        { node: { id: 'env-2', name: 'staging' } },
+                      ]
+                    },
+                    services: { edges: [] }
+                  }
+                }
+              ]
+            }
+          }
+        }),
+      });
+
+      const { railwayProvider } = await import('../src/services/providers/railway.provider');
+
+      const projects = await railwayProvider.listProjects('access-token');
+
+      expect(projects[0].environments).toEqual(['production', 'staging']);
+    });
+
+    it('should return empty environments when project has none', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({
+          data: {
+            projects: {
+              edges: [
+                {
+                  node: {
+                    id: 'proj-123',
+                    name: 'empty-project',
+                    createdAt: '2024-01-01T00:00:00Z',
+                    environments: { edges: [] },
+                    services: { edges: [] }
+                  }
+                }
+              ]
+            }
+          }
+        }),
+      });
+
+      const { railwayProvider } = await import('../src/services/providers/railway.provider');
+
+      const projects = await railwayProvider.listProjects('access-token');
+
+      expect(projects[0].environments).toEqual([]);
+    });
+
+    it('should use first service name as fallback when no repo linked', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({
+          data: {
+            projects: {
+              edges: [
+                {
+                  node: {
+                    id: 'proj-123',
+                    name: 'random-name',
+                    createdAt: '2024-01-01T00:00:00Z',
+                    environments: { edges: [] },
+                    services: {
+                      edges: [
+                        {
+                          node: {
+                            id: 'svc-1',
+                            name: 'my-service',
+                            repoTriggers: { edges: [] } // No repo linked
+                          }
+                        }
+                      ]
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        }),
+      });
+
+      const { railwayProvider } = await import('../src/services/providers/railway.provider');
+
+      const projects = await railwayProvider.listProjects('access-token');
+
+      expect(projects[0].serviceName).toBe('my-service');
+      expect(projects[0].linkedRepo).toBeUndefined();
+    });
   });
 
   describe('listEnvVars', () => {

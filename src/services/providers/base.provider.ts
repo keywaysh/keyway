@@ -14,8 +14,10 @@ export interface TokenResponse {
 export interface ProviderProject {
   id: string;
   name: string;
+  serviceName?: string; // For Railway: service name (more meaningful than project name)
   linkedRepo?: string; // e.g., "owner/repo"
   framework?: string;
+  environments?: string[]; // Available environments in the project
   createdAt?: Date;
 }
 
