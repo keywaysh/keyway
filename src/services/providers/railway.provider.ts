@@ -169,25 +169,24 @@ const QUERIES = {
     }
   `,
 
+  // Direct projects query - works with both Account and Team tokens
   projects: `
     query {
-      me {
-        projects {
-          edges {
-            node {
-              id
-              name
-              createdAt
-              services {
-                edges {
-                  node {
-                    id
-                    name
-                    repoTriggers {
-                      edges {
-                        node {
-                          repository
-                        }
+      projects {
+        edges {
+          node {
+            id
+            name
+            createdAt
+            services {
+              edges {
+                node {
+                  id
+                  name
+                  repoTriggers {
+                    edges {
+                      node {
+                        repository
                       }
                     }
                   }
@@ -307,53 +306,90 @@ export const railwayProvider: Provider = {
       };
     }
 
-    const data = await railwayGraphQL<MeResponse>(QUERIES.me, {}, accessToken);
+    // Try the `me` query first (works for Account Tokens)
+    try {
+      const data = await railwayGraphQL<MeResponse>(QUERIES.me, {}, accessToken);
 
-    // Get the first team if any
-    const team = data.me.teams?.edges?.[0]?.node;
+      // Get the first team if any
+      const team = data.me.teams?.edges?.[0]?.node;
 
-    return {
-      id: data.me.id,
-      username: data.me.name || data.me.email.split('@')[0],
-      email: data.me.email,
-      teamId: team?.id,
-      teamName: team?.name,
-    };
-  },
-
-  async listProjects(accessToken: string, _teamId?: string): Promise<ProviderProject[]> {
-    interface ProjectsResponse {
-      me: {
+      return {
+        id: data.me.id,
+        username: data.me.name || data.me.email.split('@')[0],
+        email: data.me.email,
+        teamId: team?.id,
+        teamName: team?.name,
+      };
+    } catch (meError) {
+      // If `me` fails, try validating via `projects` query (works for Team Tokens)
+      // Team tokens can access projects but not personal info
+      interface ProjectsValidationResponse {
         projects: {
           edges: Array<{
             node: {
               id: string;
               name: string;
-              createdAt: string;
-              services?: {
-                edges: Array<{
-                  node: {
-                    id: string;
-                    name: string;
-                    repoTriggers?: {
-                      edges: Array<{
-                        node: {
-                          repository: string;
-                        };
-                      }>;
-                    };
-                  };
-                }>;
-              };
             };
           }>;
         };
+      }
+
+      try {
+        const projectsData = await railwayGraphQL<ProjectsValidationResponse>(
+          `query { projects { edges { node { id name } } } }`,
+          {},
+          accessToken
+        );
+
+        // Token is valid if we can access projects
+        // Use a hash of the token as a stable identifier
+        const tokenHash = accessToken.slice(0, 8);
+
+        return {
+          id: `railway-team-${tokenHash}`,
+          username: `Railway Team (${projectsData.projects.edges.length} projects)`,
+          email: undefined,
+          teamId: undefined,
+          teamName: undefined,
+        };
+      } catch {
+        // Both queries failed - token is truly invalid
+        throw meError;
+      }
+    }
+  },
+
+  async listProjects(accessToken: string, _teamId?: string): Promise<ProviderProject[]> {
+    interface ProjectsResponse {
+      projects: {
+        edges: Array<{
+          node: {
+            id: string;
+            name: string;
+            createdAt: string;
+            services?: {
+              edges: Array<{
+                node: {
+                  id: string;
+                  name: string;
+                  repoTriggers?: {
+                    edges: Array<{
+                      node: {
+                        repository: string;
+                      };
+                    }>;
+                  };
+                };
+              }>;
+            };
+          };
+        }>;
       };
     }
 
     const data = await railwayGraphQL<ProjectsResponse>(QUERIES.projects, {}, accessToken);
 
-    return data.me.projects.edges.map(({ node: p }) => {
+    return data.projects.edges.map(({ node: p }) => {
       // Try to find a linked GitHub repo from services
       let linkedRepo: string | undefined;
       for (const service of p.services?.edges || []) {
