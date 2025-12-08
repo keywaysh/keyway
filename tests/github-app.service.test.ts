@@ -389,6 +389,84 @@ describe('GitHub App Service', () => {
 
       expect(installation).toBeNull();
     });
+
+    it('should find installation via GitHub API when DB lookup fails', async () => {
+      const { db } = await import('../src/db');
+      (db.query.githubAppInstallationRepos.findFirst as any).mockResolvedValue(null);
+      (db.query.githubAppInstallations.findFirst as any).mockResolvedValue(null);
+
+      // Mock GitHub API response
+      const mockApiResponse = {
+        id: 99999,
+        account: { id: 12345, login: 'neworg', type: 'Organization' },
+        repository_selection: 'all',
+        permissions: { metadata: 'read', contents: 'read' },
+      };
+      global.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve(mockApiResponse),
+      });
+
+      const { findInstallationForRepo } = await import('../src/services/github-app.service');
+
+      const installation = await findInstallationForRepo('neworg', 'some-repo');
+
+      expect(installation).not.toBeNull();
+      expect(installation?.installationId).toBe(99999);
+      expect(installation?.accountLogin).toBe('neworg');
+      expect(installation?.accountType).toBe('organization');
+      expect(global.fetch).toHaveBeenCalledWith(
+        'https://api.github.com/repos/neworg/some-repo/installation',
+        expect.objectContaining({
+          headers: expect.objectContaining({
+            Accept: 'application/vnd.github.v3+json',
+          }),
+        })
+      );
+    });
+
+    it('should return null when GitHub API returns 404', async () => {
+      const { db } = await import('../src/db');
+      (db.query.githubAppInstallationRepos.findFirst as any).mockResolvedValue(null);
+      (db.query.githubAppInstallations.findFirst as any).mockResolvedValue(null);
+
+      // Mock GitHub API 404 response
+      global.fetch = vi.fn().mockResolvedValue({
+        ok: false,
+        status: 404,
+      });
+
+      const { findInstallationForRepo } = await import('../src/services/github-app.service');
+
+      const installation = await findInstallationForRepo('unknown', 'repo');
+
+      expect(installation).toBeNull();
+    });
+
+    it('should sync installation to DB when found via API', async () => {
+      const { db } = await import('../src/db');
+      (db.query.githubAppInstallationRepos.findFirst as any).mockResolvedValue(null);
+      (db.query.githubAppInstallations.findFirst as any).mockResolvedValue(null);
+
+      // Mock GitHub API response
+      const mockApiResponse = {
+        id: 88888,
+        account: { id: 11111, login: 'synctest', type: 'User' },
+        repository_selection: 'selected',
+        permissions: { metadata: 'read' },
+      };
+      global.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve(mockApiResponse),
+      });
+
+      const { findInstallationForRepo } = await import('../src/services/github-app.service');
+
+      await findInstallationForRepo('synctest', 'test-repo');
+
+      // Verify createInstallation was called (via db.insert)
+      expect(db.insert).toHaveBeenCalled();
+    });
   });
 
   describe('checkInstallationStatus', () => {
@@ -409,6 +487,12 @@ describe('GitHub App Service', () => {
       const { db } = await import('../src/db');
       (db.query.githubAppInstallationRepos.findFirst as any).mockResolvedValue(null);
       (db.query.githubAppInstallations.findFirst as any).mockResolvedValue(null);
+
+      // Mock GitHub API to return 404 (app not installed)
+      global.fetch = vi.fn().mockResolvedValue({
+        ok: false,
+        status: 404,
+      });
 
       const { checkInstallationStatus } = await import('../src/services/github-app.service');
 
@@ -438,6 +522,12 @@ describe('GitHub App Service', () => {
       const { db } = await import('../src/db');
       (db.query.githubAppInstallationRepos.findFirst as any).mockResolvedValue(null);
       (db.query.githubAppInstallations.findFirst as any).mockResolvedValue(null);
+
+      // Mock GitHub API to return 404 (app not installed)
+      global.fetch = vi.fn().mockResolvedValue({
+        ok: false,
+        status: 404,
+      });
 
       const { assertRepoAccessViaApp } = await import('../src/services/github-app.service');
 

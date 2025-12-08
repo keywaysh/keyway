@@ -203,8 +203,92 @@ export async function findInstallationForRepo(
     return allReposInstallation;
   }
 
+  // Fallback: check GitHub API directly (handles cases where webhook didn't fire)
+  console.log(`[GitHubApp] DB lookup failed, checking GitHub API for ${repoFullName}`);
+  const apiInstallation = await findInstallationViaGitHubAPI(repoOwner, repoName);
+  if (apiInstallation) {
+    console.log(`[GitHubApp] Found via GitHub API: installationId=${apiInstallation.installationId}, syncing to DB...`);
+    // Sync to DB for future lookups
+    await syncInstallationFromAPI(apiInstallation);
+    return apiInstallation;
+  }
+
   console.warn(`[GitHubApp] No installation found for ${repoFullName}`);
   return null;
+}
+
+/**
+ * Check GitHub API directly for repo installation (fallback when DB is out of sync)
+ */
+async function findInstallationViaGitHubAPI(
+  repoOwner: string,
+  repoName: string
+): Promise<GithubAppInstallation | null> {
+  try {
+    const jwt = generateAppJWT();
+    const response = await fetch(
+      `${GITHUB_API_BASE}/repos/${repoOwner}/${repoName}/installation`,
+      {
+        headers: {
+          Authorization: `Bearer ${jwt}`,
+          Accept: 'application/vnd.github.v3+json',
+        },
+      }
+    );
+
+    if (!response.ok) {
+      console.log(`[GitHubApp] GitHub API returned ${response.status} for ${repoOwner}/${repoName}`);
+      return null;
+    }
+
+    const data = await response.json() as {
+      id: number;
+      account: { id: number; login: string; type: string };
+      repository_selection: 'all' | 'selected';
+      permissions: Record<string, string>;
+    };
+
+    // Return a GithubAppInstallation-like object
+    return {
+      id: '', // Will be set when synced to DB
+      installationId: data.id,
+      accountId: data.account.id,
+      accountLogin: data.account.login,
+      accountType: data.account.type.toLowerCase() as InstallationAccountType,
+      repositorySelection: data.repository_selection,
+      permissions: data.permissions,
+      status: 'active' as InstallationStatus,
+      installedByUserId: null,
+      installedAt: new Date(),
+      updatedAt: new Date(),
+      suspendedAt: null,
+      deletedAt: null,
+    };
+  } catch (error) {
+    console.error(`[GitHubApp] Error checking GitHub API: ${error instanceof Error ? error.message : 'Unknown'}`);
+    return null;
+  }
+}
+
+/**
+ * Sync an installation found via API to the database
+ * Uses createInstallation which handles upsert
+ */
+async function syncInstallationFromAPI(installation: GithubAppInstallation): Promise<void> {
+  try {
+    await createInstallation({
+      installationId: installation.installationId,
+      accountId: installation.accountId,
+      accountLogin: installation.accountLogin,
+      accountType: installation.accountType,
+      repositorySelection: installation.repositorySelection as 'all' | 'selected',
+      permissions: installation.permissions as Record<string, string>,
+    });
+    console.log(`[GitHubApp] Synced installation ${installation.installationId} to DB`);
+  } catch (error) {
+    // Don't fail if sync fails - we can still proceed with the API-found installation
+    console.error(`[GitHubApp] Failed to sync installation to DB: ${error instanceof Error ? error.message : 'Unknown'}`);
+  }
 }
 
 /**
