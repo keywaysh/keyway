@@ -654,6 +654,40 @@ describe('Railway Provider', () => {
 
       expect(envVars).toHaveLength(0);
     });
+
+    it('should filter out system variables (RAILWAY_*, NIXPACKS_*)', async () => {
+      // First call: get project with environments
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve(mockProjectWithEnvs),
+      });
+      // Second call: get variables including system vars
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({
+          data: {
+            variables: {
+              'DATABASE_URL': 'postgres://...',
+              'API_KEY': 'secret-key',
+              'RAILWAY_ENVIRONMENT': 'production',
+              'RAILWAY_SERVICE_ID': 'svc-123',
+              'RAILWAY_PROJECT_ID': 'proj-123',
+              'NIXPACKS_MIRROR': 'https://...',
+            }
+          }
+        }),
+      });
+
+      const { railwayProvider } = await import('../src/services/providers/railway.provider');
+
+      const envVars = await railwayProvider.listEnvVars('access-token', 'proj-123', 'production');
+
+      // Should only return user variables, not system variables
+      expect(envVars).toHaveLength(2);
+      expect(envVars.map(v => v.key)).toEqual(['DATABASE_URL', 'API_KEY']);
+      expect(envVars.map(v => v.key)).not.toContain('RAILWAY_ENVIRONMENT');
+      expect(envVars.map(v => v.key)).not.toContain('NIXPACKS_MIRROR');
+    });
   });
 
   describe('setEnvVars', () => {

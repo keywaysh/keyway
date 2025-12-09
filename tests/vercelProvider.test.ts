@@ -216,6 +216,34 @@ describe('Vercel Provider', () => {
       expect(envVars).toHaveLength(2);
       expect(envVars.map(e => e.key)).toEqual(['API_KEY', 'SHARED']);
     });
+
+    it('should filter out system variables (VERCEL_*, NEXT_PUBLIC_VERCEL_*)', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({
+          envs: [
+            { id: 'env1', key: 'DATABASE_URL', value: 'postgres://...', target: ['production'], type: 'encrypted', createdAt: Date.now(), updatedAt: Date.now() },
+            { id: 'env2', key: 'API_KEY', value: 'secret-key', target: ['production'], type: 'encrypted', createdAt: Date.now(), updatedAt: Date.now() },
+            { id: 'env3', key: 'VERCEL_URL', value: 'my-app.vercel.app', target: ['production'], type: 'plain', createdAt: Date.now(), updatedAt: Date.now() },
+            { id: 'env4', key: 'VERCEL_ENV', value: 'production', target: ['production'], type: 'plain', createdAt: Date.now(), updatedAt: Date.now() },
+            { id: 'env5', key: 'VERCEL_GIT_COMMIT_SHA', value: 'abc123', target: ['production'], type: 'plain', createdAt: Date.now(), updatedAt: Date.now() },
+            { id: 'env6', key: 'NEXT_PUBLIC_VERCEL_URL', value: 'my-app.vercel.app', target: ['production'], type: 'plain', createdAt: Date.now(), updatedAt: Date.now() },
+            { id: 'env7', key: 'NEXT_PUBLIC_VERCEL_ENV', value: 'production', target: ['production'], type: 'plain', createdAt: Date.now(), updatedAt: Date.now() },
+          ],
+        }),
+      });
+
+      const { vercelProvider } = await import('../src/services/providers/vercel.provider');
+
+      const envVars = await vercelProvider.listEnvVars('access-token', 'prj_123', 'production');
+
+      // Should only return user-defined variables, not system variables
+      expect(envVars).toHaveLength(2);
+      expect(envVars.map(e => e.key)).toEqual(['DATABASE_URL', 'API_KEY']);
+      expect(envVars.map(e => e.key)).not.toContain('VERCEL_URL');
+      expect(envVars.map(e => e.key)).not.toContain('VERCEL_ENV');
+      expect(envVars.map(e => e.key)).not.toContain('NEXT_PUBLIC_VERCEL_URL');
+    });
   });
 
   describe('setEnvVars', () => {
