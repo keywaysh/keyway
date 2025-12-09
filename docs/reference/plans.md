@@ -34,7 +34,7 @@ Perfect for personal projects and open source.
 - 1 private repository vault
 - 2 provider connections (Vercel, Railway, etc.)
 - 4 environments per vault (e.g., `local`, `development`, `staging`, `production`)
-- 20 secrets per private vault
+- Unlimited secrets per vault
 - 7-day audit log retention
 
 **Best for:**
@@ -52,7 +52,6 @@ For professional developers with multiple projects.
 - Unlimited private repositories
 - Unlimited provider connections
 - Unlimited environments per vault
-- Unlimited secrets per vault
 - 30-day audit log retention
 - 500 secrets per push batch
 
