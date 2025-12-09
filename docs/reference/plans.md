@@ -33,7 +33,7 @@ Perfect for personal projects and open source.
 - Unlimited public repository vaults
 - 1 private repository vault
 - 2 provider connections (Vercel, Railway, etc.)
-- 2 environments per vault (e.g., `local`, `production`)
+- 4 environments per vault (e.g., `local`, `development`, `staging`, `production`)
 - 20 secrets per private vault
 - 7-day audit log retention
 
