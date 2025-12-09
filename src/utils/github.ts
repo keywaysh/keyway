@@ -372,8 +372,10 @@ export async function getUserRole(
       // Map GitHub's role_name to our CollaboratorRole type
       const roleMap: Record<string, CollaboratorRole> = {
         pull: 'read',
+        read: 'read', // GitHub /permission endpoint can return 'read' directly
         triage: 'triage',
         push: 'write',
+        write: 'write', // GitHub /permission endpoint can return 'write' directly
         maintain: 'maintain',
         admin: 'admin',
       };
@@ -527,8 +529,10 @@ export async function getRepoCollaborators(
   // Map GitHub's role_name to our CollaboratorRole type
   const roleMap: Record<string, CollaboratorRole> = {
     pull: 'read',
+    read: 'read', // GitHub can return 'read' directly
     triage: 'triage',
     push: 'write',
+    write: 'write', // GitHub can return 'write' directly
     maintain: 'maintain',
     admin: 'admin',
   };
