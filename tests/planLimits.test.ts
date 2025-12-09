@@ -16,7 +16,7 @@ describe('Plan Configuration', () => {
         maxPublicRepos: Infinity,
         maxPrivateRepos: 1,
         maxProviders: 2,
-        maxEnvironmentsPerVault: 2,
+        maxEnvironmentsPerVault: 4,
         maxSecretsPerPrivateVault: 20,
       });
     });
@@ -115,10 +115,10 @@ describe('Plan Limit Checks', () => {
       expect(canCreateEnvironment('free', 1).allowed).toBe(true);
     });
 
-    it('should reject free plan third environment', () => {
-      const result = canCreateEnvironment('free', 2);
+    it('should reject free plan fifth environment', () => {
+      const result = canCreateEnvironment('free', 4);
       expect(result.allowed).toBe(false);
-      expect(result.reason).toContain('2 environments');
+      expect(result.reason).toContain('4 environments');
     });
 
     it('should allow pro plan unlimited environments', () => {
