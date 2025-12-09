@@ -47,6 +47,7 @@ const ALLOWED_REDIRECT_ORIGINS = [
 const SyncBodySchema = z.object({
   connectionId: z.string().uuid(),
   projectId: z.string(),
+  serviceId: z.string().optional(), // Railway: service ID for service-specific variables
   keywayEnvironment: z.string().default('production'),
   providerEnvironment: z.string().default('production'),
   direction: z.enum(['push', 'pull']).default('push'),
@@ -56,6 +57,7 @@ const SyncBodySchema = z.object({
 const SyncPreviewQuerySchema = z.object({
   connectionId: z.string().uuid(),
   projectId: z.string(),
+  serviceId: z.string().optional(), // Railway: service ID for service-specific variables
   keywayEnvironment: z.string().optional().default('production'),
   providerEnvironment: z.string().optional().default('production'),
   direction: z.enum(['push', 'pull']).optional().default('push'),
@@ -65,12 +67,14 @@ const SyncPreviewQuerySchema = z.object({
 const SyncStatusQuerySchema = z.object({
   connectionId: z.string().uuid(),
   projectId: z.string(),
+  serviceId: z.string().optional(), // Railway: service ID for service-specific variables
   environment: z.string().optional().default('production'),
 });
 
 const SyncDiffQuerySchema = z.object({
   connectionId: z.string().uuid(),
   projectId: z.string(),
+  serviceId: z.string().optional(), // Railway: service ID for service-specific variables
   keywayEnvironment: z.string().optional().default('production'),
   providerEnvironment: z.string().optional().default('production'),
 });
@@ -475,11 +479,16 @@ export async function integrationsRoutes(fastify: FastifyInstance) {
       throw new NotFoundError('User not found');
     }
 
+    // For Railway: append serviceId to environment (format: "production:serviceId")
+    const providerEnv = query.serviceId
+      ? `${query.environment}:${query.serviceId}`
+      : query.environment;
+
     const status = await getSyncStatus(
       vault.id,
       query.connectionId,
       query.projectId,
-      query.environment,
+      providerEnv,
       user.id
     );
 
@@ -507,12 +516,17 @@ export async function integrationsRoutes(fastify: FastifyInstance) {
       throw new NotFoundError('User not found');
     }
 
+    // For Railway: append serviceId to providerEnvironment (format: "production:serviceId")
+    const providerEnv = query.serviceId
+      ? `${query.providerEnvironment}:${query.serviceId}`
+      : query.providerEnvironment;
+
     const diff = await getSyncDiff(
       vault.id,
       query.connectionId,
       query.projectId,
       query.keywayEnvironment,
-      query.providerEnvironment,
+      providerEnv,
       user.id
     );
 
@@ -540,12 +554,17 @@ export async function integrationsRoutes(fastify: FastifyInstance) {
       throw new NotFoundError('User not found');
     }
 
+    // For Railway: append serviceId to providerEnvironment (format: "production:serviceId")
+    const providerEnv = query.serviceId
+      ? `${query.providerEnvironment}:${query.serviceId}`
+      : query.providerEnvironment;
+
     const preview = await getSyncPreview(
       vault.id,
       query.connectionId,
       query.projectId,
       query.keywayEnvironment,
-      query.providerEnvironment,
+      providerEnv,
       query.direction,
       query.allowDelete || false,
       user.id
@@ -593,12 +612,17 @@ export async function integrationsRoutes(fastify: FastifyInstance) {
       throw new ForbiddenError('Connection not found or does not belong to you');
     }
 
+    // For Railway: append serviceId to providerEnvironment (format: "production:serviceId")
+    const providerEnv = body.serviceId
+      ? `${body.providerEnvironment}:${body.serviceId}`
+      : body.providerEnvironment;
+
     const result = await executeSync(
       vault.id,
       body.connectionId,
       body.projectId,
       body.keywayEnvironment,
-      body.providerEnvironment,
+      providerEnv,
       body.direction,
       body.allowDelete,
       user.id
