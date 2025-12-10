@@ -1,2 +1,18 @@
+# Environment
 .env
+
+# macOS
 .DS_Store
+
+# Cloned repositories (setup.sh clones these)
+keyway-backend/
+keyway-site/
+keyway-cli/
+keyway-crypto/
+keyway-docs/
+keyway-e2e/
+
+# Docker volumes (if any local state)
+caddy_data/
+caddy_config/
+postgres_data/

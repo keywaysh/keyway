@@ -1,146 +1,133 @@
-# Keyway Infrastructure
+# Keyway Development Environment
 
-This repository contains the Docker Compose configuration and infrastructure files to run the full Keyway stack locally.
+Run the full Keyway stack locally with Docker.
 
 ## Quick Start
 
-### 1. Clone all repositories
-
-Keyway is split into multiple repositories. Clone them all into the same parent directory:
-
 ```bash
-mkdir keyway && cd keyway
+# Clone and setup
+git clone git@github.com:keywaysh/keyway-infra.git keyway
+cd keyway
+./setup.sh
 
-# Clone all repos
-git clone git@github.com:keywaysh/keyway-backend.git
-git clone git@github.com:keywaysh/keyway-site.git
-git clone git@github.com:keywaysh/keyway-cli.git
-git clone git@github.com:keywaysh/keyway-crypto.git
-git clone git@github.com:keywaysh/keyway-infra.git
+# Configure .env (see instructions below)
+nano .env
 
-# Your directory structure should look like:
-# keyway/
-# ├── keyway-backend/
-# ├── keyway-site/
-# ├── keyway-cli/
-# ├── keyway-crypto/
-# └── keyway-infra/
-```
-
-### 2. Copy infrastructure files to the root
-
-```bash
-# From the keyway/ directory
-cp keyway-infra/docker-compose.root.yml ./docker-compose.yml
-cp keyway-infra/Caddyfile.root ./Caddyfile
-cp keyway-infra/.env.example ./.env
-```
-
-### 3. Configure environment
-
-Edit `.env` with your credentials:
-
-```bash
-# Generate keys
-openssl rand -hex 32    # For ENCRYPTION_KEY
-openssl rand -base64 32 # For JWT_SECRET
-
-# Create a GitHub OAuth App at https://github.com/settings/developers
-# Set callback URL to: https://localhost/api/v1/auth/callback
-```
-
-### 4. Start the stack
-
-```bash
+# Start
 docker compose up --build
 ```
 
-### 5. Access the app
-
-| Service | URL |
-|---------|-----|
-| Dashboard | https://localhost |
-| API | https://localhost/api |
-
-> First access will show a certificate warning (self-signed). Click "Advanced" > "Proceed".
+That's it! Access the dashboard at **https://localhost**
 
 ---
 
-## Useful Commands
+## Configuration
+
+### 1. Generate Keys
 
 ```bash
-# Run in background
+openssl rand -hex 32      # → ENCRYPTION_KEY
+openssl rand -base64 32   # → JWT_SECRET
+```
+
+### 2. Create a GitHub App
+
+Go to **https://github.com/settings/apps/new**
+
+| Setting | Value |
+|---------|-------|
+| App name | `keyway-dev` (must be unique) |
+| Homepage URL | `https://localhost` |
+| Callback URL | `https://localhost/auth/callback` |
+| Webhook | Uncheck "Active" (not needed locally) |
+| Permissions | Repository metadata → Read-only |
+
+After creating:
+1. Copy **App ID** and **Client ID**
+2. Generate a **Client secret**
+3. Generate a **Private key** (.pem file)
+
+Convert the private key to a single line:
+```bash
+awk 'NF {sub(/\r/, ""); printf "%s\\n",$0;}' your-app.pem
+```
+
+### 3. Fill in .env
+
+```env
+ENCRYPTION_KEY=<64-char hex>
+JWT_SECRET=<base64 string>
+GITHUB_APP_ID=123456
+GITHUB_APP_CLIENT_ID=Iv1.abc123
+GITHUB_APP_CLIENT_SECRET=abc123...
+GITHUB_APP_PRIVATE_KEY=-----BEGIN RSA PRIVATE KEY-----\nMIIE...\n-----END RSA PRIVATE KEY-----\n
+GITHUB_APP_NAME=keyway-dev
+```
+
+---
+
+## Usage
+
+```bash
+# Start (foreground)
+docker compose up --build
+
+# Start (background)
 docker compose up -d --build
 
 # View logs
-docker compose logs -f
 docker compose logs -f backend
 
-# Rebuild a single service
+# Rebuild one service
 docker compose up -d --build site
 
 # Stop
 docker compose down
 
-# Full reset (including database)
+# Full reset (wipes database)
 docker compose down -v
+
+# Access database
+docker compose exec db psql -U keyway -d keyway
 ```
 
 ---
 
-## Architecture
+## Directory Structure
+
+After running `./setup.sh`:
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                         Caddy (HTTPS)                           │
-│                      https://localhost                          │
-├─────────────────────────────────────────────────────────────────┤
-│         ┌────────────────────┼────────────────────┐             │
-│         ▼                    ▼                    ▼             │
-│   ┌──────────┐        ┌──────────┐        ┌──────────┐          │
-│   │   Site   │        │ Backend  │◄──────►│  Crypto  │          │
-│   │ (Next.js)│        │(Fastify) │  gRPC  │   (Go)   │          │
-│   │  :3000   │        │  :8080   │        │  :50051  │          │
-│   └──────────┘        └────┬─────┘        └──────────┘          │
-│                            │                                    │
-│                            ▼                                    │
-│                     ┌──────────────┐                            │
-│                     │  PostgreSQL  │                            │
-│                     │    :5432     │                            │
-│                     └──────────────┘                            │
-└─────────────────────────────────────────────────────────────────┘
+keyway/                    ← You are here (keyway-infra repo)
+├── docker-compose.yml     ← Docker orchestration
+├── Caddyfile              ← HTTPS reverse proxy
+├── .env                   ← Your local config (git-ignored)
+├── setup.sh               ← Setup script
+├── keyway-backend/        ← Cloned repos (git-ignored)
+├── keyway-site/
+├── keyway-cli/
+└── keyway-crypto/
 ```
 
----
-
-## Files
-
-| File | Description |
-|------|-------------|
-| `docker-compose.root.yml` | Docker Compose config (copy to parent as `docker-compose.yml`) |
-| `Caddyfile.root` | Caddy reverse proxy config (copy to parent as `Caddyfile`) |
-| `.env.example` | Environment template |
-| `dev.sh` | Development script for running services locally without Docker |
-
----
-
-## Environment Variables
-
-| Variable | Description |
-|----------|-------------|
-| `ENCRYPTION_KEY` | 64-char hex key for AES-256-GCM encryption |
-| `JWT_SECRET` | Secret for signing JWT tokens (32+ chars) |
-| `GITHUB_CLIENT_ID` | GitHub OAuth App client ID |
-| `GITHUB_CLIENT_SECRET` | GitHub OAuth App client secret |
+Each `keyway-*` folder is an independent Git repo. Changes in those folders are committed to their respective repos, not to `keyway-infra`.
 
 ---
 
 ## Troubleshooting
 
-### 401 errors after switching between prod/local
-
-Your browser has a JWT cookie from a different environment. Clear the `keyway_session` cookie for `localhost`.
-
 ### Certificate warning
+Expected. Caddy uses self-signed certs. Click "Advanced" → "Proceed".
 
-Expected behavior with local HTTPS. Caddy uses self-signed certificates. Click "Advanced" > "Proceed".
+### 401 errors
+Clear the `keyway_session` cookie for localhost.
+
+### Images not loading
+```bash
+docker compose up -d --build site
+```
+
+### Port already in use
+```bash
+docker compose down
+lsof -i :443  # Find what's using the port
+```

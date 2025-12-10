@@ -35,8 +35,13 @@ services:
       - CRYPTO_SERVICE_URL=crypto:50051
       - ENCRYPTION_KEY=${ENCRYPTION_KEY}
       - JWT_SECRET=${JWT_SECRET}
-      - GITHUB_CLIENT_ID=${GITHUB_CLIENT_ID}
-      - GITHUB_CLIENT_SECRET=${GITHUB_CLIENT_SECRET}
+      # GitHub App (unified auth + repo access)
+      - GITHUB_APP_ID=${GITHUB_APP_ID}
+      - GITHUB_APP_CLIENT_ID=${GITHUB_APP_CLIENT_ID}
+      - GITHUB_APP_CLIENT_SECRET=${GITHUB_APP_CLIENT_SECRET}
+      - GITHUB_APP_PRIVATE_KEY=${GITHUB_APP_PRIVATE_KEY}
+      - GITHUB_APP_WEBHOOK_SECRET=${GITHUB_APP_WEBHOOK_SECRET}
+      - GITHUB_APP_NAME=${GITHUB_APP_NAME:-keyway-local-dev}
       - ALLOWED_ORIGINS=https://localhost
     depends_on:
       db:
@@ -49,6 +54,8 @@ services:
       context: ./keyway-site
       args:
         - NEXT_PUBLIC_KEYWAY_API_URL=https://localhost/api
+        - NEXT_PUBLIC_SENTRY_DSN=${NEXT_PUBLIC_SENTRY_DSN:-}
+        - NEXT_PUBLIC_DISABLE_IMAGE_OPTIMIZATION=true
     depends_on:
       - backend
 
