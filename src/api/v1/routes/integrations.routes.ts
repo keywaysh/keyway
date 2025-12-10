@@ -29,6 +29,7 @@ import { providerConnections } from '../../../db/schema';
 import { and } from 'drizzle-orm';
 import { sendData, sendNoContent } from '../../../lib/response';
 import { canConnectProvider } from '../../../config/plans';
+import { logActivity, extractRequestInfo, detectPlatform } from '../../../services';
 
 // Allowed redirect origins for OAuth callbacks
 const ALLOWED_REDIRECT_ORIGINS = [
@@ -197,11 +198,30 @@ export async function integrationsRoutes(fastify: FastifyInstance) {
       throw new NotFoundError('User not found');
     }
 
+    // Get connection info before deletion for logging
+    const connection = await db.query.providerConnections.findFirst({
+      where: and(
+        eq(providerConnections.id, id),
+        eq(providerConnections.userId, user.id)
+      ),
+    });
+
     const deleted = await deleteConnection(user.id, id);
 
     if (!deleted) {
       throw new NotFoundError('Connection not found');
     }
+
+    // Log integration disconnected (no vaultId since it's user-level)
+    const { ipAddress, userAgent } = extractRequestInfo(request);
+    await logActivity({
+      userId: user.id,
+      action: 'integration_disconnected',
+      platform: detectPlatform(userAgent),
+      ipAddress,
+      userAgent,
+      metadata: { provider: connection?.provider },
+    });
 
     return sendNoContent(reply);
   });
@@ -265,6 +285,17 @@ export async function integrationsRoutes(fastify: FastifyInstance) {
       undefined, // no expiry
       undefined  // no scopes
     );
+
+    // Log integration connected
+    const { ipAddress, userAgent } = extractRequestInfo(request);
+    await logActivity({
+      userId: user.id,
+      action: 'integration_connected',
+      platform: detectPlatform(userAgent),
+      ipAddress,
+      userAgent,
+      metadata: { provider: providerName },
+    });
 
     return sendData(reply, {
       success: true,
@@ -405,6 +436,17 @@ export async function integrationsRoutes(fastify: FastifyInstance) {
         tokenResponse.expiresIn ? new Date(Date.now() + tokenResponse.expiresIn * 1000) : undefined,
         tokenResponse.scope?.split(' ')
       );
+
+      // Log integration connected
+      const { ipAddress, userAgent } = extractRequestInfo(request);
+      await logActivity({
+        userId: user.id,
+        action: 'integration_connected',
+        platform: detectPlatform(userAgent),
+        ipAddress,
+        userAgent,
+        metadata: { provider: providerName },
+      });
 
       // Redirect to success page or redirect_uri (with validation)
       const redirectUri = stateData.redirectUri as string | null;
@@ -627,6 +669,25 @@ export async function integrationsRoutes(fastify: FastifyInstance) {
       body.allowDelete,
       user.id
     );
+
+    // Log secrets synced (only on success)
+    if (result.status === 'success') {
+      const { ipAddress, userAgent } = extractRequestInfo(request);
+      await logActivity({
+        userId: user.id,
+        vaultId: vault.id,
+        action: 'secrets_synced',
+        platform: detectPlatform(userAgent),
+        ipAddress,
+        userAgent,
+        metadata: {
+          provider: connection.provider,
+          direction: body.direction,
+          environment: body.keywayEnvironment,
+          count: result.created + result.updated + result.deleted,
+        },
+      });
+    }
 
     return sendData(reply, {
       success: result.status === 'success',

@@ -11,6 +11,7 @@ import {
   updateInstallationRepos,
   getInstallationsForUser,
   getInstallationByGitHubId,
+  logActivity,
 } from '../../../services';
 import { db, users } from '../../../db';
 import { eq } from 'drizzle-orm';
@@ -225,6 +226,22 @@ async function handleInstallationEvent(
         repositories: repositories,
         installedByUserId,
       });
+
+      // Log activity if we know who installed it
+      if (installedByUserId) {
+        await logActivity({
+          userId: installedByUserId,
+          action: 'github_app_installed',
+          platform: 'web',
+          metadata: {
+            installationId: installation.id,
+            accountLogin: installation.account.login,
+            accountType: installation.account.type,
+            repositorySelection: installation.repository_selection,
+            repositoryCount: repositories?.length || 0,
+          },
+        });
+      }
       break;
 
     case 'deleted':
@@ -232,6 +249,20 @@ async function handleInstallationEvent(
         installationId: installation.id,
         account: installation.account.login,
       }, 'GitHub App uninstalled');
+
+      // Log activity before deletion if we know who triggered it
+      if (installedByUserId) {
+        await logActivity({
+          userId: installedByUserId,
+          action: 'github_app_uninstalled',
+          platform: 'web',
+          metadata: {
+            installationId: installation.id,
+            accountLogin: installation.account.login,
+            accountType: installation.account.type,
+          },
+        });
+      }
 
       await deleteInstallation(installation.id);
       break;

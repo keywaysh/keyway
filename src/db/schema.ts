@@ -43,6 +43,18 @@ export const activityActionEnum = pgEnum('activity_action', [
   'environment_created',
   'environment_renamed',
   'environment_deleted',
+  // Integration actions
+  'integration_connected',
+  'integration_disconnected',
+  'secrets_synced',
+  // Billing actions
+  'plan_upgraded',
+  'plan_downgraded',
+  // GitHub App actions
+  'github_app_installed',
+  'github_app_uninstalled',
+  // Auth actions
+  'user_login',
 ]);
 
 // Activity platform types

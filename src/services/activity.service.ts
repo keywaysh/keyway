@@ -108,15 +108,23 @@ export function extractRequestInfo(request: {
 }
 
 /**
- * Detect platform from request User-Agent
+ * Detect platform from request User-Agent or user agent string
  * - CLI: User-Agent contains "keyway-cli"
  * - Web: User-Agent is a browser (contains Mozilla, Chrome, Safari, etc.)
  * - API: Everything else (curl, scripts, etc.)
  */
-export function detectPlatform(request: {
+export function detectPlatform(userAgentOrRequest: string | null | undefined | {
   headers?: { 'user-agent'?: string };
 }): ActivityPlatform {
-  const userAgent = request?.headers?.['user-agent'] || '';
+  let userAgent: string;
+
+  if (typeof userAgentOrRequest === 'string') {
+    userAgent = userAgentOrRequest;
+  } else if (userAgentOrRequest && typeof userAgentOrRequest === 'object') {
+    userAgent = userAgentOrRequest?.headers?.['user-agent'] || '';
+  } else {
+    userAgent = '';
+  }
 
   if (userAgent.toLowerCase().includes('keyway-cli')) {
     return 'cli';

@@ -14,6 +14,7 @@ import { signState, verifyState } from '../../../utils/state';
 import { sendWelcomeEmail } from '../../../utils/email';
 import { sendData, sendNoContent } from '../../../lib/response';
 import { handleInstallationCreated } from '../../../services/github-app.service';
+import { logActivity, extractRequestInfo, detectPlatform } from '../../../services';
 
 // Schemas
 const DeviceFlowStartSchema = z.object({
@@ -175,6 +176,21 @@ export async function authRoutes(fastify: FastifyInstance) {
             }
           }
 
+          // Log user login activity (GitHub App install flow)
+          const { ipAddress, userAgent } = extractRequestInfo(request);
+          await logActivity({
+            userId: user.id,
+            action: 'user_login',
+            platform: isFromCli ? 'cli' : detectPlatform(userAgent),
+            ipAddress,
+            userAgent,
+            metadata: {
+              method: 'github_app_install',
+              isNewUser,
+              installationId,
+            },
+          });
+
           trackEvent(user.id, AnalyticsEvents.AUTH_SUCCESS, {
             username: githubUser.username,
             method: 'github_app_install',
@@ -247,6 +263,20 @@ export async function authRoutes(fastify: FastifyInstance) {
 
         const signupSource = isNewUser ? getSignupSource(request.headers.referer) : undefined;
 
+        // Log user login activity
+        const { ipAddress, userAgent } = extractRequestInfo(request);
+        await logActivity({
+          userId: user.id,
+          action: 'user_login',
+          platform: detectPlatform(userAgent),
+          ipAddress,
+          userAgent,
+          metadata: {
+            method: 'web_oauth',
+            isNewUser,
+          },
+        });
+
         trackEvent(user.id, AnalyticsEvents.AUTH_SUCCESS, {
           username: githubUser.username,
           method: 'web_oauth',
@@ -286,6 +316,20 @@ export async function authRoutes(fastify: FastifyInstance) {
             userId: user.id,
           })
           .where(eq(deviceCodes.id, stateData.deviceCodeId as string));
+
+        // Log user login activity (CLI device flow)
+        const { ipAddress, userAgent } = extractRequestInfo(request);
+        await logActivity({
+          userId: user.id,
+          action: 'user_login',
+          platform: 'cli',
+          ipAddress,
+          userAgent,
+          metadata: {
+            method: 'device_flow',
+            isNewUser,
+          },
+        });
 
         trackEvent(user.id, AnalyticsEvents.AUTH_SUCCESS, {
           username: githubUser.username,

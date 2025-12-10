@@ -3,6 +3,7 @@ import { eq } from 'drizzle-orm';
 import { db, users, subscriptions, stripeWebhookEvents, type UserPlan } from '../db';
 import { config } from '../config';
 import { trackEvent, identifyUser, AnalyticsEvents } from '../utils/analytics';
+import { logActivity } from './activity.service';
 
 // Initialize Stripe client (only if configured)
 const stripe = config.stripe
@@ -267,15 +268,45 @@ async function handleSubscriptionChange(
 
   console.log(`[Billing] Updated user ${userId} to plan ${plan} (status: ${billingStatus})`);
 
-  // Track billing upgrade event
-  if (previousPlan === 'free' && plan !== 'free') {
-    trackEvent(userId, AnalyticsEvents.BILLING_UPGRADE, {
-      previousPlan,
-      newPlan: plan,
-      billingInterval: subscription.items.data[0]?.price.recurring?.interval || 'unknown',
+  // Track billing upgrade/downgrade events
+  if (previousPlan !== plan) {
+    const isUpgrade = getPlanRank(plan) > getPlanRank(previousPlan);
+
+    // Log activity
+    await logActivity({
+      userId,
+      action: isUpgrade ? 'plan_upgraded' : 'plan_downgraded',
+      platform: 'api',
+      metadata: {
+        previousPlan,
+        newPlan: plan,
+        billingInterval: subscription.items.data[0]?.price.recurring?.interval || 'unknown',
+        source: 'stripe_webhook',
+      },
     });
-    // Update user identity with new plan
-    identifyUser(userId, { plan });
+
+    // Track analytics
+    if (previousPlan === 'free' && plan !== 'free') {
+      trackEvent(userId, AnalyticsEvents.BILLING_UPGRADE, {
+        previousPlan,
+        newPlan: plan,
+        billingInterval: subscription.items.data[0]?.price.recurring?.interval || 'unknown',
+      });
+      // Update user identity with new plan
+      identifyUser(userId, { plan });
+    }
+  }
+}
+
+/**
+ * Get numeric rank for plan comparison (free=0, pro=1, team=2)
+ */
+function getPlanRank(plan: UserPlan): number {
+  switch (plan) {
+    case 'free': return 0;
+    case 'pro': return 1;
+    case 'team': return 2;
+    default: return 0;
   }
 }
 
@@ -316,6 +347,19 @@ async function handleSubscriptionDeleted(
     .where(eq(users.id, userId));
 
   console.log(`[Billing] Downgraded user ${userId} to free plan (subscription deleted)`);
+
+  // Log activity
+  await logActivity({
+    userId,
+    action: 'plan_downgraded',
+    platform: 'api',
+    metadata: {
+      previousPlan,
+      newPlan: 'free',
+      reason: 'subscription_deleted',
+      source: 'stripe_webhook',
+    },
+  });
 
   // Track billing downgrade event
   trackEvent(userId, AnalyticsEvents.BILLING_DOWNGRADE, {
