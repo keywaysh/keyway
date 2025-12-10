@@ -11,9 +11,10 @@ COPY package.json pnpm-lock.yaml ./
 # Install all dependencies
 RUN pnpm install --frozen-lockfile
 
-# Copy source code and proto
+# Copy source code, proto, and migrations
 COPY src ./src
 COPY proto ./proto
+COPY drizzle ./drizzle
 COPY tsconfig.json ./
 
 # Build
@@ -34,9 +35,10 @@ COPY package.json pnpm-lock.yaml ./
 ENV NODE_ENV=production
 RUN pnpm install --frozen-lockfile --prod
 
-# Copy built files and proto
+# Copy built files, proto, and migrations
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/proto ./proto
+COPY --from=builder /app/drizzle ./drizzle
 
 # Expose port
 EXPOSE 8080
@@ -45,5 +47,5 @@ EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
   CMD node -e "require('http').get('http://localhost:' + (process.env.PORT || 8080) + '/health', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"
 
-# Start server
-CMD ["node", "dist/index.js"]
+# Run migrations then start server
+CMD sh -c "node dist/db/migrate.js && node dist/index.js"

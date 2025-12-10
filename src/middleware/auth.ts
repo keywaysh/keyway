@@ -72,6 +72,14 @@ export async function authenticateGitHub(
     token = authHeader.substring(7);
   }
 
+  // Fall back to query param (for CLI OAuth flows opened in browser)
+  if (!token) {
+    const query = request.query as { token?: string };
+    if (query.token) {
+      token = query.token;
+    }
+  }
+
   // Fall back to session cookie (for web dashboard)
   if (!token) {
     const cookieHeader = request.headers.cookie;

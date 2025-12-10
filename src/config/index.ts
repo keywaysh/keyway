@@ -53,6 +53,8 @@ const envSchema = z.object({
   // Provider integrations (optional)
   VERCEL_CLIENT_ID: z.string().optional(),
   VERCEL_CLIENT_SECRET: z.string().optional(),
+  NETLIFY_CLIENT_ID: z.string().optional(),
+  NETLIFY_CLIENT_SECRET: z.string().optional(),
 
   // Email (Resend)
   RESEND_API_KEY: z.string().optional(),
@@ -150,6 +152,13 @@ export const config = {
     ? {
         clientId: env.VERCEL_CLIENT_ID,
         clientSecret: env.VERCEL_CLIENT_SECRET,
+      }
+    : undefined,
+
+  netlify: env.NETLIFY_CLIENT_ID && env.NETLIFY_CLIENT_SECRET
+    ? {
+        clientId: env.NETLIFY_CLIENT_ID,
+        clientSecret: env.NETLIFY_CLIENT_SECRET,
       }
     : undefined,
 

@@ -149,6 +149,8 @@ function isProviderConfigured(name: string): boolean {
   switch (name) {
     case 'vercel':
       return !!(config.vercel?.clientId && config.vercel?.clientSecret);
+    case 'netlify':
+      return !!(config.netlify?.clientId && config.netlify?.clientSecret);
     case 'railway':
       // Railway uses direct API token auth, always configured
       return true;
