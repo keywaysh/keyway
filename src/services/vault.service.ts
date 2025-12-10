@@ -129,7 +129,8 @@ export async function getVaultsForUser(
         repoOwner,
         repoName,
         repoAvatar: getGitHubAvatarUrl(repoOwner),
-        secretCount: vault.secrets.length,
+        // Only count active secrets (not deleted)
+        secretCount: vault.secrets.filter(s => s.deletedAt === null).length,
         environments,
         permission,
         isPrivate: vault.isPrivate,
@@ -197,7 +198,8 @@ export async function getVaultByRepo(
       repoOwner,
       repoName,
       repoAvatar: getGitHubAvatarUrl(repoOwner),
-      secretCount: vault.secrets.length,
+      // Only count active secrets (not deleted)
+      secretCount: vault.secrets.filter(s => s.deletedAt === null).length,
       environments,
       permission: role,
       isPrivate: vault.isPrivate,
