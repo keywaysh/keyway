@@ -71,10 +71,22 @@ fi
 # Try pulling secrets from Keyway
 if [ -n "$KEYWAY_CMD" ]; then
     echo ""
-    echo -e "  ${YELLOW}→${NC} Pulling secrets from vault..."
+    echo -e "  ${YELLOW}→${NC} Pulling secrets for keyway-infra..."
     if $KEYWAY_CMD pull --yes --file .env 2>/dev/null; then
-        echo -e "  ${GREEN}✓${NC} Secrets pulled successfully"
+        echo -e "  ${GREEN}✓${NC} keyway-infra"
         KEYWAY_SUCCESS=true
+
+        # Pull secrets for each sub-repo
+        for repo in "${REPOS[@]}"; do
+            if [ -d "$repo" ]; then
+                echo -e "  ${YELLOW}→${NC} Pulling secrets for $repo..."
+                if (cd "$repo" && $KEYWAY_CMD pull --yes --file .env 2>/dev/null); then
+                    echo -e "  ${GREEN}✓${NC} $repo"
+                else
+                    echo -e "  ${YELLOW}!${NC} $repo (no vault or no access)"
+                fi
+            fi
+        done
     else
         echo -e "  ${YELLOW}!${NC} Could not pull secrets"
         echo ""
