@@ -82,6 +82,7 @@ if [ -n "$KEYWAY_CMD" ]; then
     fi
 fi
 
+
 # Fallback to manual setup if Keyway failed
 if [ "$KEYWAY_SUCCESS" = false ]; then
     echo ""
@@ -175,5 +176,8 @@ echo ""
 echo "Access:"
 echo "   • Dashboard: https://localhost"
 echo "   • API:       https://localhost/api"
+echo ""
+echo "Use local CLI with local API:"
+echo -e "   ${BLUE}NODE_TLS_REJECT_UNAUTHORIZED=0 KEYWAY_API_URL=https://localhost/api pnpm --dir cli dev <command>${NC}"
 echo ""
 echo -e "${GREEN}════════════════════════════════════════════════════════════${NC}"
