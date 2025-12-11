@@ -6,11 +6,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Keyway is a GitHub-native secrets management platform. It provides a simple way to sync team secrets using GitHub authentication - if you have repo access, you get secret access.
 
-This is a monorepo containing four packages:
+This is a monorepo containing five packages:
 - **keyway-backend**: Fastify 5 API with PostgreSQL, AES-256-GCM encryption, OAuth device flow
 - **keyway-cli**: npm-published CLI (`@keywaysh/cli`) using Commander.js
 - **keyway-site**: Next.js 15 marketing and dashboard frontend
 - **keyway-docs**: Docusaurus 3 documentation site (docs.keyway.sh)
+- **keyway-action**: GitHub Action for injecting secrets into CI workflows
 
 ## Development Commands
 

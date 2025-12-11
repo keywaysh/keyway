@@ -30,8 +30,9 @@ echo ""
 REPOS=(
     "keyway-backend"
     "keyway-site"
-    "keyway-cli"
+    "cli"
     "keyway-crypto"
+    "keyway-action"
 )
 
 for repo in "${REPOS[@]}"; do
@@ -61,10 +62,30 @@ else
 fi
 
 echo ""
-echo -e "${BLUE}Step 3: Checking configuration...${NC}"
+echo -e "${BLUE}Step 3: Generating secrets...${NC}"
 echo ""
 
-# Check if .env has required values
+# Generate ENCRYPTION_KEY if empty
+if ! grep -q "^ENCRYPTION_KEY=." .env 2>/dev/null; then
+    sed -i.bak "s/^ENCRYPTION_KEY=$/ENCRYPTION_KEY=$(openssl rand -hex 32)/" .env && rm -f .env.bak
+    echo -e "  ${GREEN}✓${NC} ENCRYPTION_KEY (generated)"
+else
+    echo -e "  ${GREEN}✓${NC} ENCRYPTION_KEY (already set)"
+fi
+
+# Generate JWT_SECRET if empty
+if ! grep -q "^JWT_SECRET=." .env 2>/dev/null; then
+    sed -i.bak "s/^JWT_SECRET=$/JWT_SECRET=$(openssl rand -base64 32)/" .env && rm -f .env.bak
+    echo -e "  ${GREEN}✓${NC} JWT_SECRET (generated)"
+else
+    echo -e "  ${GREEN}✓${NC} JWT_SECRET (already set)"
+fi
+
+echo ""
+echo -e "${BLUE}Step 4: Checking GitHub App configuration...${NC}"
+echo ""
+
+# Check if .env has required GitHub values
 ENV_COMPLETE=true
 check_env_var() {
     local var_name=$1
@@ -77,8 +98,6 @@ check_env_var() {
     fi
 }
 
-check_env_var "ENCRYPTION_KEY"
-check_env_var "JWT_SECRET"
 check_env_var "GITHUB_APP_ID"
 check_env_var "GITHUB_APP_CLIENT_ID"
 check_env_var "GITHUB_APP_CLIENT_SECRET"
@@ -89,23 +108,19 @@ echo ""
 if [ "$ENV_COMPLETE" = false ]; then
     echo -e "${YELLOW}════════════════════════════════════════════════════════════${NC}"
     echo ""
-    echo -e "${YELLOW}Action required: Configure .env${NC}"
+    echo -e "${YELLOW}Action required: Configure GitHub App${NC}"
     echo ""
-    echo "1. Generate keys:"
-    echo -e "   ${BLUE}openssl rand -hex 32${NC}      # ENCRYPTION_KEY"
-    echo -e "   ${BLUE}openssl rand -base64 32${NC}   # JWT_SECRET"
-    echo ""
-    echo "2. Create a GitHub App:"
+    echo "1. Create a GitHub App:"
     echo -e "   ${BLUE}https://github.com/settings/apps/new${NC}"
     echo ""
     echo "   • Homepage URL: https://localhost"
     echo "   • Callback URL: https://localhost/auth/callback"
     echo "   • Permissions: Repository metadata (read-only)"
     echo ""
-    echo "3. Edit .env with your values:"
+    echo "2. Edit .env with your GitHub App values:"
     echo -e "   ${BLUE}nano .env${NC}"
     echo ""
-    echo "4. Then start the stack:"
+    echo "3. Then start the stack:"
     echo -e "   ${BLUE}docker compose up --build${NC}"
     echo ""
     echo -e "${YELLOW}════════════════════════════════════════════════════════════${NC}"
