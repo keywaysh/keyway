@@ -1,5 +1,7 @@
 # Keyway Development Environment
 
+[![Keyway Secrets](https://www.keyway.sh/badge.svg?repo=keywaysh/keyway-infra)](https://www.keyway.sh/vaults/keywaysh/keyway-infra)
+
 Run the full Keyway stack locally with Docker.
 
 ## Quick Start
