@@ -72,6 +72,10 @@ const envSchema = z.object({
 
   // Frontend URLs (for redirects after auth)
   FRONTEND_URL: z.string().url().optional(),
+
+  // Sentry Error Tracking (optional)
+  SENTRY_DSN: z.string().url().optional(),
+  SENTRY_RELEASE: z.string().optional(),
 });
 
 // Validate environment variables
@@ -184,6 +188,14 @@ export const config = {
           teamMonthly: env.STRIPE_PRICE_TEAM_MONTHLY,
           teamYearly: env.STRIPE_PRICE_TEAM_YEARLY,
         },
+      }
+    : undefined,
+
+  sentry: env.SENTRY_DSN
+    ? {
+        dsn: env.SENTRY_DSN,
+        release: env.SENTRY_RELEASE || 'unknown',
+        enabled: true,
       }
     : undefined,
 } as const;

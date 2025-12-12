@@ -6,13 +6,16 @@ import formbody from '@fastify/formbody';
 import cookie from '@fastify/cookie';
 import { ZodError } from 'zod';
 import { config } from './config';
-import { AppError } from './errors';
 import { ApiError, ValidationError } from './lib';
 import { apiV1Routes } from './api/v1';
 import { initAnalytics, shutdownAnalytics, trackEvent, AnalyticsEvents } from './utils/analytics';
 import { sql as dbConnection } from './db';
 import { sanitizeError, sanitizeHeaders } from './utils/logger';
 import { checkCryptoService } from './utils/remoteEncryption';
+import { initSentry, captureError, closeSentry } from './utils/sentry';
+
+// Initialize Sentry before anything else (must be first)
+initSentry();
 
 // Create Fastify instance
 const fastify = Fastify({
@@ -146,6 +149,11 @@ fastify.register(apiV1Routes, { prefix: '/v1' });
 
 // Global error handler
 fastify.setErrorHandler((error: Error & { statusCode?: number; validation?: unknown }, request, reply) => {
+  // Determine status code early for Sentry decision
+  const statusCode = error instanceof ApiError
+    ? error.status
+    : error.statusCode || 500;
+
   // Log error with context - sanitize to prevent token exposure
   fastify.log.error({
     err: sanitizeError(error),
@@ -155,12 +163,24 @@ fastify.setErrorHandler((error: Error & { statusCode?: number; validation?: unkn
     headers: sanitizeHeaders(request.headers),
   }, 'Request error');
 
-  // Track error in analytics (supports both ApiError and AppError)
+  // Capture 5xx errors in Sentry (not 4xx client errors)
+  if (statusCode >= 500) {
+    captureError(error, {
+      requestId: request.id,
+      url: request.url,
+      method: request.method,
+      userId: (request as any).githubUser?.githubId,
+      username: (request as any).githubUser?.username,
+      extra: {
+        errorType: error.constructor.name,
+      },
+    });
+  }
+
+  // Track error in analytics
   const errorCode = error instanceof ApiError
     ? error.type.split('/').pop() || error.name
-    : error instanceof AppError
-      ? error.code
-      : error.name;
+    : error.name;
 
   trackEvent(
     (request as any).user?.id || 'anonymous',
@@ -199,14 +219,6 @@ fastify.setErrorHandler((error: Error & { statusCode?: number; validation?: unkn
     return reply.status(400).send(validationError.toProblemDetails(request.id));
   }
 
-  // Handle custom application errors (legacy - to be deprecated)
-  if (error instanceof AppError) {
-    return reply.status(error.statusCode).send({
-      ...error.toJSON(),
-      requestId: request.id,
-    });
-  }
-
   // Handle rate limit errors (from @fastify/rate-limit plugin)
   if (error.statusCode === 429) {
     return reply.status(429).send({
@@ -219,7 +231,6 @@ fastify.setErrorHandler((error: Error & { statusCode?: number; validation?: unkn
   }
 
   // Default to 500 Internal Server Error (RFC 7807 format)
-  const statusCode = error.statusCode || 500;
   return reply.status(statusCode).send({
     type: 'https://api.keyway.sh/errors/internal-error',
     title: 'Internal Server Error',
@@ -291,6 +302,8 @@ const start = async () => {
 const shutdown = async () => {
   fastify.log.info('Shutting down gracefully...');
 
+  // Flush Sentry events before shutdown
+  await closeSentry();
   await shutdownAnalytics();
   await fastify.close();
 

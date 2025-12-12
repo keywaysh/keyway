@@ -14,6 +14,7 @@ import {
   ProviderUser,
   registerProvider,
 } from './base.provider';
+import { logger } from '../../utils/sharedLogger';
 
 const RAILWAY_API_BASE = 'https://backboard.railway.com/graphql/v2';
 const DEFAULT_TIMEOUT_MS = 30000;
@@ -23,36 +24,6 @@ const IGNORED_VAR_PREFIXES = [
   'RAILWAY_',     // Railway runtime variables
   'NIXPACKS_',    // Nixpacks build variables
 ];
-
-// Logger for provider operations
-const logger = {
-  error: (context: Record<string, unknown>, message: string) => {
-    const sanitized = sanitizeLogContext(context);
-    console.error(`[RailwayProvider] ${message}`, JSON.stringify(sanitized, null, 2));
-  },
-  warn: (context: Record<string, unknown>, message: string) => {
-    const sanitized = sanitizeLogContext(context);
-    console.warn(`[RailwayProvider] ${message}`, JSON.stringify(sanitized, null, 2));
-  },
-};
-
-function sanitizeLogContext(context: Record<string, unknown>): Record<string, unknown> {
-  const sensitiveKeys = ['token', 'accessToken', 'refreshToken', 'secret', 'password', 'authorization'];
-  const result: Record<string, unknown> = {};
-
-  for (const [key, value] of Object.entries(context)) {
-    const lowerKey = key.toLowerCase();
-    if (sensitiveKeys.some(sk => lowerKey.includes(sk))) {
-      result[key] = '[REDACTED]';
-    } else if (typeof value === 'string' && value.length > 100) {
-      result[key] = value.substring(0, 50) + '...[truncated]';
-    } else {
-      result[key] = value;
-    }
-  }
-
-  return result;
-}
 
 interface GraphQLResponse<T> {
   data?: T;

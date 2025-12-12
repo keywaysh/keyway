@@ -8,6 +8,7 @@ import { db, providerConnections, vaultSyncs, syncLogs, secrets, vaults } from '
 import { getProvider } from './providers';
 import { getEncryptionService, type EncryptedData } from '../utils/encryption';
 import type { SyncDirection, SyncStatus } from '../db/schema';
+import { logger } from '../utils/sharedLogger';
 
 // Types
 export interface ConnectionInfo {
@@ -110,7 +111,7 @@ async function safeDecryptSecret(secret: {
     });
     return { key: secret.key, value };
   } catch (error) {
-    console.error(`[IntegrationService] Failed to decrypt secret '${secret.key}': ${error instanceof Error ? error.message : 'Unknown error'}`);
+    logger.error({ secretKey: secret.key, error: error instanceof Error ? error.message : 'Unknown error' }, 'Failed to decrypt secret');
     return null;
   }
 }
@@ -137,14 +138,14 @@ type ConnectionWithTokens = {
 async function getValidAccessToken(connection: ConnectionWithTokens): Promise<string> {
   // Check if token is expired
   if (connection.tokenExpiresAt && connection.tokenExpiresAt < new Date()) {
-    console.log(`[IntegrationService] Token expired for connection ${connection.id} (provider: ${connection.provider}), attempting refresh...`);
+    logger.info({ connectionId: connection.id, provider: connection.provider }, 'Token expired, attempting refresh');
     const provider = getProvider(connection.provider);
     const refreshToken = await decryptProviderRefreshToken(connection);
 
     if (provider?.refreshToken && refreshToken) {
       try {
         const newTokens = await provider.refreshToken(refreshToken);
-        console.log(`[IntegrationService] Token refreshed successfully for connection ${connection.id}`);
+        logger.info({ connectionId: connection.id }, 'Token refreshed successfully');
 
         // Update connection with new tokens
         const encrypted = await encryptProviderToken(newTokens.accessToken);
@@ -161,12 +162,12 @@ async function getValidAccessToken(connection: ConnectionWithTokens): Promise<st
 
         return newTokens.accessToken;
       } catch (error) {
-        console.error(`[IntegrationService] Token refresh failed for connection ${connection.id}: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        logger.error({ connectionId: connection.id, error: error instanceof Error ? error.message : 'Unknown error' }, 'Token refresh failed');
         throw new Error('Token expired and refresh failed. Please reconnect to provider.');
       }
     }
 
-    console.error(`[IntegrationService] Token expired and no refresh token available for connection ${connection.id}`);
+    logger.error({ connectionId: connection.id }, 'Token expired and no refresh token available');
     throw new Error('Token expired. Please reconnect to provider.');
   }
 
@@ -559,7 +560,7 @@ export async function getSyncPreview(
 
   // Log if there were decryption errors but continue with available secrets
   if (decryptionErrors.length > 0) {
-    console.warn(`[IntegrationService] Skipped ${decryptionErrors.length} secrets due to decryption errors: ${decryptionErrors.join(', ')}`);
+    logger.warn({ count: decryptionErrors.length, keys: decryptionErrors }, 'Skipped secrets due to decryption errors');
   }
 
   // Get provider secrets
@@ -634,7 +635,7 @@ export async function executeSync(
   allowDelete: boolean,
   triggeredBy: string
 ): Promise<SyncResult> {
-  console.log(`[IntegrationService] executeSync started: vault=${vaultId}, direction=${direction}, env=${keywayEnvironment}->${providerEnvironment}`);
+  logger.info({ vaultId, direction, keywayEnvironment, providerEnvironment }, 'executeSync started');
 
   // Validate connection belongs to the user (IDOR protection)
   const connection = await db.query.providerConnections.findFirst({
@@ -645,15 +646,15 @@ export async function executeSync(
   });
 
   if (!connection) {
-    console.error(`[IntegrationService] Connection ${connectionId} not found for user ${triggeredBy}`);
+    logger.error({ connectionId, userId: triggeredBy }, 'Connection not found');
     throw new Error('Connection not found');
   }
 
-  console.log(`[IntegrationService] Connection found: provider=${connection.provider}, teamId=${connection.providerTeamId}`);
+  logger.debug({ provider: connection.provider, teamId: connection.providerTeamId }, 'Connection found');
 
   const provider = getProvider(connection.provider);
   if (!provider) {
-    console.error(`[IntegrationService] Provider ${connection.provider} not found`);
+    logger.error({ provider: connection.provider }, 'Provider not found');
     throw new Error(`Provider ${connection.provider} not found`);
   }
 
@@ -741,7 +742,7 @@ export async function executeSync(
 
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    console.error(`[IntegrationService] Sync failed: ${errorMessage}`);
+    logger.error({ error: errorMessage, vaultId, direction }, 'Sync failed');
 
     result = {
       status: 'failed',
@@ -768,7 +769,7 @@ export async function executeSync(
     });
   }
 
-  console.log(`[IntegrationService] Sync completed: status=${result.status}, created=${result.created}, updated=${result.updated}, deleted=${result.deleted}, skipped=${result.skipped}`);
+  logger.info({ status: result.status, created: result.created, updated: result.updated, deleted: result.deleted, skipped: result.skipped }, 'Sync completed');
   return result;
 }
 
@@ -809,7 +810,7 @@ async function executePush(
 
   // Log if there were decryption errors but continue with available secrets
   if (decryptionErrors.length > 0) {
-    console.warn(`[IntegrationService] Skipped ${decryptionErrors.length} secrets in push due to decryption errors: ${decryptionErrors.join(', ')}`);
+    logger.warn({ count: decryptionErrors.length, keys: decryptionErrors }, 'Skipped secrets in push due to decryption errors');
   }
 
   // Set env vars

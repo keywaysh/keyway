@@ -1,5 +1,6 @@
 import { Resend } from 'resend';
 import { config } from '../config';
+import { logger } from './sharedLogger';
 
 const resend = config.email.enabled ? new Resend(config.email.resendApiKey) : null;
 
@@ -10,7 +11,7 @@ interface WelcomeEmailParams {
 
 export async function sendWelcomeEmail({ to, username }: WelcomeEmailParams): Promise<void> {
   if (!resend) {
-    console.log(`[Email] Skipping welcome email (Resend not configured) - would send to ${to}`);
+    logger.debug({ to }, 'Skipping welcome email (Resend not configured)');
     return;
   }
 
@@ -23,10 +24,10 @@ export async function sendWelcomeEmail({ to, username }: WelcomeEmailParams): Pr
       html: getWelcomeEmailHtml(username),
       text: getWelcomeEmailText(username),
     });
-    console.log(`[Email] Welcome email sent to ${to}`);
+    logger.info({ to }, 'Welcome email sent');
   } catch (error) {
     // Don't fail the signup if email fails
-    console.error('[Email] Failed to send welcome email:', error);
+    logger.error({ to, error: error instanceof Error ? error.message : 'Unknown error' }, 'Failed to send welcome email');
   }
 }
 

@@ -15,6 +15,7 @@ import {
   registerProvider,
 } from './base.provider';
 import { config } from '../../config';
+import { logger } from '../../utils/sharedLogger';
 
 const VERCEL_API_BASE = 'https://api.vercel.com';
 const VERCEL_INTEGRATION_SLUG = 'keyway';
@@ -26,38 +27,6 @@ const IGNORED_VAR_PREFIXES = [
   'VERCEL_',              // Vercel system variables
   'NEXT_PUBLIC_VERCEL_',  // Next.js public Vercel variables
 ];
-
-// Logger for provider operations - sanitizes context to prevent token leakage
-const logger = {
-  error: (context: Record<string, unknown>, message: string) => {
-    const sanitized = sanitizeLogContext(context);
-    console.error(`[VercelProvider] ${message}`, JSON.stringify(sanitized, null, 2));
-  },
-  warn: (context: Record<string, unknown>, message: string) => {
-    const sanitized = sanitizeLogContext(context);
-    console.warn(`[VercelProvider] ${message}`, JSON.stringify(sanitized, null, 2));
-  },
-};
-
-// Sanitize context to prevent token/secret leakage in logs
-function sanitizeLogContext(context: Record<string, unknown>): Record<string, unknown> {
-  const sensitiveKeys = ['token', 'accessToken', 'refreshToken', 'secret', 'password', 'authorization'];
-  const result: Record<string, unknown> = {};
-
-  for (const [key, value] of Object.entries(context)) {
-    const lowerKey = key.toLowerCase();
-    if (sensitiveKeys.some(sk => lowerKey.includes(sk))) {
-      result[key] = '[REDACTED]';
-    } else if (typeof value === 'string' && value.length > 100) {
-      // Truncate long strings that might contain tokens
-      result[key] = value.substring(0, 50) + '...[truncated]';
-    } else {
-      result[key] = value;
-    }
-  }
-
-  return result;
-}
 
 /**
  * Safely stringify an object, catching any errors to prevent secret leakage

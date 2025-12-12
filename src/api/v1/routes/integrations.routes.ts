@@ -25,6 +25,7 @@ import { db, vaults, users } from '../../../db';
 import { eq } from 'drizzle-orm';
 import { NotFoundError, ForbiddenError, BadRequestError, PlanLimitError } from '../../../lib';
 import { getUserRoleWithApp } from '../../../utils/github';
+import { logger } from '../../../utils/sharedLogger';
 import { providerConnections } from '../../../db/schema';
 import { and } from 'drizzle-orm';
 import { sendData, sendNoContent } from '../../../lib/response';
@@ -91,59 +92,59 @@ function buildCallbackUrl(request: { headers: { 'x-forwarded-proto'?: string; ho
 // Uses GitHub App to check permissions (consistent with other access checks)
 async function verifyVaultAccess(username: string, owner: string, repo: string) {
   const repoFullName = `${owner}/${repo}`;
-  console.log(`[Integrations] verifyVaultAccess: user='${username}', repo='${repoFullName}'`);
+  logger.debug({ username, repoFullName }, 'Verifying vault access');
 
   // Use GitHub App to check user's role (same as requireEnvironmentAccess middleware)
   const role = await getUserRoleWithApp(repoFullName, username);
 
   if (!role) {
-    console.warn(`[Integrations] Access denied: user='${username}' has no role on '${repoFullName}'`);
+    logger.warn({ username, repoFullName }, 'Access denied: user has no role on repository');
     throw new ForbiddenError('You do not have access to this repository');
   }
 
-  console.log(`[Integrations] Access granted: user='${username}', role='${role}' on '${repoFullName}'`);
+  logger.debug({ username, role, repoFullName }, 'Access granted');
 
   const vault = await db.query.vaults.findFirst({
     where: eq(vaults.repoFullName, repoFullName),
   });
 
   if (!vault) {
-    console.warn(`[Integrations] Vault not found for repo: ${repoFullName}`);
+    logger.warn({ repoFullName }, 'Vault not found for repository');
     throw new NotFoundError('Vault not found');
   }
 
-  console.log(`[Integrations] Vault found: id=${vault.id}, repo=${repoFullName}`);
+  logger.debug({ vaultId: vault.id, repoFullName }, 'Vault found');
   return vault;
 }
 
 // Helper to verify vault access with write permission (for sync push)
 async function verifyVaultWriteAccess(username: string, owner: string, repo: string) {
   const repoFullName = `${owner}/${repo}`;
-  console.log(`[Integrations] verifyVaultWriteAccess: user='${username}', repo='${repoFullName}'`);
+  logger.debug({ username, repoFullName }, 'Verifying vault write access');
 
   // Get user's role to check write permission (using GitHub App)
   const role = await getUserRoleWithApp(repoFullName, username);
 
   if (!role) {
-    console.warn(`[Integrations] Write access denied: user='${username}' has no role on '${repoFullName}'`);
+    logger.warn({ username, repoFullName }, 'Write access denied: user has no role on repository');
     throw new ForbiddenError('You do not have access to this repository');
   }
 
   // write, maintain, admin can write
   const canWrite = ['write', 'maintain', 'admin'].includes(role);
   if (!canWrite) {
-    console.warn(`[Integrations] Write access denied: user='${username}' has role='${role}' (need write/maintain/admin)`);
+    logger.warn({ username, role, repoFullName }, 'Write access denied: insufficient permissions (need write/maintain/admin)');
     throw new ForbiddenError('You need write access to this repository to sync secrets');
   }
 
-  console.log(`[Integrations] Write access granted: user='${username}', role='${role}' on '${repoFullName}'`);
+  logger.debug({ username, role, repoFullName }, 'Write access granted');
 
   const vault = await db.query.vaults.findFirst({
     where: eq(vaults.repoFullName, repoFullName),
   });
 
   if (!vault) {
-    console.warn(`[Integrations] Vault not found for repo: ${repoFullName}`);
+    logger.warn({ repoFullName }, 'Vault not found for repository');
     throw new NotFoundError('Vault not found');
   }
 

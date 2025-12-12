@@ -20,6 +20,7 @@ import {
   ValidationError,
   InternalError,
 } from '../../../lib/errors';
+import { logger } from '../../../utils/sharedLogger';
 
 // Extend FastifyContextConfig for rawBody support
 declare module 'fastify' {
@@ -201,7 +202,7 @@ export async function billingRoutes(fastify: FastifyInstance) {
 
       return sendData(reply, { url: checkoutUrl }, { requestId: request.id });
     } catch (error) {
-      console.error('[Billing] Failed to create checkout session:', error);
+      logger.error({ error: error instanceof Error ? error.message : 'Unknown error' }, 'Failed to create checkout session');
       throw new InternalError('Failed to create checkout session');
     }
   });
@@ -250,7 +251,7 @@ export async function billingRoutes(fastify: FastifyInstance) {
       const portalUrl = await createPortalSession(user.id, returnUrl);
       return sendData(reply, { url: portalUrl }, { requestId: request.id });
     } catch (error) {
-      console.error('[Billing] Failed to create portal session:', error);
+      logger.error({ error: error instanceof Error ? error.message : 'Unknown error' }, 'Failed to create portal session');
       throw new InternalError('Failed to create billing portal session');
     }
   });
@@ -288,7 +289,7 @@ export async function billingRoutes(fastify: FastifyInstance) {
       // Webhook response format (Stripe-specific)
       return reply.send({ received: true });
     } catch (error: any) {
-      console.error('[Billing] Webhook error:', error.message);
+      logger.error({ error: error.message }, 'Webhook error');
 
       // Return 400 for signature verification errors
       if (error.message.includes('signature')) {

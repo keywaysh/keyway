@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { PLANS, getPlanLimits, canCreateRepo, formatLimit } from '../src/config/plans';
-import { PlanLimitError } from '../src/errors';
+import { PlanLimitError } from '../src/lib';
 import type { UserPlan } from '../src/db/schema';
 
 describe('Plans Configuration', () => {
@@ -173,15 +173,15 @@ describe('Plan limit error messages', () => {
   });
 });
 
-describe('PlanLimitError', () => {
-  it('should have correct error code', () => {
+describe('PlanLimitError (RFC 7807)', () => {
+  it('should have correct error type', () => {
     const error = new PlanLimitError('Test message');
-    expect(error.code).toBe('PLAN_LIMIT_REACHED');
+    expect(error.type).toBe('https://api.keyway.sh/errors/plan-limit-reached');
   });
 
-  it('should have 403 status code', () => {
+  it('should have 403 status', () => {
     const error = new PlanLimitError('Test message');
-    expect(error.statusCode).toBe(403);
+    expect(error.status).toBe(403);
   });
 
   it('should include default upgrade URL', () => {
@@ -194,13 +194,15 @@ describe('PlanLimitError', () => {
     expect(error.upgradeUrl).toBe('https://custom.url/upgrade');
   });
 
-  it('should serialize to JSON with upgrade_url', () => {
+  it('should serialize to RFC 7807 Problem Details with upgradeUrl', () => {
     const error = new PlanLimitError('Your plan limit reached');
-    const json = error.toJSON();
+    const problemDetails = error.toProblemDetails('test-trace-id');
 
-    expect(json.error).toBe('PLAN_LIMIT_REACHED');
-    expect(json.message).toBe('Your plan limit reached');
-    expect(json.upgrade_url).toBe('https://keyway.sh/upgrade');
+    expect(problemDetails.type).toBe('https://api.keyway.sh/errors/plan-limit-reached');
+    expect(problemDetails.title).toBe('Plan Limit Reached');
+    expect(problemDetails.status).toBe(403);
+    expect(problemDetails.detail).toBe('Your plan limit reached');
+    expect(problemDetails.upgradeUrl).toBe('https://keyway.sh/upgrade');
   });
 
   it('should extend Error', () => {
@@ -213,8 +215,8 @@ describe('PlanLimitError', () => {
     const result = canCreateRepo('free', 0, 1, true);
     if (!result.allowed) {
       const error = new PlanLimitError(result.reason!);
-      expect(error.message).toContain('free plan');
-      expect(error.code).toBe('PLAN_LIMIT_REACHED');
+      expect(error.detail).toContain('free plan');
+      expect(error.type).toBe('https://api.keyway.sh/errors/plan-limit-reached');
     }
   });
 });

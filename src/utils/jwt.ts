@@ -1,6 +1,7 @@
 import jwt from 'jsonwebtoken';
 import { config } from '../config';
 import crypto from 'crypto';
+import { logger } from './sharedLogger';
 
 /**
  * Payload for Keyway JWT tokens
@@ -15,8 +16,7 @@ export interface KeywayTokenPayload {
  * Generate a Keyway JWT access token
  */
 export function generateKeywayToken(payload: KeywayTokenPayload): string {
-  const secretPreview = config.jwt.secret.substring(0, 8) + '...';
-  console.log(`[JWT] Generating token for user ${payload.username} (userId: ${payload.userId}) with secret prefix: ${secretPreview}`);
+  logger.debug({ username: payload.username, userId: payload.userId }, 'Generating JWT token');
 
   const token = jwt.sign(payload, config.jwt.secret, {
     algorithm: 'HS256',
@@ -25,8 +25,7 @@ export function generateKeywayToken(payload: KeywayTokenPayload): string {
     subject: payload.userId,
   });
 
-  const tokenPreview = token.substring(0, 20) + '...' + token.substring(token.length - 10);
-  console.log(`[JWT] Generated token: ${tokenPreview}`);
+  logger.debug({ username: payload.username }, 'JWT token generated');
 
   return token;
 }
@@ -52,9 +51,7 @@ export function getRefreshTokenExpiresAt(): Date {
  * @throws Error if token is invalid or expired
  */
 export function verifyKeywayToken(token: string): KeywayTokenPayload {
-  const tokenPreview = token.substring(0, 20) + '...' + token.substring(token.length - 10);
-  const secretPreview = config.jwt.secret.substring(0, 8) + '...';
-  console.log(`[JWT] Verifying token: ${tokenPreview} with secret prefix: ${secretPreview}`);
+  logger.debug('Verifying JWT token');
 
   try {
     const decoded = jwt.verify(token, config.jwt.secret, {
@@ -62,7 +59,7 @@ export function verifyKeywayToken(token: string): KeywayTokenPayload {
       issuer: 'keyway-api',
     }) as jwt.JwtPayload;
 
-    console.log(`[JWT] Token verified successfully for user: ${decoded.username}`);
+    logger.debug({ username: decoded.username }, 'JWT token verified successfully');
 
     return {
       userId: decoded.sub as string,
@@ -71,7 +68,7 @@ export function verifyKeywayToken(token: string): KeywayTokenPayload {
     };
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : 'Unknown error';
-    console.log(`[JWT] Token verification FAILED: ${errorMsg}`);
+    logger.debug({ error: errorMsg }, 'JWT token verification failed');
 
     if (error instanceof jwt.TokenExpiredError) {
       throw new Error('Token expired');

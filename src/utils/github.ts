@@ -6,6 +6,8 @@ import {
   findInstallationForRepo,
   getInstallationToken,
 } from '../services/github-app.service';
+import { logger } from './sharedLogger';
+import { maskToken } from './logger';
 
 const GITHUB_API_BASE = config.github.apiBaseUrl;
 
@@ -169,13 +171,13 @@ export async function getRepoAccessAndPermission(
 
     if (!repoResponse.ok) {
       const errorBody = await repoResponse.text();
-      console.error('[getRepoAccessAndPermission] GitHub API error:', {
+      logger.error({
         status: repoResponse.status,
         statusText: repoResponse.statusText,
         repoFullName,
-        tokenPrefix: accessToken?.substring(0, 10),
+        token: maskToken(accessToken),
         errorBody: errorBody.substring(0, 500),
-      });
+      }, 'GitHub API error in getRepoAccessAndPermission');
       return { hasAccess: false, permission: null };
     }
 
@@ -281,7 +283,7 @@ export async function getUserRole(
   username: string
 ): Promise<CollaboratorRole | null> {
   const [owner, repo] = repoFullName.split('/');
-  console.log(`[GitHub] Getting role for user '${username}' on repo '${repoFullName}'`);
+  logger.debug({ username, repoFullName }, 'Getting GitHub user role');
 
   try {
     // First, get basic repo info and permissions
@@ -297,30 +299,30 @@ export async function getUserRole(
 
     if (!repoResponse.ok) {
       const errorBody = await repoResponse.text();
-      console.error(`[GitHub] Failed to get repo info: status=${repoResponse.status}, error=${errorBody.substring(0, 200)}`);
+      logger.error({ status: repoResponse.status, errorBody: errorBody.substring(0, 200), username, repoFullName }, 'Failed to get repo info');
       return null;
     }
 
     const repoData = (await repoResponse.json()) as GitHubRepo;
-    console.log(`[GitHub] Repo data: owner=${repoData.owner?.login}, type=${repoData.owner?.type}, permissions=${JSON.stringify(repoData.permissions)}`);
+    logger.debug({ owner: repoData.owner?.login, type: repoData.owner?.type, permissions: repoData.permissions }, 'GitHub repo data');
 
     // Check if user is the repository owner (for personal repos)
     // Owners have admin access but don't appear in the collaborators list
     if (repoData.owner?.login === username) {
-      console.log(`[GitHub] User '${username}' is repo owner -> role=admin`);
+      logger.debug({ username, reason: 'repo_owner' }, 'User is repo owner, role=admin');
       return 'admin';
     }
 
     // Also check if the repo owner (from URL) matches the username
     // This handles the case where installation tokens don't return full owner info
     if (owner === username) {
-      console.log(`[GitHub] User '${username}' matches owner from URL -> role=admin`);
+      logger.debug({ username, reason: 'url_owner_match' }, 'User matches owner from URL, role=admin');
       return 'admin';
     }
 
     // If they have admin permission via the basic permissions check
     if (repoData.permissions?.admin === true) {
-      console.log(`[GitHub] User '${username}' has admin permission from repo API -> role=admin`);
+      logger.debug({ username, reason: 'repo_api_admin' }, 'User has admin permission from repo API, role=admin');
       return 'admin';
     }
 
@@ -339,18 +341,18 @@ export async function getUserRole(
 
         if (orgMembershipResponse.ok) {
           const membership = (await orgMembershipResponse.json()) as { role: string; state: string };
-          console.log(`[GitHub] Org membership: user='${username}', org='${owner}', role=${membership.role}, state=${membership.state}`);
+          logger.debug({ username, org: owner, role: membership.role, state: membership.state }, 'Org membership check');
 
           // Org owners have admin access to all repos in the org
           if (membership.role === 'admin' && membership.state === 'active') {
-            console.log(`[GitHub] User '${username}' is org owner -> role=admin`);
+            logger.debug({ username, reason: 'org_owner' }, 'User is org owner, role=admin');
             return 'admin';
           }
         } else {
-          console.log(`[GitHub] Org membership check failed: status=${orgMembershipResponse.status}`);
+          logger.debug({ status: orgMembershipResponse.status }, 'Org membership check failed');
         }
       } catch (error) {
-        console.log(`[GitHub] Org membership check error: ${error instanceof Error ? error.message : 'Unknown'}`);
+        logger.debug({ error: error instanceof Error ? error.message : 'Unknown' }, 'Org membership check error');
       }
     }
 
@@ -382,29 +384,29 @@ export async function getUserRole(
 
       // Use role_name for more accurate role, fallback to permission
       const role = roleMap[data.role_name] || roleMap[data.permission] || null;
-      console.log(`[GitHub] Got role from collaborator permission API: role_name=${data.role_name}, permission=${data.permission} -> role=${role}`);
+      logger.debug({ roleName: data.role_name, permission: data.permission, role }, 'Got role from collaborator permission API');
       return role;
     } else {
       const errorBody = await collabResponse.text();
-      console.log(`[GitHub] Collaborator permission API failed: status=${collabResponse.status}, body=${errorBody.substring(0, 200)}`);
+      logger.debug({ status: collabResponse.status, body: errorBody.substring(0, 200) }, 'Collaborator permission API failed');
     }
 
     // Fall back to basic permissions if collaborator API doesn't work
     if (repoData.permissions?.push === true) {
-      console.log(`[GitHub] User has push permission -> role=write`);
+      logger.debug({ username, reason: 'push_permission' }, 'User has push permission, role=write');
       return 'write';
     }
     if (repoData.permissions?.pull === true) {
-      console.log(`[GitHub] User has pull permission -> role=read`);
+      logger.debug({ username, reason: 'pull_permission' }, 'User has pull permission, role=read');
       return 'read';
     }
 
-    console.warn(`[GitHub] No role found for user '${username}' on '${repoFullName}'`);
+    logger.warn({ username, repoFullName }, 'No role found for user');
     return null;
   } catch (error) {
     // If API call fails or JSON parsing fails, return null
     // Caller handles null case appropriately
-    console.error(`[GitHub] Error getting user role: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    logger.error({ error: error instanceof Error ? error.message : 'Unknown error', username, repoFullName }, 'Error getting user role');
     return null;
   }
 }
@@ -473,13 +475,13 @@ export async function getRepoInfo(
 
     if (!response.ok) {
       const errorBody = await response.text();
-      console.error('[getRepoInfo] GitHub API error:', {
+      logger.error({
         status: response.status,
         statusText: response.statusText,
         repoFullName,
-        tokenPrefix: accessToken?.substring(0, 10),
+        token: maskToken(accessToken),
         errorBody: errorBody.substring(0, 500),
-      });
+      }, 'GitHub API error in getRepoInfo');
       return null;
     }
 
@@ -639,16 +641,16 @@ export async function getUserRoleWithApp(
   repoFullName: string,
   username: string
 ): Promise<CollaboratorRole | null> {
-  console.log(`[GitHub] getUserRoleWithApp called for user '${username}' on repo '${repoFullName}'`);
+  logger.debug({ username, repoFullName }, 'getUserRoleWithApp called');
   const [owner, repo] = repoFullName.split('/');
   try {
     const token = await getTokenForRepo(owner, repo);
-    console.log(`[GitHub] Got installation token for ${repoFullName}, checking user role...`);
+    logger.debug({ repoFullName }, 'Got installation token, checking user role');
     const role = await getUserRole(token, repoFullName, username);
-    console.log(`[GitHub] getUserRoleWithApp result: user='${username}', repo='${repoFullName}', role=${role}`);
+    logger.debug({ username, repoFullName, role }, 'getUserRoleWithApp result');
     return role;
   } catch (error) {
-    console.error(`[GitHub] getUserRoleWithApp failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    logger.error({ error: error instanceof Error ? error.message : 'Unknown error', username, repoFullName }, 'getUserRoleWithApp failed');
     throw error;
   }
 }

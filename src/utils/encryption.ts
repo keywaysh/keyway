@@ -1,4 +1,5 @@
 import { config } from '../config';
+import { logger } from './sharedLogger';
 
 /**
  * Default encryption version for backward compatibility
@@ -33,7 +34,7 @@ export async function getEncryptionService(): Promise<IEncryptionService> {
   if (!encryptionService) {
     const { RemoteEncryptionService } = await import('./remoteEncryption.js');
     encryptionService = new RemoteEncryptionService(config.crypto.serviceUrl);
-    console.log(`Using remote encryption service at ${config.crypto.serviceUrl}`);
+    logger.info({ serviceUrl: config.crypto.serviceUrl }, 'Using remote encryption service');
   }
   return encryptionService;
 }

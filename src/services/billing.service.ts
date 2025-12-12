@@ -4,6 +4,7 @@ import { db, users, subscriptions, stripeWebhookEvents, type UserPlan } from '..
 import { config } from '../config';
 import { trackEvent, identifyUser, AnalyticsEvents } from '../utils/analytics';
 import { logActivity } from './activity.service';
+import { logger } from '../utils/sharedLogger';
 
 // Initialize Stripe client (only if configured)
 const stripe = config.stripe
@@ -199,19 +200,19 @@ async function handleSubscriptionChange(
 ): Promise<void> {
   const userId = subscription.metadata.keyway_user_id;
   if (!userId) {
-    console.warn('[Billing] Subscription missing keyway_user_id metadata:', subscription.id);
+    logger.warn({ subscriptionId: subscription.id }, 'Subscription missing keyway_user_id metadata');
     return;
   }
 
   const priceId = subscription.items.data[0]?.price.id;
   if (!priceId) {
-    console.warn('[Billing] Subscription missing price:', subscription.id);
+    logger.warn({ subscriptionId: subscription.id }, 'Subscription missing price');
     return;
   }
 
   const plan = getPlanFromPriceId(priceId);
   if (!plan) {
-    console.warn('[Billing] Unknown price ID:', priceId);
+    logger.warn({ priceId }, 'Unknown price ID');
     return;
   }
 
@@ -266,7 +267,7 @@ async function handleSubscriptionChange(
     })
     .where(eq(users.id, userId));
 
-  console.log(`[Billing] Updated user ${userId} to plan ${plan} (status: ${billingStatus})`);
+  logger.info({ userId, plan, billingStatus }, 'Updated user plan');
 
   // Track billing upgrade/downgrade events
   if (previousPlan !== plan) {
@@ -318,7 +319,7 @@ async function handleSubscriptionDeleted(
 ): Promise<void> {
   const userId = subscription.metadata.keyway_user_id;
   if (!userId) {
-    console.warn('[Billing] Deleted subscription missing keyway_user_id:', subscription.id);
+    logger.warn({ subscriptionId: subscription.id }, 'Deleted subscription missing keyway_user_id');
     return;
   }
 
@@ -346,7 +347,7 @@ async function handleSubscriptionDeleted(
     })
     .where(eq(users.id, userId));
 
-  console.log(`[Billing] Downgraded user ${userId} to free plan (subscription deleted)`);
+  logger.info({ userId }, 'Downgraded user to free plan (subscription deleted)');
 
   // Log activity
   await logActivity({
@@ -385,7 +386,7 @@ async function handlePaymentFailed(invoice: Stripe.Invoice): Promise<void> {
     .limit(1);
 
   if (!user) {
-    console.warn('[Billing] Payment failed for unknown customer:', customerId);
+    logger.warn({ customerId }, 'Payment failed for unknown customer');
     return;
   }
 
@@ -398,7 +399,7 @@ async function handlePaymentFailed(invoice: Stripe.Invoice): Promise<void> {
     })
     .where(eq(users.id, user.id));
 
-  console.log(`[Billing] Marked user ${user.id} as past_due (payment failed)`);
+  logger.info({ userId: user.id }, 'Marked user as past_due (payment failed)');
 
   // Track payment failed event
   trackEvent(user.id, AnalyticsEvents.BILLING_PAYMENT_FAILED, {
@@ -454,7 +455,7 @@ export function constructWebhookEvent(
 export async function handleWebhookEvent(event: Stripe.Event): Promise<void> {
   // Check idempotency
   if (await isEventProcessed(event.id)) {
-    console.log(`[Billing] Event already processed: ${event.id}`);
+    logger.debug({ eventId: event.id }, 'Event already processed');
     return;
   }
 
@@ -477,7 +478,7 @@ export async function handleWebhookEvent(event: Stripe.Event): Promise<void> {
       break;
 
     default:
-      console.log(`[Billing] Unhandled event type: ${event.type}`);
+      logger.debug({ eventType: event.type }, 'Unhandled event type');
   }
 }
 
