@@ -6,6 +6,7 @@ import { count, desc, eq, gt } from 'drizzle-orm';
 import { authenticateGitHub } from '../../../middleware/auth';
 import { sendData, sendPaginatedData } from '../../../lib/response';
 import { parsePagination, buildPaginationMeta } from '../../../lib/pagination';
+import { InternalError } from '../../../lib/errors';
 
 /**
  * Admin Routes
@@ -340,5 +341,17 @@ export async function adminRoutes(fastify: FastifyInstance) {
     );
 
     return sendData(reply, { errors: enrichedErrors }, { requestId: request.id });
+  });
+
+  /**
+   * POST /admin/test-error
+   * Test endpoint to verify Sentry error tracking
+   * Throws a 500 error that should be captured by Sentry
+   */
+  fastify.post('/test-error', {
+    preHandler: [requireAdminSecret],
+  }, async (request) => {
+    request.log.info('Triggering test error for Sentry verification');
+    throw new InternalError('Test error for Sentry verification - this is intentional');
   });
 }
