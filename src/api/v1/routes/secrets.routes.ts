@@ -42,6 +42,12 @@ const PullSecretsQuerySchema = z.object({
   offset: z.coerce.number().int().min(0).optional(),
 });
 
+const ViewSecretQuerySchema = z.object({
+  repo: z.string(),
+  environment: z.string().default('default'),
+  key: z.string().min(1).max(MAX_SECRET_KEY_LENGTH),
+});
+
 /**
  * Parse .env content into key-value pairs
  */
@@ -85,9 +91,10 @@ function toEnvFormat(secretsMap: Record<string, string>): string {
 }
 
 /**
- * Secrets routes (CLI-focused)
+ * Secrets routes (CLI/MCP-focused)
  * POST /api/v1/secrets/push - Push secrets from CLI
  * GET  /api/v1/secrets/pull - Pull secrets to CLI
+ * GET  /api/v1/secrets/view - View a single secret (MCP)
  */
 export async function secretsRoutes(fastify: FastifyInstance) {
   /**
@@ -208,6 +215,7 @@ export async function secretsRoutes(fastify: FastifyInstance) {
       created,
       updated,
       deleted: keysToDelete.length,
+      platform: detectPlatform(request),
     });
 
     if (user) {
@@ -307,6 +315,7 @@ export async function secretsRoutes(fastify: FastifyInstance) {
       repoFullName,
       environment,
       secretCount: envSecrets.length,
+      platform: detectPlatform(request),
     });
 
     if (user) {
@@ -338,5 +347,80 @@ export async function secretsRoutes(fastify: FastifyInstance) {
     }
 
     return sendData(reply, { content }, { requestId: request.id });
+  });
+
+  /**
+   * GET /view
+   * View a single secret value (for MCP and other clients)
+   */
+  fastify.get('/view', {
+    preHandler: [authenticateGitHub, requireEnvironmentAccess('read')],
+  }, async (request, reply) => {
+    const query = ViewSecretQuerySchema.parse(request.query);
+    const { repo: repoFullName, environment, key } = query;
+    const githubUser = request.githubUser!;
+
+    const vault = await db.query.vaults.findFirst({
+      where: eq(vaults.repoFullName, repoFullName),
+    });
+
+    if (!vault) {
+      throw new NotFoundError('Vault not found');
+    }
+
+    // Get all secrets for this environment to find the requested one
+    // and provide helpful error message if not found
+    const envSecrets = await db.query.secrets.findMany({
+      where: and(
+        eq(secrets.vaultId, vault.id),
+        eq(secrets.environment, environment),
+        isNull(secrets.deletedAt)
+      ),
+    });
+
+    const secret = envSecrets.find(s => s.key === key);
+
+    if (!secret) {
+      const availableKeys = envSecrets.map(s => s.key).sort();
+      const availableList = availableKeys.length > 0
+        ? `Available secrets: ${availableKeys.join(', ')}`
+        : 'No secrets found in this environment';
+      throw new NotFoundError(`Secret "${key}" not found in environment "${environment}". ${availableList}`);
+    }
+
+    const encryptionService = await getEncryptionService();
+    const value = await encryptionService.decrypt({
+      encryptedContent: secret.encryptedValue,
+      iv: secret.iv,
+      authTag: secret.authTag,
+      version: secret.encryptionVersion ?? 1,
+    });
+
+    const user = await db.query.users.findFirst({
+      where: eq(users.githubId, githubUser.githubId),
+    });
+
+    trackEvent(user?.id || 'anonymous', AnalyticsEvents.SECRET_VIEWED, {
+      repoFullName,
+      environment,
+      platform: detectPlatform(request),
+    });
+
+    if (user) {
+      await logActivity({
+        userId: user.id,
+        action: 'secret_value_accessed',
+        platform: detectPlatform(request),
+        vaultId: vault.id,
+        metadata: {
+          repoFullName,
+          environment,
+          secretName: key,
+        },
+        ...extractRequestInfo(request),
+      });
+    }
+
+    return sendData(reply, { key, value, environment }, { requestId: request.id });
   });
 }

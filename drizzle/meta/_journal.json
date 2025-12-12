@@ -176,6 +176,13 @@
       "when": 1765380000000,
       "tag": "0024_add_activity_actions",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "5",
+      "when": 1765470000000,
+      "tag": "0025_add_mcp_platform",
+      "breakpoints": true
     }
   ]
 }

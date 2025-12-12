@@ -130,6 +130,10 @@ export function detectPlatform(userAgentOrRequest: string | null | undefined | {
     return 'cli';
   }
 
+  if (userAgent.toLowerCase().includes('keyway-mcp')) {
+    return 'mcp';
+  }
+
   // Common browser identifiers
   if (userAgent.includes('Mozilla') || userAgent.includes('Chrome') ||
       userAgent.includes('Safari') || userAgent.includes('Firefox') ||

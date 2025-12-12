@@ -97,6 +97,7 @@ export const AnalyticsEvents = {
   VAULT_INITIALIZED: 'api_vault_initialized',
   SECRETS_PUSHED: 'api_secrets_pushed',
   SECRETS_PULLED: 'api_secrets_pulled',
+  SECRET_VIEWED: 'api_secret_viewed',
   AUTH_SUCCESS: 'api_auth_success',
   AUTH_FAILURE: 'api_auth_failure',
   USER_CREATED: 'api_user_created',

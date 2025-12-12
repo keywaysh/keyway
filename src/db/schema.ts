@@ -62,6 +62,7 @@ export const activityPlatformEnum = pgEnum('activity_platform', [
   'cli',
   'web',
   'api',
+  'mcp',
 ]);
 
 // Security alert types
