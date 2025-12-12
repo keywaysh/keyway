@@ -30,7 +30,7 @@ services:
     build: ./keyway-backend
     environment:
       - PORT=8080
-      - NODE_ENV=development
+      - NODE_ENV=production
       - DATABASE_URL=postgresql://keyway:keyway@db:5432/keyway
       - CRYPTO_SERVICE_URL=crypto:50051
       - ENCRYPTION_KEY=${ENCRYPTION_KEY}

@@ -33,6 +33,7 @@ REPOS=(
     "cli"
     "keyway-crypto"
     "keyway-action"
+    "keyway-mcp"
 )
 
 for repo in "${REPOS[@]}"; do
