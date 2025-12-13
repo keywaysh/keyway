@@ -55,6 +55,9 @@ export const activityActionEnum = pgEnum('activity_action', [
   'github_app_uninstalled',
   // Auth actions
   'user_login',
+  // API Key actions
+  'api_key_created',
+  'api_key_revoked',
 ]);
 
 // Activity platform types

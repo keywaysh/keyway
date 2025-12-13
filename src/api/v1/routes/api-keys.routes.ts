@@ -85,7 +85,7 @@ export async function apiKeysRoutes(fastify: FastifyInstance) {
     // Log activity
     await logActivity({
       userId: user.id,
-      action: 'secret_created', // TODO: Add 'api_key_created' to activity enum
+      action: 'api_key_created',
       platform: detectPlatform(request),
       metadata: {
         apiKeyId: apiKey.id,
@@ -111,7 +111,12 @@ export async function apiKeysRoutes(fastify: FastifyInstance) {
       environment: apiKey.environment,
       scopes: apiKey.scopes,
       expiresAt: apiKey.expiresAt?.toISOString() || null,
+      lastUsedAt: null, // New key, never used
+      usageCount: 0, // New key, zero usage
       createdAt: apiKey.createdAt.toISOString(),
+      revokedAt: null, // New key, not revoked
+      revokedReason: null,
+      isActive: true, // New key is always active
     }, { requestId: request.id });
   });
 
@@ -246,7 +251,7 @@ export async function apiKeysRoutes(fastify: FastifyInstance) {
     // Log activity
     await logActivity({
       userId: user.id,
-      action: 'secret_deleted', // TODO: Add 'api_key_revoked' to activity enum
+      action: 'api_key_revoked',
       platform: detectPlatform(request),
       metadata: {
         apiKeyId: apiKey.id,

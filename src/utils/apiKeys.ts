@@ -44,7 +44,8 @@ export interface GeneratedApiKey {
  */
 export function generateApiKey(environment: ApiKeyEnvironment): GeneratedApiKey {
   // Generate cryptographically secure random bytes
-  const bytes = crypto.randomBytes(30); // 240 bits of entropy
+  // We need RANDOM_LENGTH (40) bytes since each byte becomes one base62 character
+  const bytes = crypto.randomBytes(RANDOM_LENGTH);
 
   // Convert to base62
   let random = '';
