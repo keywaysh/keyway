@@ -66,6 +66,9 @@ export interface Provider {
   /** Get the authenticated user's information */
   getUser(accessToken: string): Promise<ProviderUser>;
 
+  /** Get team information by ID (optional) */
+  getTeam?(accessToken: string, teamId: string): Promise<{ id: string; name: string; slug?: string } | null>;
+
   /**
    * Project Methods
    */

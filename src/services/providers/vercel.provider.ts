@@ -215,6 +215,25 @@ export const vercelProvider: Provider = {
     };
   },
 
+  async getTeam(accessToken: string, teamId: string): Promise<{ id: string; name: string; slug?: string } | null> {
+    try {
+      const data = await vercelFetch<{
+        id: string;
+        name: string | null;
+        slug: string;
+      }>(`${VERCEL_API_BASE}/v2/teams/${encodeURIComponent(teamId)}`, accessToken);
+
+      return {
+        id: data.id,
+        name: data.name || data.slug, // Use slug as fallback if name is null
+        slug: data.slug,
+      };
+    } catch (error) {
+      logger.warn({ teamId, error: error instanceof Error ? error.message : 'Unknown' }, 'Failed to fetch team info');
+      return null;
+    }
+  },
+
   async listProjects(accessToken: string, teamId?: string): Promise<ProviderProject[]> {
     const query = buildTeamQuery(teamId);
     const data = await vercelFetch<{

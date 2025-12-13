@@ -13,6 +13,7 @@ import {
   createConnection,
   deleteConnection,
   listProviderProjects,
+  listAllProviderProjects,
   getSyncStatus,
   getSyncDiff,
   getSyncPreview,
@@ -499,6 +500,35 @@ export async function integrationsRoutes(fastify: FastifyInstance) {
     // listProviderProjects now requires userId for ownership validation
     const projects = await listProviderProjects(id, user.id);
     return sendData(reply, { projects }, { requestId: request.id });
+  });
+
+  /**
+   * GET /integrations/providers/:provider/all-projects
+   * List projects from ALL connections for a provider
+   * Used for auto-detection when user has multiple accounts/teams
+   */
+  fastify.get('/providers/:provider/all-projects', {
+    preHandler: [authenticateGitHub],
+  }, async (request, reply) => {
+    const { provider: providerName } = request.params as { provider: string };
+
+    // Verify provider exists
+    const provider = getProvider(providerName);
+    if (!provider) {
+      throw new NotFoundError(`Provider ${providerName} not found`);
+    }
+
+    // Get the authenticated user
+    const user = await db.query.users.findFirst({
+      where: eq(users.githubId, request.githubUser!.githubId),
+    });
+
+    if (!user) {
+      throw new NotFoundError('User not found');
+    }
+
+    const result = await listAllProviderProjects(user.id, providerName);
+    return sendData(reply, result, { requestId: request.id });
   });
 
   /**

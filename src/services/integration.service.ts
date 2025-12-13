@@ -334,6 +334,142 @@ export async function listProviderProjects(connectionId: string, userId: string)
 }
 
 /**
+ * Project with connection info for multi-account support
+ */
+export interface ProjectWithConnection {
+  id: string;
+  name: string;
+  linkedRepo?: string;
+  framework?: string;
+  createdAt?: Date;
+  connectionId: string;
+  teamId: string | null;
+  teamName?: string;
+}
+
+/**
+ * List projects from ALL connections for a provider
+ * Used for auto-detection when user has multiple accounts/teams
+ */
+export async function listAllProviderProjects(
+  userId: string,
+  providerName: string
+): Promise<{ projects: ProjectWithConnection[]; connections: ConnectionInfo[] }> {
+  // Get all connections for this provider
+  const connections = await db.query.providerConnections.findMany({
+    where: and(
+      eq(providerConnections.userId, userId),
+      eq(providerConnections.provider, providerName)
+    ),
+  });
+
+  if (connections.length === 0) {
+    return { projects: [], connections: [] };
+  }
+
+  const provider = getProvider(providerName);
+  if (!provider) {
+    throw new Error(`Provider ${providerName} not found`);
+  }
+
+  // Fetch projects from all connections in parallel
+  const projectResults = await Promise.allSettled(
+    connections.map(async (connection) => {
+      try {
+        const accessToken = await getValidAccessToken(connection);
+        const projects = await provider.listProjects(accessToken, connection.providerTeamId || undefined);
+        return {
+          connectionId: connection.id,
+          teamId: connection.providerTeamId,
+          projects,
+        };
+      } catch (error) {
+        // Log but don't fail - one expired token shouldn't block all connections
+        logger.warn(
+          { connectionId: connection.id, teamId: connection.providerTeamId, error: error instanceof Error ? error.message : 'Unknown' },
+          'Failed to fetch projects for connection, skipping'
+        );
+        return null;
+      }
+    })
+  );
+
+  // Aggregate projects with connection info
+  const allProjects: ProjectWithConnection[] = [];
+  const teamIdsToFetch = new Set<string>();
+
+  for (const result of projectResults) {
+    if (result.status === 'fulfilled' && result.value) {
+      const { connectionId, teamId, projects } = result.value;
+      if (teamId) {
+        teamIdsToFetch.add(teamId);
+      }
+      for (const project of projects) {
+        allProjects.push({
+          ...project,
+          connectionId,
+          teamId,
+        });
+      }
+    }
+  }
+
+  // Fetch team names if provider supports it
+  const teamNames = new Map<string, string>();
+  if (teamIdsToFetch.size > 0 && provider.getTeam) {
+    // Try to get a valid access token from any connection
+    let accessToken: string | null = null;
+    for (const connection of connections) {
+      try {
+        accessToken = await getValidAccessToken(connection);
+        break;
+      } catch {
+        // Try next connection
+      }
+    }
+
+    if (accessToken) {
+      try {
+        // Fetch team names in parallel
+        const teamResults = await Promise.allSettled(
+          Array.from(teamIdsToFetch).map(async (teamId) => {
+            const team = await provider.getTeam!(accessToken!, teamId);
+            return { teamId, teamName: team?.name };
+          })
+        );
+
+        for (const result of teamResults) {
+          if (result.status === 'fulfilled' && result.value.teamName) {
+            teamNames.set(result.value.teamId, result.value.teamName);
+          }
+        }
+      } catch (error) {
+        logger.warn({ error: error instanceof Error ? error.message : 'Unknown' }, 'Failed to fetch team names');
+      }
+    }
+  }
+
+  // Add team names to projects
+  for (const project of allProjects) {
+    if (project.teamId && teamNames.has(project.teamId)) {
+      project.teamName = teamNames.get(project.teamId);
+    }
+  }
+
+  // Return connection info for UI (picker)
+  const connectionInfos: ConnectionInfo[] = connections.map(c => ({
+    id: c.id,
+    provider: c.provider,
+    providerUserId: c.providerUserId,
+    providerTeamId: c.providerTeamId,
+    createdAt: c.createdAt,
+    updatedAt: c.updatedAt,
+  }));
+
+  return { projects: allProjects, connections: connectionInfos };
+}
+
+/**
  * Get sync status (for first-time detection)
  * Requires userId for ownership validation
  */
