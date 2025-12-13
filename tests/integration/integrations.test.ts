@@ -1,85 +1,156 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import Fastify, { FastifyInstance } from 'fastify';
 import { createTestApp } from '../helpers/testApp';
-import { mockUser, mockVault, createMockDb, createMockGitHubUtils } from '../helpers/mocks';
 
-// Mock connection data
-const mockConnection = {
-  id: 'test-connection-id-123',
-  userId: mockUser.id,
-  provider: 'vercel',
-  providerUserId: 'vercel-user-123',
-  providerTeamId: 'team-123',
-  encryptedAccessToken: 'encrypted-token',
-  accessTokenIv: '0'.repeat(32),
-  accessTokenAuthTag: '0'.repeat(32),
-  encryptedRefreshToken: null,
-  refreshTokenIv: null,
-  refreshTokenAuthTag: null,
-  tokenExpiresAt: null,
-  scopes: ['user:read'],
-  createdAt: new Date(),
-  updatedAt: new Date(),
-};
+// Use vi.hoisted to define mock data that will be available in vi.mock callbacks
+const { mockUser, mockVault, mockConnection, createMockDbWithConnections, createMockGitHubUtilsForTest } = vi.hoisted(() => {
+  const mockUser = {
+    id: 'test-user-id-123',
+    githubId: 12345,
+    username: 'testuser',
+    email: 'test@example.com',
+    avatarUrl: 'https://github.com/testuser.png',
+    accessToken: 'gho_testtoken123',
+    plan: 'pro' as const,
+    stripeCustomerId: null,
+    stripeSubscriptionId: null,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  };
 
-// Mock vault sync data
-const mockVaultSync = {
-  id: 'test-sync-id-123',
-  vaultId: mockVault.id,
-  connectionId: mockConnection.id,
-  provider: 'vercel',
-  providerProjectId: 'prj_123',
-  providerProjectName: 'my-project',
-  keywayEnvironment: 'production',
-  providerEnvironment: 'production',
-  lastSyncedAt: new Date(),
-  createdAt: new Date(),
-  updatedAt: new Date(),
-};
+  const mockVault = {
+    id: 'test-vault-id-123',
+    repoOwner: 'testuser',
+    repoName: 'test-repo',
+    repoFullName: 'testuser/test-repo',
+    isPrivate: false,
+    environments: ['local', 'dev', 'staging', 'production'],
+    ownerId: mockUser.id,
+    createdById: mockUser.id,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  };
 
-// Mock vercel project
-const mockVercelProject = {
-  id: 'prj_123',
-  name: 'my-project',
-  framework: 'nextjs',
-  createdAt: Date.now(),
-  link: {
-    type: 'github',
-    org: 'testuser',
-    repo: 'test-repo',
-  },
-};
+  const mockConnection = {
+    id: 'test-connection-id-123',
+    userId: mockUser.id,
+    provider: 'vercel',
+    providerUserId: 'vercel-user-123',
+    providerTeamId: 'team-123',
+    encryptedAccessToken: 'encrypted-token',
+    accessTokenIv: '0'.repeat(32),
+    accessTokenAuthTag: '0'.repeat(32),
+    encryptedRefreshToken: null,
+    refreshTokenIv: null,
+    refreshTokenAuthTag: null,
+    tokenExpiresAt: null,
+    scopes: ['user:read'],
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  };
 
-// Mock vercel env vars
-const mockVercelEnvVars = [
-  { id: 'env1', key: 'API_KEY', value: 'secret-value', target: ['production'], type: 'encrypted', createdAt: Date.now(), updatedAt: Date.now() },
-  { id: 'env2', key: 'DATABASE_URL', value: 'postgres://...', target: ['production', 'preview'], type: 'encrypted', createdAt: Date.now(), updatedAt: Date.now() },
-];
+  const mockSecret = {
+    id: 'test-secret-id-123',
+    vaultId: mockVault.id,
+    name: 'API_KEY',
+    encryptedValue: 'encrypted-value',
+    iv: '0'.repeat(32),
+    authTag: '0'.repeat(32),
+    environment: 'development',
+    createdById: mockUser.id,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  };
 
-// Create enhanced mock DB with provider connections
-function createMockDbWithConnections() {
-  const baseMock = createMockDb();
+  // Create mock chain helper
+  const createChain = (returnValue: any) => ({
+    values: vi.fn().mockReturnThis(),
+    set: vi.fn().mockReturnThis(),
+    where: vi.fn().mockReturnThis(),
+    returning: vi.fn().mockResolvedValue([returnValue]),
+  });
 
-  return {
-    ...baseMock,
-    query: {
-      ...baseMock.query,
+  const createMockDbWithConnections = () => {
+    const mockQuery = {
+      users: {
+        findFirst: vi.fn().mockResolvedValue(mockUser),
+        findMany: vi.fn().mockResolvedValue([mockUser]),
+      },
+      vaults: {
+        findFirst: vi.fn().mockResolvedValue(mockVault),
+        findMany: vi.fn().mockResolvedValue([mockVault]),
+      },
+      secrets: {
+        findFirst: vi.fn().mockResolvedValue(mockSecret),
+        findMany: vi.fn().mockResolvedValue([mockSecret]),
+      },
       providerConnections: {
         findFirst: vi.fn().mockResolvedValue(mockConnection),
         findMany: vi.fn().mockResolvedValue([mockConnection]),
       },
       vaultSyncs: {
-        findFirst: vi.fn().mockResolvedValue(null), // No existing sync by default
+        findFirst: vi.fn().mockResolvedValue(null),
       },
-    },
+      deviceCodes: {
+        findFirst: vi.fn().mockResolvedValue(null),
+      },
+    };
+
+    return {
+      query: mockQuery,
+      insert: vi.fn().mockReturnValue(createChain(mockUser)),
+      update: vi.fn().mockReturnValue(createChain(mockUser)),
+      delete: vi.fn().mockReturnValue(createChain(null)),
+      select: vi.fn().mockReturnValue({
+        from: vi.fn().mockReturnValue({
+          where: vi.fn().mockReturnValue({
+            leftJoin: vi.fn().mockResolvedValue([]),
+          }),
+        }),
+      }),
+      transaction: vi.fn().mockImplementation(async (callback: (tx: any) => Promise<any>) => {
+        const txMock = {
+          update: vi.fn().mockReturnValue(createChain(mockUser)),
+          delete: vi.fn().mockReturnValue(createChain(null)),
+          insert: vi.fn().mockReturnValue(createChain(mockUser)),
+        };
+        return callback(txMock);
+      }),
+    };
   };
-}
+
+  const createMockGitHubUtilsForTest = () => ({
+    exchangeCodeForToken: vi.fn().mockResolvedValue('gho_testtoken123'),
+    getGitHubUser: vi.fn().mockResolvedValue({
+      id: 12345,
+      login: 'testuser',
+      email: 'test@example.com',
+      avatar_url: 'https://github.com/testuser.png',
+    }),
+    getUserFromToken: vi.fn().mockResolvedValue({
+      githubId: 12345,
+      username: 'testuser',
+      email: 'test@example.com',
+      avatarUrl: 'https://github.com/testuser.png',
+    }),
+    hasRepoAccess: vi.fn().mockResolvedValue(true),
+    hasAdminAccess: vi.fn().mockResolvedValue(true),
+    getRepoPermission: vi.fn().mockResolvedValue('admin'),
+    getRepoAccessAndPermission: vi.fn().mockResolvedValue({ hasAccess: true, permission: 'admin' }),
+    getUserRole: vi.fn().mockResolvedValue('admin'),
+    getRepoInfo: vi.fn().mockResolvedValue({ isPrivate: false }),
+    getRepoInfoWithApp: vi.fn().mockResolvedValue({ isPrivate: false, isOrganization: false }),
+    getUserRoleWithApp: vi.fn().mockResolvedValue('admin'),
+    getRepoCollaboratorsWithApp: vi.fn().mockResolvedValue([]),
+  });
+
+  return { mockUser, mockVault, mockConnection, createMockDbWithConnections, createMockGitHubUtilsForTest };
+});
 
 // Mock the database module
 vi.mock('../../src/db', () => {
-  const mockDb = createMockDbWithConnections();
   return {
-    db: mockDb,
+    db: createMockDbWithConnections(),
     users: { id: 'id', githubId: 'githubId' },
     vaults: { id: 'id', repoFullName: 'repoFullName' },
     secrets: { id: 'id', vaultId: 'vaultId', environment: 'environment' },
@@ -90,7 +161,21 @@ vi.mock('../../src/db', () => {
 });
 
 // Mock GitHub utils
-vi.mock('../../src/utils/github', () => createMockGitHubUtils());
+vi.mock('../../src/utils/github', () => createMockGitHubUtilsForTest());
+
+// Mock auth middleware (using done callback for Fastify preHandler)
+vi.mock('../../src/middleware/auth', () => ({
+  authenticateGitHub: vi.fn((request: any, _reply: any, done: any) => {
+    request.githubUser = {
+      githubId: mockUser.githubId,
+      username: mockUser.username,
+      email: mockUser.email,
+      avatarUrl: mockUser.avatarUrl,
+    };
+    request.accessToken = 'test-token';
+    done();
+  }),
+}));
 
 // Mock config
 vi.mock('../../src/config', () => ({
@@ -172,22 +257,8 @@ vi.mock('../../src/services/providers', () => ({
   ]),
 }));
 
-// Mock auth middleware
-vi.mock('../../src/middleware/auth', () => ({
-  authenticateGitHub: vi.fn((request: any, reply: any, done: any) => {
-    request.githubUser = {
-      githubId: mockUser.githubId,
-      username: mockUser.username,
-      email: mockUser.email,
-      avatarUrl: mockUser.avatarUrl,
-    };
-    request.accessToken = 'test-github-token';
-    done();
-  }),
-}));
-
 // Mock integration service functions
-vi.mock('../../src/services/integration.service', async () => {
+vi.mock('../../src/services/integration.service', () => {
   return {
     getConnection: vi.fn().mockResolvedValue(mockConnection),
     listConnections: vi.fn().mockResolvedValue([mockConnection]),
@@ -196,6 +267,12 @@ vi.mock('../../src/services/integration.service', async () => {
     listProviderProjects: vi.fn().mockResolvedValue([
       { id: 'prj_123', name: 'my-project', linkedRepo: 'testuser/test-repo' },
     ]),
+    listAllProviderProjects: vi.fn().mockResolvedValue({
+      projects: [
+        { id: 'prj_123', name: 'my-project', linkedRepo: 'testuser/test-repo', connectionId: mockConnection.id },
+      ],
+      connectionCount: 1,
+    }),
     getSyncStatus: vi.fn().mockResolvedValue({
       isFirstSync: true,
       vaultIsEmpty: false,
@@ -218,6 +295,18 @@ vi.mock('../../src/services/integration.service', async () => {
     getConnectionToken: vi.fn().mockResolvedValue('decrypted-token'),
   };
 });
+
+// Mock services (activity logging)
+vi.mock('../../src/services', () => ({
+  logActivity: vi.fn().mockResolvedValue(undefined),
+  extractRequestInfo: vi.fn().mockReturnValue({ ipAddress: '127.0.0.1', userAgent: 'test-agent' }),
+  detectPlatform: vi.fn().mockReturnValue('cli'),
+}));
+
+// Mock plan limits
+vi.mock('../../src/config/plans', () => ({
+  canConnectProvider: vi.fn().mockReturnValue({ allowed: true }),
+}));
 
 describe('Integration Routes', () => {
   let app: FastifyInstance;
