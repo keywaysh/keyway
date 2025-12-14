@@ -61,6 +61,33 @@ export const mockSecret = {
 };
 
 /**
+ * Mock secret list item with lastModifiedBy info
+ */
+export const mockSecretListItem = {
+  id: 'test-secret-id-123',
+  key: 'API_KEY',
+  environment: 'development',
+  createdAt: new Date().toISOString(),
+  updatedAt: new Date().toISOString(),
+  lastModifiedBy: {
+    username: mockUser.username,
+    avatarUrl: mockUser.avatarUrl,
+  },
+};
+
+/**
+ * Mock secret list item without lastModifiedBy (legacy secret)
+ */
+export const mockLegacySecretListItem = {
+  id: 'test-legacy-secret-id',
+  key: 'LEGACY_KEY',
+  environment: 'production',
+  createdAt: new Date().toISOString(),
+  updatedAt: new Date().toISOString(),
+  lastModifiedBy: null,
+};
+
+/**
  * Mock device code data for testing
  */
 export const mockDeviceCode = {

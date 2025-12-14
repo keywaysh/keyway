@@ -172,6 +172,8 @@ export const secrets = pgTable('secrets', {
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
   // Soft-delete: null = active, set = trashed (auto-purged after 30 days)
   deletedAt: timestamp('deleted_at'),
+  // Track who last modified this secret (null for legacy secrets)
+  lastModifiedById: uuid('last_modified_by_id').references(() => users.id, { onDelete: 'set null' }),
 });
 
 export const deviceCodes = pgTable('device_codes', {
@@ -459,6 +461,10 @@ export const secretsRelations = relations(secrets, ({ one }) => ({
   vault: one(vaults, {
     fields: [secrets.vaultId],
     references: [vaults.id],
+  }),
+  lastModifiedBy: one(users, {
+    fields: [secrets.lastModifiedById],
+    references: [users.id],
   }),
 }));
 

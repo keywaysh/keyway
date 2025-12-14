@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import Fastify, { FastifyInstance } from 'fastify';
 import formbody from '@fastify/formbody';
 import cookie from '@fastify/cookie';
-import { mockUser, mockVault, createMockDb, createMockGitHubUtils } from '../helpers/mocks';
+import { mockUser, mockVault, createMockDb, createMockGitHubUtils, mockSecretListItem, mockLegacySecretListItem } from '../helpers/mocks';
 
 // Mock installation data
 const mockInstallation = {
@@ -622,5 +622,120 @@ describe('Vault Creation with GitHub App', () => {
     // The vault creation should still work if the user has OAuth access
     // GitHub App is only required for certain operations
     expect([201, 403]).toContain(response.statusCode);
+  });
+});
+
+describe('Secret lastModifiedBy', () => {
+  let app: FastifyInstance;
+
+  beforeEach(async () => {
+    vi.clearAllMocks();
+
+    app = Fastify({ logger: false });
+    await app.register(formbody);
+    await app.register(cookie);
+
+    const { vaultsRoutes } = await import('../../src/api/v1/routes/vaults.routes');
+    await app.register(vaultsRoutes, { prefix: '/v1/vaults' });
+
+    await app.ready();
+  });
+
+  afterEach(async () => {
+    await app.close();
+  });
+
+  it('should include lastModifiedBy when secret has been modified by a user', async () => {
+    const services = await import('../../src/services');
+    const { getUserRoleWithApp } = await import('../../src/utils/github');
+
+    // Mock vault found
+    (services.getVaultByRepoInternal as any).mockResolvedValue(mockVault);
+    (getUserRoleWithApp as any).mockResolvedValue('read');
+
+    // Mock secrets with lastModifiedBy
+    (services.getSecretsForVault as any).mockResolvedValue([mockSecretListItem]);
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/v1/vaults/testuser/test-repo/secrets',
+      headers: {
+        authorization: 'Bearer mock-keyway-token',
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    const body = JSON.parse(response.body);
+    expect(body.data).toHaveLength(1);
+    expect(body.data[0].lastModifiedBy).toEqual({
+      username: mockUser.username,
+      avatarUrl: mockUser.avatarUrl,
+    });
+  });
+
+  it('should have null lastModifiedBy for legacy secrets', async () => {
+    const services = await import('../../src/services');
+    const { getUserRoleWithApp } = await import('../../src/utils/github');
+
+    // Mock vault found
+    (services.getVaultByRepoInternal as any).mockResolvedValue(mockVault);
+    (getUserRoleWithApp as any).mockResolvedValue('read');
+
+    // Mock legacy secret without lastModifiedBy
+    (services.getSecretsForVault as any).mockResolvedValue([mockLegacySecretListItem]);
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/v1/vaults/testuser/test-repo/secrets',
+      headers: {
+        authorization: 'Bearer mock-keyway-token',
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    const body = JSON.parse(response.body);
+    expect(body.data).toHaveLength(1);
+    expect(body.data[0].lastModifiedBy).toBeNull();
+  });
+
+  it('should set lastModifiedBy when updating a secret', async () => {
+    const services = await import('../../src/services');
+    const { getUserRoleWithApp } = await import('../../src/utils/github');
+
+    // Mock vault found and write access
+    (services.getVaultByRepoInternal as any).mockResolvedValue(mockVault);
+    (getUserRoleWithApp as any).mockResolvedValue('write');
+    (services.canWriteToVault as any).mockResolvedValue({ allowed: true });
+
+    // Mock updateSecret to return secret with lastModifiedBy
+    (services.updateSecret as any).mockResolvedValue(mockSecretListItem);
+
+    const response = await app.inject({
+      method: 'PATCH',
+      url: '/v1/vaults/testuser/test-repo/secrets/secret-123',
+      headers: {
+        authorization: 'Bearer mock-keyway-token',
+      },
+      payload: {
+        name: 'NEW_API_KEY',
+        value: 'new-value',
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    const body = JSON.parse(response.body);
+    expect(body.data.lastModifiedBy).toEqual({
+      username: mockUser.username,
+      avatarUrl: mockUser.avatarUrl,
+    });
+
+    // Verify updateSecret was called with userId
+    expect(services.updateSecret).toHaveBeenCalledWith(
+      'secret-123',
+      mockVault.id,
+      expect.objectContaining({
+        userId: mockUser.id,
+      })
+    );
   });
 });

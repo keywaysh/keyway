@@ -406,6 +406,7 @@ export async function vaultsRoutes(fastify: FastifyInstance) {
       key: body.key,
       value: body.value,
       environment: body.environment,
+      userId: user.id,
     });
 
     await touchVault(vault.id);
@@ -475,6 +476,7 @@ export async function vaultsRoutes(fastify: FastifyInstance) {
     const updatedSecret = await updateSecret(params.secretId, vault.id, {
       key: body.name,
       value: body.value,
+      userId: user.id,
     });
 
     if (!updatedSecret) {

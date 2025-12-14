@@ -11,6 +11,10 @@ export interface SecretListItem {
   environment: string;
   createdAt: string;
   updatedAt: string;
+  lastModifiedBy: {
+    username: string;
+    avatarUrl: string | null;
+  } | null;
 }
 
 export interface CreateSecretInput {
@@ -18,11 +22,13 @@ export interface CreateSecretInput {
   key: string;
   value: string;
   environment: string;
+  userId?: string;
 }
 
 export interface UpdateSecretInput {
   key?: string;
   value?: string;
+  userId?: string;
 }
 
 /**
@@ -32,19 +38,15 @@ export async function getSecretsForVault(
   vaultId: string,
   options?: { limit?: number; offset?: number }
 ): Promise<SecretListItem[]> {
-  const queryOptions: any = {
+  const vaultSecrets = await db.query.secrets.findMany({
     where: and(eq(secrets.vaultId, vaultId), isNull(secrets.deletedAt)),
     orderBy: [desc(secrets.updatedAt)],
-  };
-
-  if (options?.limit !== undefined) {
-    queryOptions.limit = options.limit;
-  }
-  if (options?.offset !== undefined) {
-    queryOptions.offset = options.offset;
-  }
-
-  const vaultSecrets = await db.query.secrets.findMany(queryOptions);
+    with: {
+      lastModifiedBy: true,
+    },
+    limit: options?.limit,
+    offset: options?.offset,
+  });
 
   return vaultSecrets.map((secret) => ({
     id: secret.id,
@@ -52,6 +54,12 @@ export async function getSecretsForVault(
     environment: secret.environment,
     createdAt: secret.createdAt.toISOString(),
     updatedAt: secret.updatedAt.toISOString(),
+    lastModifiedBy: secret.lastModifiedBy
+      ? {
+          username: secret.lastModifiedBy.username,
+          avatarUrl: secret.lastModifiedBy.avatarUrl,
+        }
+      : null,
   }));
 }
 
@@ -83,6 +91,7 @@ export async function upsertSecret(
         authTag: encryptedData.authTag,
         encryptionVersion: encryptedData.version ?? 1,
         updatedAt: new Date(),
+        lastModifiedById: input.userId ?? null,
       })
       .where(eq(secrets.id, existingSecret.id));
 
@@ -99,6 +108,7 @@ export async function upsertSecret(
       iv: encryptedData.iv,
       authTag: encryptedData.authTag,
       encryptionVersion: encryptedData.version ?? 1,
+      lastModifiedById: input.userId ?? null,
     })
     .returning();
 
@@ -130,8 +140,10 @@ export async function updateSecret(
     authTag?: string;
     encryptionVersion?: number;
     updatedAt: Date;
+    lastModifiedById?: string | null;
   } = {
     updatedAt: new Date(),
+    lastModifiedById: input.userId ?? null,
   };
 
   if (input.key) {
@@ -149,9 +161,12 @@ export async function updateSecret(
 
   await db.update(secrets).set(updateData).where(eq(secrets.id, secretId));
 
-  // Return updated secret
+  // Return updated secret with lastModifiedBy
   const updatedSecret = await db.query.secrets.findFirst({
     where: eq(secrets.id, secretId),
+    with: {
+      lastModifiedBy: true,
+    },
   });
 
   if (!updatedSecret) return null;
@@ -162,6 +177,12 @@ export async function updateSecret(
     environment: updatedSecret.environment,
     createdAt: updatedSecret.createdAt.toISOString(),
     updatedAt: updatedSecret.updatedAt.toISOString(),
+    lastModifiedBy: updatedSecret.lastModifiedBy
+      ? {
+          username: updatedSecret.lastModifiedBy.username,
+          avatarUrl: updatedSecret.lastModifiedBy.avatarUrl,
+        }
+      : null,
   };
 }
 
@@ -237,6 +258,9 @@ export async function getSecretById(
 ): Promise<SecretListItem | null> {
   const secret = await db.query.secrets.findFirst({
     where: and(eq(secrets.id, secretId), eq(secrets.vaultId, vaultId), isNull(secrets.deletedAt)),
+    with: {
+      lastModifiedBy: true,
+    },
   });
 
   if (!secret) return null;
@@ -247,6 +271,12 @@ export async function getSecretById(
     environment: secret.environment,
     createdAt: secret.createdAt.toISOString(),
     updatedAt: secret.updatedAt.toISOString(),
+    lastModifiedBy: secret.lastModifiedBy
+      ? {
+          username: secret.lastModifiedBy.username,
+          avatarUrl: secret.lastModifiedBy.avatarUrl,
+        }
+      : null,
   };
 }
 

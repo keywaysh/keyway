@@ -197,6 +197,13 @@
       "when": 1765625000000,
       "tag": "0027_add_api_key_activity_actions",
       "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "5",
+      "when": 1765724800000,
+      "tag": "0028_add_secret_last_modified_by",
+      "breakpoints": true
     }
   ]
 }
