@@ -1,6 +1,7 @@
 import { db, secrets } from '../db';
 import { eq, and, desc, count, isNull, isNotNull, lt, inArray } from 'drizzle-orm';
 import { getEncryptionService } from '../utils/encryption';
+import { saveSecretVersion } from './secretVersion.service';
 
 // Trash retention period in days
 const TRASH_RETENTION_DAYS = 30;
@@ -83,6 +84,17 @@ export async function upsertSecret(
   });
 
   if (existingSecret) {
+    // Save current value as version before updating
+    await saveSecretVersion(
+      existingSecret.id,
+      input.vaultId,
+      existingSecret.encryptedValue,
+      existingSecret.iv,
+      existingSecret.authTag,
+      existingSecret.encryptionVersion,
+      input.userId
+    );
+
     await db
       .update(secrets)
       .set({
@@ -151,6 +163,17 @@ export async function updateSecret(
   }
 
   if (input.value) {
+    // Save current value as version before updating
+    await saveSecretVersion(
+      secretId,
+      vaultId,
+      secret.encryptedValue,
+      secret.iv,
+      secret.authTag,
+      secret.encryptionVersion,
+      input.userId
+    );
+
     const encryptionService = await getEncryptionService();
     const encryptedData = await encryptionService.encrypt(input.value);
     updateData.encryptedValue = encryptedData.encryptedContent;

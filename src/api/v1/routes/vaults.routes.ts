@@ -17,6 +17,7 @@ import {
   upsertSecret,
   updateSecret,
   secretExists,
+  getSecretById,
   getSecretValue,
   logActivity,
   extractRequestInfo,
@@ -33,6 +34,11 @@ import {
   permanentlyDeleteSecret,
   emptyTrash,
 } from '../../../services';
+import {
+  getSecretVersions,
+  getSecretVersionValue,
+  restoreSecretVersion,
+} from '../../../services/secretVersion.service';
 import { getRepoInfoWithApp, getRepoCollaboratorsWithApp, getUserRoleWithApp } from '../../../utils/github';
 import { trackEvent, AnalyticsEvents } from '../../../utils/analytics';
 import { repoFullNameSchema, DEFAULT_ENVIRONMENTS } from '../../../types';
@@ -629,6 +635,175 @@ export async function vaultsRoutes(fastify: FastifyInstance) {
     return sendData(reply, {
       value: secretData.value,
       preview: secretData.preview,
+    }, { requestId: request.id });
+  });
+
+  // ============================================
+  // Secret version history routes
+  // ============================================
+
+  /**
+   * GET /:owner/:repo/secrets/:secretId/versions
+   * Get version history for a secret (metadata only, no values)
+   */
+  fastify.get('/:owner/:repo/secrets/:secretId/versions', {
+    preHandler: [authenticateGitHub],
+  }, async (request, reply) => {
+    const params = request.params as { owner: string; repo: string; secretId: string };
+    const repoFullName = `${params.owner}/${params.repo}`;
+    const githubUser = request.githubUser!;
+
+    const vault = await getVaultByRepoInternal(repoFullName);
+    if (!vault) {
+      throw new NotFoundError('Vault not found');
+    }
+
+    const role = await getUserRoleWithApp(vault.repoFullName, githubUser.username);
+    if (!role) {
+      throw new ForbiddenError('You do not have access to this vault');
+    }
+
+    // Verify secret exists and belongs to this vault
+    const secret = await getSecretById(params.secretId, vault.id);
+    if (!secret) {
+      throw new NotFoundError('Secret not found');
+    }
+
+    const versions = await getSecretVersions(params.secretId, vault.id);
+
+    return sendData(reply, { versions }, { requestId: request.id });
+  });
+
+  /**
+   * GET /:owner/:repo/secrets/:secretId/versions/:versionId/value
+   * Get decrypted value of a specific version
+   *
+   * Rate limited to 10 requests per minute to prevent enumeration attacks
+   */
+  fastify.get('/:owner/:repo/secrets/:secretId/versions/:versionId/value', {
+    preHandler: [authenticateGitHub],
+    config: {
+      rateLimit: {
+        max: 10,
+        timeWindow: '1 minute',
+      },
+    },
+  }, async (request, reply) => {
+    const params = request.params as { owner: string; repo: string; secretId: string; versionId: string };
+    const repoFullName = `${params.owner}/${params.repo}`;
+    const githubUser = request.githubUser!;
+
+    const vault = await getVaultByRepoInternal(repoFullName);
+    if (!vault) {
+      throw new NotFoundError('Vault not found');
+    }
+
+    const role = await getUserRoleWithApp(vault.repoFullName, githubUser.username);
+    if (!role) {
+      throw new ForbiddenError('You do not have access to this vault');
+    }
+
+    // Verify secret exists and belongs to this vault
+    const secret = await getSecretById(params.secretId, vault.id);
+    if (!secret) {
+      throw new NotFoundError('Secret not found');
+    }
+
+    const versionData = await getSecretVersionValue(params.versionId, params.secretId, vault.id);
+    if (!versionData) {
+      throw new NotFoundError('Version not found');
+    }
+
+    // Log version value access
+    const user = await db.query.users.findFirst({
+      where: eq(users.githubId, githubUser.githubId),
+    });
+    if (user) {
+      await logActivity({
+        userId: user.id,
+        action: 'secret_version_value_accessed',
+        platform: detectPlatform(request),
+        vaultId: vault.id,
+        metadata: {
+          secretId: params.secretId,
+          versionId: params.versionId,
+          versionNumber: versionData.versionNumber,
+          key: secret.key,
+          repoFullName: vault.repoFullName,
+        },
+        ...extractRequestInfo(request),
+      });
+    }
+
+    return sendData(reply, versionData, { requestId: request.id });
+  });
+
+  /**
+   * POST /:owner/:repo/secrets/:secretId/versions/:versionId/restore
+   * Restore a secret to a previous version
+   */
+  fastify.post('/:owner/:repo/secrets/:secretId/versions/:versionId/restore', {
+    preHandler: [authenticateGitHub],
+  }, async (request, reply) => {
+    const params = request.params as { owner: string; repo: string; secretId: string; versionId: string };
+    const repoFullName = `${params.owner}/${params.repo}`;
+    const githubUser = request.githubUser!;
+
+    const vault = await getVaultByRepoInternal(repoFullName);
+    if (!vault) {
+      throw new NotFoundError('Vault not found');
+    }
+
+    // Check write permission
+    const role = await getUserRoleWithApp(vault.repoFullName, githubUser.username);
+    if (!role) {
+      throw new ForbiddenError('You do not have access to this vault');
+    }
+    if (!['write', 'maintain', 'admin'].includes(role)) {
+      throw new ForbiddenError('You need write access to restore versions');
+    }
+
+    // Verify secret exists and belongs to this vault
+    const secret = await getSecretById(params.secretId, vault.id);
+    if (!secret) {
+      throw new NotFoundError('Secret not found');
+    }
+
+    const user = await db.query.users.findFirst({
+      where: eq(users.githubId, githubUser.githubId),
+    });
+    if (!user) {
+      throw new ForbiddenError('User not found');
+    }
+
+    // Check plan limit for write access (soft limit for downgraded users)
+    const writeCheck = await canWriteToVault(user.id, user.plan, vault.id, vault.isPrivate);
+    if (!writeCheck.allowed) {
+      throw new PlanLimitError(writeCheck.reason!);
+    }
+
+    const result = await restoreSecretVersion(params.versionId, params.secretId, vault.id, user.id);
+    if (!result) {
+      throw new NotFoundError('Version not found');
+    }
+
+    await logActivity({
+      userId: user.id,
+      action: 'secret_version_restored',
+      platform: detectPlatform(request),
+      vaultId: vault.id,
+      metadata: {
+        key: result.key,
+        versionNumber: result.versionNumber,
+        repoFullName: vault.repoFullName,
+      },
+      ...extractRequestInfo(request),
+    });
+
+    return sendData(reply, {
+      message: `Restored to version ${result.versionNumber}`,
+      key: result.key,
+      versionNumber: result.versionNumber,
     }, { requestId: request.id });
   });
 

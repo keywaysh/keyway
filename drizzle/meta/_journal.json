@@ -204,6 +204,20 @@
       "when": 1765724800000,
       "tag": "0028_add_secret_last_modified_by",
       "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "5",
+      "when": 1766089400000,
+      "tag": "0029_add_secret_versions",
+      "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "5",
+      "when": 1766092000000,
+      "tag": "0030_add_version_value_accessed_action",
+      "breakpoints": true
     }
   ]
 }

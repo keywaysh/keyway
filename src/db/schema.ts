@@ -39,6 +39,8 @@ export const activityActionEnum = pgEnum('activity_action', [
   'secret_trashed',
   'secret_restored',
   'secret_permanently_deleted',
+  'secret_version_restored',
+  'secret_version_value_accessed',
   'permission_changed',
   'environment_created',
   'environment_renamed',
@@ -174,6 +176,20 @@ export const secrets = pgTable('secrets', {
   deletedAt: timestamp('deleted_at'),
   // Track who last modified this secret (null for legacy secrets)
   lastModifiedById: uuid('last_modified_by_id').references(() => users.id, { onDelete: 'set null' }),
+});
+
+// Secret version history (keeps last 10 versions per secret)
+export const secretVersions = pgTable('secret_versions', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  secretId: uuid('secret_id').notNull().references(() => secrets.id, { onDelete: 'cascade' }),
+  vaultId: uuid('vault_id').notNull().references(() => vaults.id, { onDelete: 'cascade' }),
+  versionNumber: integer('version_number').notNull(),
+  encryptedValue: text('encrypted_value').notNull(),
+  iv: text('iv').notNull(),
+  authTag: text('auth_tag').notNull(),
+  encryptionVersion: integer('encryption_version').notNull().default(1),
+  createdById: uuid('created_by_id').references(() => users.id, { onDelete: 'set null' }),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
 });
 
 export const deviceCodes = pgTable('device_codes', {
@@ -457,13 +473,29 @@ export const vaultsRelations = relations(vaults, ({ one, many }) => ({
   syncLogs: many(syncLogs),
 }));
 
-export const secretsRelations = relations(secrets, ({ one }) => ({
+export const secretsRelations = relations(secrets, ({ one, many }) => ({
   vault: one(vaults, {
     fields: [secrets.vaultId],
     references: [vaults.id],
   }),
   lastModifiedBy: one(users, {
     fields: [secrets.lastModifiedById],
+    references: [users.id],
+  }),
+  versions: many(secretVersions),
+}));
+
+export const secretVersionsRelations = relations(secretVersions, ({ one }) => ({
+  secret: one(secrets, {
+    fields: [secretVersions.secretId],
+    references: [secrets.id],
+  }),
+  vault: one(vaults, {
+    fields: [secretVersions.vaultId],
+    references: [vaults.id],
+  }),
+  createdBy: one(users, {
+    fields: [secretVersions.createdById],
     references: [users.id],
   }),
 }));
@@ -644,3 +676,5 @@ export type InstallationStatus = typeof installationStatusEnum.enumValues[number
 export type ApiKey = typeof apiKeys.$inferSelect;
 export type NewApiKey = typeof apiKeys.$inferInsert;
 export type ApiKeyEnvironment = typeof apiKeyEnvironmentEnum.enumValues[number];
+export type SecretVersion = typeof secretVersions.$inferSelect;
+export type NewSecretVersion = typeof secretVersions.$inferInsert;
