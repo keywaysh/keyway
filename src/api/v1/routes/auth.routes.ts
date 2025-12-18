@@ -219,7 +219,7 @@ export async function authRoutes(fastify: FastifyInstance) {
 
           // CLI flow: show "return to terminal" page
           if (isFromCli) {
-            return reply.type('text/html').send(renderInstallSuccessPage(query.installation_id));
+            return reply.type('text/html').send(renderInstallSuccessPage(query.installation_id, true));
           }
 
           // Web flow (direct install from GitHub Marketplace): set cookies and redirect to dashboard
@@ -236,8 +236,8 @@ export async function authRoutes(fastify: FastifyInstance) {
         }
       }
 
-      // No code - just installation ID, show success page
-      return reply.type('text/html').send(renderInstallSuccessPage(query.installation_id));
+      // No code - just installation ID, show success page (origin unknown, assume web)
+      return reply.type('text/html').send(renderInstallSuccessPage(query.installation_id, false));
     }
 
     if (!query.code || !query.state) {
@@ -864,27 +864,6 @@ function renderSuccessPage(username: string): string {
     .user-info strong {
       color: #111827;
     }
-    .terminal-hint {
-      margin-top: 32px;
-      padding: 16px;
-      background: #111827;
-      border-radius: 10px;
-      font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
-      font-size: 13px;
-      color: #9ca3af;
-      text-align: left;
-    }
-    .terminal-hint .prompt {
-      color: #10b981;
-    }
-    .terminal-hint .blink {
-      animation: blink 1s infinite;
-      color: #10b981;
-    }
-    @keyframes blink {
-      0%, 50% { opacity: 1; }
-      51%, 100% { opacity: 0; }
-    }
   </style>
 </head>
 <body>
@@ -903,9 +882,6 @@ function renderSuccessPage(username: string): string {
     <p>You can now close this window and return to your terminal.</p>
     <div class="user-info">
       <strong>Logged in as:</strong> ${username}
-    </div>
-    <div class="terminal-hint">
-      <span class="prompt">$</span> <span class="blink">_</span>
     </div>
   </div>
 </body>
@@ -1150,7 +1126,20 @@ function renderVerifyPage(userCode: string, autoSubmit: boolean): string {
 </html>`;
 }
 
-function renderInstallSuccessPage(installationId: string): string {
+function renderInstallSuccessPage(installationId: string, isFromCli = false): string {
+  const actionHtml = isFromCli ? '' : `
+    <a href="${config.app.frontendUrl}${config.app.dashboardPath}" class="dashboard-link">
+      Go to Dashboard
+      <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M13 7l5 5m0 0l-5 5m5-5H6"/>
+      </svg>
+    </a>
+  `;
+
+  const subtitleText = isFromCli
+    ? 'You can now close this window and return to your terminal.'
+    : 'You can now manage your secrets from the dashboard.';
+
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -1228,25 +1217,26 @@ function renderInstallSuccessPage(installationId: string): string {
       color: #9ca3af;
       margin-top: 8px;
     }
-    .terminal-hint {
+    .dashboard-link {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
       margin-top: 32px;
-      padding: 16px;
+      padding: 12px 24px;
       background: #111827;
-      border-radius: 10px;
-      font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
-      font-size: 13px;
-      color: #9ca3af;
-      text-align: left;
-    }
-    .terminal-hint .prompt {
-      color: #10b981;
-    }
-    .terminal-hint .command {
       color: white;
+      text-decoration: none;
+      border-radius: 10px;
+      font-size: 14px;
+      font-weight: 500;
+      transition: background 0.2s;
     }
-    .terminal-hint .blink {
-      animation: blink 1s infinite;
-      color: #10b981;
+    .dashboard-link:hover {
+      background: #1f2937;
+    }
+    .dashboard-link svg {
+      width: 16px;
+      height: 16px;
     }
     @keyframes blink {
       0%, 50% { opacity: 1; }
@@ -1268,10 +1258,8 @@ function renderInstallSuccessPage(installationId: string): string {
     </div>
     <h1>You're all set!</h1>
     <p>Keyway is now installed and you're logged in.</p>
-    <p class="subtitle">Return to your terminal to continue.</p>
-    <div class="terminal-hint">
-      <span class="prompt">$</span> <span class="command">keyway init</span><span class="blink">_</span>
-    </div>
+    <p class="subtitle">${subtitleText}</p>
+    ${actionHtml}
   </div>
 </body>
 </html>`;
