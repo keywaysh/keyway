@@ -1,8 +1,8 @@
 # Binaries
 bin/
 dist/
-keyway
-keyway-dev
+/keyway
+/keyway-dev
 *.exe
 *.exe~
 *.dll
