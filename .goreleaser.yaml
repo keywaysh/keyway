@@ -1,0 +1,114 @@
+version: 2
+
+project_name: keyway
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: keyway
+    main: ./cmd/keyway
+    binary: keyway
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+      - -X main.version={{.Version}}
+      - -X main.commit={{.ShortCommit}}
+      - -X main.date={{.Date}}
+
+# macOS code signing
+signs:
+  - id: macos-sign
+    cmd: codesign
+    args:
+      - "--deep"
+      - "--force"
+      - "--options=runtime"
+      - "--sign"
+      - "Developer ID Application: {{ .Env.MACOS_SIGNING_IDENTITY }}"
+      - "--timestamp"
+      - "${artifact}"
+    artifacts: binary
+    ids:
+      - keyway
+    output: false
+    certificate: "{{ .Env.MACOS_CERTIFICATE }}"
+    if: '{{ eq .Os "darwin" }}'
+
+# macOS notarization
+notarize:
+  macos:
+    - enabled: '{{ isEnvSet "AC_USERNAME" }}'
+      sign:
+        certificate: "{{.Env.MACOS_CERTIFICATE}}"
+        password: "{{.Env.MACOS_CERTIFICATE_PASSWORD}}"
+      notarize:
+        issuer_id: "{{.Env.AC_ISSUER_ID}}"
+        key_id: "{{.Env.AC_KEY_ID}}"
+        key: "{{.Env.AC_KEY}}"
+
+archives:
+  - id: default
+    format: tar.gz
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    format_overrides:
+      - goos: windows
+        format: zip
+    files:
+      - README.md
+      - LICENSE*
+
+checksum:
+  name_template: "checksums.txt"
+  algorithm: sha256
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore:"
+      - "Merge pull request"
+      - "Merge branch"
+
+release:
+  github:
+    owner: keywaysh
+    name: cli
+  draft: false
+  prerelease: auto
+  name_template: "v{{.Version}}"
+
+# Homebrew tap
+brews:
+  - name: keyway
+    repository:
+      owner: keywaysh
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+    directory: Formula
+    homepage: "https://keyway.sh"
+    description: "GitHub-native secrets management CLI"
+    license: "MIT"
+    install: |
+      bin.install "keyway"
+    test: |
+      system "#{bin}/keyway", "--version"
+
+# NPM package (for JS ecosystem)
+publishers:
+  - name: npm
+    ids:
+      - default
+    cmd: echo "NPM publish handled separately"
+    disable: true
