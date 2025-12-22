@@ -306,12 +306,41 @@ export async function organizationsRoutes(fastify: FastifyInstance) {
       throw new ForbiddenError('You are not a member of this organization');
     }
 
-    const billingStatus = await getOrgBillingStatus(org.id);
+    // Get full org details for trial info and effective plan
+    const orgDetails = await getOrganizationDetails(org.id);
+    if (!orgDetails) {
+      throw new NotFoundError('Organization not found');
+    }
+
     const prices = getAvailablePrices();
+    const trialInfo = getTrialInfo(org);
 
     return sendData(reply, {
-      ...billingStatus,
-      prices: prices?.team || null,
+      plan: org.plan,
+      effectivePlan: orgDetails.effectivePlan,
+      billingStatus: null, // No subscription status for orgs without stripe subscription
+      stripeCustomerId: org.stripeCustomerId,
+      subscription: null, // TODO: add org subscription lookup if needed
+      trial: {
+        status: trialInfo.status,
+        startedAt: trialInfo.startedAt?.toISOString() || null,
+        endsAt: trialInfo.endsAt?.toISOString() || null,
+        convertedAt: trialInfo.convertedAt?.toISOString() || null,
+        daysRemaining: trialInfo.daysRemaining,
+        trialDurationDays: TRIAL_DURATION_DAYS,
+      },
+      prices: prices?.team ? {
+        monthly: {
+          id: prices.team.monthly,
+          price: 2900, // $29.00 in cents
+          interval: 'month',
+        },
+        yearly: {
+          id: prices.team.yearly,
+          price: 29000, // $290.00 in cents
+          interval: 'year',
+        },
+      } : null,
     }, { requestId: request.id });
   });
 
