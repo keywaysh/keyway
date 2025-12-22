@@ -1,8 +1,10 @@
 import { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { authenticateGitHub, requireAdminAccess } from '../../../middleware/auth';
+import { authenticateGitHub, requireAdminAccess, requireApiKeyScope } from '../../../middleware/auth';
 import { db, users, vaults, secrets, environmentPermissions, organizations } from '../../../db';
-import { getOrganizationByLogin } from '../../../services/organization.service';
+import { ensureOrganizationExists, getTrialEligibility } from '../../../services/organization.service';
+import { getEffectivePlanWithTrial } from '../../../services/trial.service';
+import { getTokenForRepo } from '../../../utils/github';
 import { eq, and } from 'drizzle-orm';
 import { getVaultPermissions, getDefaultPermission, resolveEffectivePermission } from '../../../utils/permissions';
 import type { CollaboratorRole } from '../../../db/schema';
@@ -118,7 +120,7 @@ export async function vaultsRoutes(fastify: FastifyInstance) {
    * List all vaults for the authenticated user
    */
   fastify.get('/', {
-    preHandler: [authenticateGitHub],
+    preHandler: [authenticateGitHub, requireApiKeyScope('read:secrets')],
   }, async (request, reply) => {
     const vcsUser = request.vcsUser || request.githubUser!;
     const pagination = parsePagination(request.query);
@@ -155,7 +157,7 @@ export async function vaultsRoutes(fastify: FastifyInstance) {
    * Create a new vault (init)
    */
   fastify.post('/', {
-    preHandler: [authenticateGitHub, requireAdminAccess],
+    preHandler: [authenticateGitHub, requireApiKeyScope('write:secrets'), requireAdminAccess],
   }, async (request, reply) => {
     const body = CreateVaultSchema.parse(request.body);
     const vcsUser = request.vcsUser || request.githubUser!;
@@ -178,10 +180,45 @@ export async function vaultsRoutes(fastify: FastifyInstance) {
       throw new ForbiddenError('User not found in database');
     }
 
+    // Check if repo owner is an organization and ensure it exists in DB
+    const repoOwner = body.repoFullName.split('/')[0];
+    let org = null;
+    let trialEligibility = null;
+
+    if (repoInfo.isOrganization) {
+      // Get installation token for this repo to fetch org info
+      const installToken = await getTokenForRepo(repoOwner, body.repoFullName.split('/')[1]);
+      // Pass user.id to add them as org member automatically
+      org = await ensureOrganizationExists(repoOwner, installToken, user.id);
+
+      // Calculate trial eligibility for error response
+      if (org) {
+        trialEligibility = getTrialEligibility(org);
+      }
+    }
+
+    // Determine effective plan: use org's plan (with trial) for org repos, otherwise user's plan
+    const effectivePlan = org && repoInfo.isOrganization
+      ? getEffectivePlanWithTrial(org)
+      : user.plan;
+
     // Check plan limits before creating vault
-    const limitCheck = await checkVaultCreationAllowed(user.id, user.plan, repoInfo.isPrivate, repoInfo.isOrganization);
+    const limitCheck = await checkVaultCreationAllowed(user.id, effectivePlan, repoInfo.isPrivate, repoInfo.isOrganization);
     if (!limitCheck.allowed) {
-      throw new PlanLimitError(limitCheck.reason!);
+      // Debug log
+      fastify.log.info({
+        org: org?.login,
+        trialEligibility,
+        effectivePlan,
+        isOrganization: repoInfo.isOrganization,
+      }, 'Plan limit check failed - trial info');
+
+      // Include trial eligibility info in error for org repos
+      throw new PlanLimitError(
+        limitCheck.reason!,
+        'https://keyway.sh/upgrade',
+        trialEligibility ?? undefined
+      );
     }
 
     // Check if vault already exists
@@ -192,10 +229,6 @@ export async function vaultsRoutes(fastify: FastifyInstance) {
     if (existingVault) {
       throw new ConflictError('Vault already exists for this repository');
     }
-
-    // Check if repo owner is an organization and get its ID
-    const repoOwner = body.repoFullName.split('/')[0];
-    const org = await getOrganizationByLogin(repoOwner);
 
     // Create vault with visibility info and org association
     const [vault] = await db
@@ -245,7 +278,7 @@ export async function vaultsRoutes(fastify: FastifyInstance) {
    * Get vault details by owner/repo
    */
   fastify.get('/:owner/:repo', {
-    preHandler: [authenticateGitHub],
+    preHandler: [authenticateGitHub, requireApiKeyScope('read:secrets')],
   }, async (request, reply) => {
     const params = request.params as { owner: string; repo: string };
     const repoFullName = `${params.owner}/${params.repo}`;
@@ -276,7 +309,7 @@ export async function vaultsRoutes(fastify: FastifyInstance) {
    * Delete a vault and all its secrets
    */
   fastify.delete('/:owner/:repo', {
-    preHandler: [authenticateGitHub, requireAdminAccess],
+    preHandler: [authenticateGitHub, requireApiKeyScope('delete:secrets'), requireAdminAccess],
   }, async (request, reply) => {
     const params = request.params as { owner: string; repo: string };
     const repoFullName = `${params.owner}/${params.repo}`;
@@ -340,7 +373,7 @@ export async function vaultsRoutes(fastify: FastifyInstance) {
    * List secrets for a vault
    */
   fastify.get('/:owner/:repo/secrets', {
-    preHandler: [authenticateGitHub],
+    preHandler: [authenticateGitHub, requireApiKeyScope('read:secrets')],
   }, async (request, reply) => {
     const params = request.params as { owner: string; repo: string };
     const repoFullName = `${params.owner}/${params.repo}`;
@@ -379,7 +412,7 @@ export async function vaultsRoutes(fastify: FastifyInstance) {
    * Create or update a secret
    */
   fastify.post('/:owner/:repo/secrets', {
-    preHandler: [authenticateGitHub],
+    preHandler: [authenticateGitHub, requireApiKeyScope('write:secrets')],
   }, async (request, reply) => {
     const params = request.params as { owner: string; repo: string };
     const repoFullName = `${params.owner}/${params.repo}`;
@@ -477,7 +510,7 @@ export async function vaultsRoutes(fastify: FastifyInstance) {
    * Update a secret
    */
   fastify.patch('/:owner/:repo/secrets/:secretId', {
-    preHandler: [authenticateGitHub],
+    preHandler: [authenticateGitHub, requireApiKeyScope('write:secrets')],
   }, async (request, reply) => {
     const params = request.params as { owner: string; repo: string; secretId: string };
     const repoFullName = `${params.owner}/${params.repo}`;
@@ -560,7 +593,7 @@ export async function vaultsRoutes(fastify: FastifyInstance) {
    * Returns info for toast with undo capability
    */
   fastify.delete('/:owner/:repo/secrets/:secretId', {
-    preHandler: [authenticateGitHub],
+    preHandler: [authenticateGitHub, requireApiKeyScope('delete:secrets')],
   }, async (request, reply) => {
     const params = request.params as { owner: string; repo: string; secretId: string };
     const repoFullName = `${params.owner}/${params.repo}`;
@@ -655,7 +688,7 @@ export async function vaultsRoutes(fastify: FastifyInstance) {
    * Rate limited to 10 requests per minute to prevent enumeration attacks
    */
   fastify.get('/:owner/:repo/secrets/:secretId/value', {
-    preHandler: [authenticateGitHub],
+    preHandler: [authenticateGitHub, requireApiKeyScope('read:secrets')],
     config: {
       rateLimit: {
         max: 10,
@@ -740,7 +773,7 @@ export async function vaultsRoutes(fastify: FastifyInstance) {
    * Get version history for a secret (metadata only, no values)
    */
   fastify.get('/:owner/:repo/secrets/:secretId/versions', {
-    preHandler: [authenticateGitHub],
+    preHandler: [authenticateGitHub, requireApiKeyScope('read:secrets')],
   }, async (request, reply) => {
     const params = request.params as { owner: string; repo: string; secretId: string };
     const repoFullName = `${params.owner}/${params.repo}`;
@@ -774,7 +807,7 @@ export async function vaultsRoutes(fastify: FastifyInstance) {
    * Rate limited to 10 requests per minute to prevent enumeration attacks
    */
   fastify.get('/:owner/:repo/secrets/:secretId/versions/:versionId/value', {
-    preHandler: [authenticateGitHub],
+    preHandler: [authenticateGitHub, requireApiKeyScope('read:secrets')],
     config: {
       rateLimit: {
         max: 10,
@@ -856,7 +889,7 @@ export async function vaultsRoutes(fastify: FastifyInstance) {
    * Restore a secret to a previous version
    */
   fastify.post('/:owner/:repo/secrets/:secretId/versions/:versionId/restore', {
-    preHandler: [authenticateGitHub],
+    preHandler: [authenticateGitHub, requireApiKeyScope('write:secrets')],
   }, async (request, reply) => {
     const params = request.params as { owner: string; repo: string; secretId: string; versionId: string };
     const repoFullName = `${params.owner}/${params.repo}`;
@@ -944,7 +977,7 @@ export async function vaultsRoutes(fastify: FastifyInstance) {
    * List trashed secrets for a vault
    */
   fastify.get('/:owner/:repo/trash', {
-    preHandler: [authenticateGitHub],
+    preHandler: [authenticateGitHub, requireApiKeyScope('read:secrets')],
   }, async (request, reply) => {
     const params = request.params as { owner: string; repo: string };
     const repoFullName = `${params.owner}/${params.repo}`;
@@ -982,7 +1015,7 @@ export async function vaultsRoutes(fastify: FastifyInstance) {
    * Restore a secret from trash
    */
   fastify.post('/:owner/:repo/trash/:secretId/restore', {
-    preHandler: [authenticateGitHub],
+    preHandler: [authenticateGitHub, requireApiKeyScope('write:secrets')],
   }, async (request, reply) => {
     const params = request.params as { owner: string; repo: string; secretId: string };
     const repoFullName = `${params.owner}/${params.repo}`;
@@ -1076,7 +1109,7 @@ export async function vaultsRoutes(fastify: FastifyInstance) {
    * Permanently delete a secret from trash
    */
   fastify.delete('/:owner/:repo/trash/:secretId', {
-    preHandler: [authenticateGitHub],
+    preHandler: [authenticateGitHub, requireApiKeyScope('delete:secrets')],
   }, async (request, reply) => {
     const params = request.params as { owner: string; repo: string; secretId: string };
     const repoFullName = `${params.owner}/${params.repo}`;
@@ -1152,7 +1185,7 @@ export async function vaultsRoutes(fastify: FastifyInstance) {
    * Empty all trash for a vault (permanently delete all trashed secrets)
    */
   fastify.delete('/:owner/:repo/trash', {
-    preHandler: [authenticateGitHub],
+    preHandler: [authenticateGitHub, requireApiKeyScope('delete:secrets')],
   }, async (request, reply) => {
     const params = request.params as { owner: string; repo: string };
     const repoFullName = `${params.owner}/${params.repo}`;
@@ -1219,7 +1252,7 @@ export async function vaultsRoutes(fastify: FastifyInstance) {
    * List all environments for a vault
    */
   fastify.get('/:owner/:repo/environments', {
-    preHandler: [authenticateGitHub],
+    preHandler: [authenticateGitHub, requireApiKeyScope('read:secrets')],
   }, async (request, reply) => {
     const params = request.params as { owner: string; repo: string };
     const repoFullName = `${params.owner}/${params.repo}`;
@@ -1248,7 +1281,7 @@ export async function vaultsRoutes(fastify: FastifyInstance) {
    * Create a new environment
    */
   fastify.post('/:owner/:repo/environments', {
-    preHandler: [authenticateGitHub, requireAdminAccess],
+    preHandler: [authenticateGitHub, requireApiKeyScope('write:secrets'), requireAdminAccess],
   }, async (request, reply) => {
     const params = request.params as { owner: string; repo: string };
     const repoFullName = `${params.owner}/${params.repo}`;
@@ -1317,7 +1350,7 @@ export async function vaultsRoutes(fastify: FastifyInstance) {
    * Rename an environment
    */
   fastify.patch('/:owner/:repo/environments/:name', {
-    preHandler: [authenticateGitHub, requireAdminAccess],
+    preHandler: [authenticateGitHub, requireApiKeyScope('write:secrets'), requireAdminAccess],
   }, async (request, reply) => {
     const params = request.params as { owner: string; repo: string; name: string };
     const repoFullName = `${params.owner}/${params.repo}`;
@@ -1407,7 +1440,7 @@ export async function vaultsRoutes(fastify: FastifyInstance) {
    * Delete an environment and all its secrets
    */
   fastify.delete('/:owner/:repo/environments/:name', {
-    preHandler: [authenticateGitHub, requireAdminAccess],
+    preHandler: [authenticateGitHub, requireApiKeyScope('delete:secrets'), requireAdminAccess],
   }, async (request, reply) => {
     const params = request.params as { owner: string; repo: string; name: string };
     const repoFullName = `${params.owner}/${params.repo}`;
@@ -1497,7 +1530,7 @@ export async function vaultsRoutes(fastify: FastifyInstance) {
    * Get permission configuration for a vault
    */
   fastify.get('/:owner/:repo/permissions', {
-    preHandler: [authenticateGitHub],
+    preHandler: [authenticateGitHub, requireApiKeyScope('read:secrets')],
   }, async (request, reply) => {
     const params = request.params as { owner: string; repo: string };
     const repoFullName = `${params.owner}/${params.repo}`;
@@ -1527,7 +1560,7 @@ export async function vaultsRoutes(fastify: FastifyInstance) {
    * Set custom permissions for an environment (admin only)
    */
   fastify.put('/:owner/:repo/permissions/:env', {
-    preHandler: [authenticateGitHub, requireAdminAccess],
+    preHandler: [authenticateGitHub, requireApiKeyScope('write:secrets'), requireAdminAccess],
   }, async (request, reply) => {
     const params = request.params as { owner: string; repo: string; env: string };
     const repoFullName = `${params.owner}/${params.repo}`;
@@ -1579,7 +1612,7 @@ export async function vaultsRoutes(fastify: FastifyInstance) {
    * Reset environment to default permissions (admin only)
    */
   fastify.delete('/:owner/:repo/permissions/:env', {
-    preHandler: [authenticateGitHub, requireAdminAccess],
+    preHandler: [authenticateGitHub, requireApiKeyScope('write:secrets'), requireAdminAccess],
   }, async (request, reply) => {
     const params = request.params as { owner: string; repo: string; env: string };
     const repoFullName = `${params.owner}/${params.repo}`;
@@ -1621,7 +1654,7 @@ export async function vaultsRoutes(fastify: FastifyInstance) {
    * Get security alerts for a vault
    */
   fastify.get('/:owner/:repo/security/alerts', {
-    preHandler: [authenticateGitHub],
+    preHandler: [authenticateGitHub, requireApiKeyScope('read:secrets')],
   }, async (request, reply) => {
     const params = request.params as { owner: string; repo: string };
     const repoFullName = `${params.owner}/${params.repo}`;
@@ -1667,7 +1700,7 @@ export async function vaultsRoutes(fastify: FastifyInstance) {
    * Requires admin access to the repository
    */
   fastify.get('/:owner/:repo/collaborators', {
-    preHandler: [authenticateGitHub, requireAdminAccess],
+    preHandler: [authenticateGitHub, requireApiKeyScope('read:secrets'), requireAdminAccess],
   }, async (request, reply) => {
     const params = request.params as { owner: string; repo: string };
     const { owner, repo } = params;
@@ -1713,7 +1746,7 @@ export async function vaultsRoutes(fastify: FastifyInstance) {
 
   // Keep old endpoint for backwards compatibility (deprecated)
   fastify.get('/:owner/:repo/contributors', {
-    preHandler: [authenticateGitHub, requireAdminAccess],
+    preHandler: [authenticateGitHub, requireApiKeyScope('read:secrets'), requireAdminAccess],
   }, async (request, reply) => {
     const params = request.params as { owner: string; repo: string };
     const { owner, repo } = params;

@@ -50,6 +50,9 @@ vi.mock('../../src/middleware/auth', () => ({
       username: 'testuser',
     };
   }),
+  requireApiKeyScope: vi.fn(() => async () => {
+    // Allow access by default in tests
+  }),
 }));
 
 describe('Billing Routes', () => {

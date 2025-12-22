@@ -34,7 +34,7 @@ const envSchema = z.object({
   GITHUB_APP_CLIENT_ID: z.string().min(1, 'GITHUB_APP_CLIENT_ID is required'),
   GITHUB_APP_CLIENT_SECRET: z.string().min(1, 'GITHUB_APP_CLIENT_SECRET is required'),
   GITHUB_APP_PRIVATE_KEY: z.string().min(1, 'GITHUB_APP_PRIVATE_KEY is required'), // Base64-encoded PEM key
-  GITHUB_APP_WEBHOOK_SECRET: z.string().optional(),
+  GITHUB_APP_WEBHOOK_SECRET: z.string().optional(), // Required in production (validated below)
   GITHUB_APP_NAME: z.string().default('keyway-app'),
 
   // Analytics
@@ -76,6 +76,15 @@ const envSchema = z.object({
   // Sentry Error Tracking (optional)
   SENTRY_DSN: z.string().url().optional(),
   SENTRY_RELEASE: z.string().optional(),
+}).superRefine((data, ctx) => {
+  // SECURITY: Webhook secret is required in production to prevent forged webhook attacks
+  if (data.NODE_ENV === 'production' && !data.GITHUB_APP_WEBHOOK_SECRET) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'GITHUB_APP_WEBHOOK_SECRET is required in production mode',
+      path: ['GITHUB_APP_WEBHOOK_SECRET'],
+    });
+  }
 });
 
 // Validate environment variables

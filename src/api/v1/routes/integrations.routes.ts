@@ -5,7 +5,8 @@
 
 import { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { authenticateGitHub } from '../../../middleware/auth';
+import { authenticateGitHub, requireApiKeyScope } from '../../../middleware/auth';
+import { hasRequiredScopes } from '../../../utils/apiKeys';
 import { getProvider, getAvailableProviders } from '../../../services/providers';
 import {
   getConnection,
@@ -135,7 +136,7 @@ export async function integrationsRoutes(fastify: FastifyInstance) {
    * List user's provider connections
    */
   fastify.get('/connections', {
-    preHandler: [authenticateGitHub],
+    preHandler: [authenticateGitHub, requireApiKeyScope('read:secrets')],
   }, async (request, reply) => {
     // Get user from DB to get the UUID
     const user = await db.query.users.findFirst({
@@ -158,7 +159,7 @@ export async function integrationsRoutes(fastify: FastifyInstance) {
    * Delete a provider connection
    */
   fastify.delete('/connections/:id', {
-    preHandler: [authenticateGitHub],
+    preHandler: [authenticateGitHub, requireApiKeyScope('write:secrets')],
   }, async (request, reply) => {
     const { id } = request.params as { id: string };
 
@@ -206,7 +207,7 @@ export async function integrationsRoutes(fastify: FastifyInstance) {
    * Connect with API token (for providers like Railway that don't use OAuth)
    */
   fastify.post('/:provider/connect', {
-    preHandler: [authenticateGitHub],
+    preHandler: [authenticateGitHub, requireApiKeyScope('write:secrets')],
   }, async (request, reply) => {
     const { provider: providerName } = request.params as { provider: string };
     const body = request.body as { token?: string };
@@ -292,7 +293,7 @@ export async function integrationsRoutes(fastify: FastifyInstance) {
    * Start OAuth flow for a provider
    */
   fastify.get('/:provider/authorize', {
-    preHandler: [authenticateGitHub],
+    preHandler: [authenticateGitHub, requireApiKeyScope('write:secrets')],
   }, async (request, reply) => {
     const { provider: providerName } = request.params as { provider: string };
     const query = request.query as { redirect_uri?: string };
@@ -468,7 +469,7 @@ export async function integrationsRoutes(fastify: FastifyInstance) {
    * List projects for a connection
    */
   fastify.get('/connections/:id/projects', {
-    preHandler: [authenticateGitHub],
+    preHandler: [authenticateGitHub, requireApiKeyScope('read:secrets')],
   }, async (request, reply) => {
     const { id } = request.params as { id: string };
 
@@ -495,7 +496,7 @@ export async function integrationsRoutes(fastify: FastifyInstance) {
    * Used for auto-detection when user has multiple accounts/teams
    */
   fastify.get('/providers/:provider/all-projects', {
-    preHandler: [authenticateGitHub],
+    preHandler: [authenticateGitHub, requireApiKeyScope('read:secrets')],
   }, async (request, reply) => {
     const { provider: providerName } = request.params as { provider: string };
 
@@ -526,7 +527,7 @@ export async function integrationsRoutes(fastify: FastifyInstance) {
    * Get sync status for first-time detection
    */
   fastify.get('/vaults/:owner/:repo/sync/status', {
-    preHandler: [authenticateGitHub],
+    preHandler: [authenticateGitHub, requireApiKeyScope('read:secrets')],
   }, async (request, reply) => {
     const { owner, repo } = request.params as { owner: string; repo: string };
     const query = SyncStatusQuerySchema.parse(request.query);
@@ -566,7 +567,7 @@ export async function integrationsRoutes(fastify: FastifyInstance) {
    * Get bi-directional diff between Keyway vault and provider
    */
   fastify.get('/vaults/:owner/:repo/sync/diff', {
-    preHandler: [authenticateGitHub],
+    preHandler: [authenticateGitHub, requireApiKeyScope('read:secrets')],
   }, async (request, reply) => {
     const { owner, repo } = request.params as { owner: string; repo: string };
     const query = SyncDiffQuerySchema.parse(request.query);
@@ -624,7 +625,7 @@ export async function integrationsRoutes(fastify: FastifyInstance) {
    * Preview what would change during a sync
    */
   fastify.get('/vaults/:owner/:repo/sync/preview', {
-    preHandler: [authenticateGitHub],
+    preHandler: [authenticateGitHub, requireApiKeyScope('read:secrets')],
   }, async (request, reply) => {
     const { owner, repo } = request.params as { owner: string; repo: string };
     const query = SyncPreviewQuerySchema.parse(request.query);
@@ -691,6 +692,16 @@ export async function integrationsRoutes(fastify: FastifyInstance) {
   }, async (request, reply) => {
     const { owner, repo } = request.params as { owner: string; repo: string };
     const body = SyncBodySchema.parse(request.body);
+
+    // Validate API key scopes based on sync direction
+    // Push (Keyway → Provider) = reading secrets from Keyway
+    // Pull (Provider → Keyway) = writing secrets to Keyway
+    if (request.apiKey) {
+      const requiredScope = body.direction === 'push' ? 'read:secrets' : 'write:secrets';
+      if (!hasRequiredScopes(request.apiKey.scopes, [requiredScope])) {
+        throw new ForbiddenError(`API key missing required scope: ${requiredScope}`);
+      }
+    }
 
     const user = await db.query.users.findFirst({
       where: and(

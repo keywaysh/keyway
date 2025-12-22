@@ -1,6 +1,6 @@
 import { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { authenticateGitHub, requireEnvironmentAccess } from '../../../middleware/auth';
+import { authenticateGitHub, requireEnvironmentAccess, requireApiKeyScope } from '../../../middleware/auth';
 import { db, users, vaults, secrets } from '../../../db';
 import { eq, and, inArray, isNull } from 'drizzle-orm';
 import { getEncryptionService, sanitizeForLogging } from '../../../utils/encryption';
@@ -102,7 +102,7 @@ export async function secretsRoutes(fastify: FastifyInstance) {
    * Push secrets (CLI format - JSON object of key-value pairs)
    */
   fastify.post('/push', {
-    preHandler: [authenticateGitHub, requireEnvironmentAccess('write')],
+    preHandler: [authenticateGitHub, requireApiKeyScope('write:secrets'), requireEnvironmentAccess('write')],
   }, async (request, reply) => {
     const body = PushSecretsSchema.parse(request.body);
     const vcsUser = request.vcsUser || request.githubUser!;
@@ -250,7 +250,7 @@ export async function secretsRoutes(fastify: FastifyInstance) {
    * Pull secrets (returns .env format content)
    */
   fastify.get('/pull', {
-    preHandler: [authenticateGitHub, requireEnvironmentAccess('read')],
+    preHandler: [authenticateGitHub, requireApiKeyScope('read:secrets'), requireEnvironmentAccess('read')],
   }, async (request, reply) => {
     const query = PullSecretsQuerySchema.parse(request.query);
     const repoFullName = query.repo;
@@ -360,7 +360,7 @@ export async function secretsRoutes(fastify: FastifyInstance) {
    * View a single secret value (for MCP and other clients)
    */
   fastify.get('/view', {
-    preHandler: [authenticateGitHub, requireEnvironmentAccess('read')],
+    preHandler: [authenticateGitHub, requireApiKeyScope('read:secrets'), requireEnvironmentAccess('read')],
   }, async (request, reply) => {
     const query = ViewSecretQuerySchema.parse(request.query);
     const { repo: repoFullName, environment, key } = query;

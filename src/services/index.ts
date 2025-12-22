@@ -84,3 +84,22 @@ export {
   getInstallationsForUser,
   getInstallationByGitHubId,
 } from './github-app.service';
+
+// Trial service
+export {
+  TRIAL_DURATION_DAYS,
+  getTrialInfo,
+  isTrialActive,
+  isTrialExpired,
+  hasHadTrial,
+  startTrial,
+  convertTrial,
+  expireTrial,
+  getEffectivePlanWithTrial,
+  type TrialStatus,
+  type TrialInfo,
+  type StartTrialInput,
+  type StartTrialResult,
+  type ConvertTrialInput,
+  type ExpireTrialInput,
+} from './trial.service';

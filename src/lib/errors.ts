@@ -217,13 +217,29 @@ export class ServiceUnavailableError extends ApiError {
 }
 
 /**
+ * Trial eligibility info included in plan limit errors
+ */
+export interface TrialEligibilityInfo {
+  eligible: boolean;
+  daysAvailable: number;
+  orgLogin: string;
+  reason?: string;
+}
+
+/**
  * 403 - Plan Limit Reached
  * Special error for when a user exceeds their plan limits
+ * Includes trial eligibility info for org repos to enable CLI trial prompts
  */
 export class PlanLimitError extends ApiError {
   public readonly upgradeUrl: string;
+  public readonly trialInfo?: TrialEligibilityInfo;
 
-  constructor(detail: string, upgradeUrl = 'https://keyway.sh/upgrade') {
+  constructor(
+    detail: string,
+    upgradeUrl = 'https://keyway.sh/upgrade',
+    trialInfo?: TrialEligibilityInfo
+  ) {
     super({
       type: 'plan-limit-reached',
       title: 'Plan Limit Reached',
@@ -232,12 +248,19 @@ export class PlanLimitError extends ApiError {
     });
     this.name = 'PlanLimitError';
     this.upgradeUrl = upgradeUrl;
+    this.trialInfo = trialInfo;
   }
 
-  toProblemDetails(traceId?: string): ProblemDetails & { upgradeUrl: string } {
-    return {
+  toProblemDetails(traceId?: string): ProblemDetails & { upgradeUrl: string; trialInfo?: TrialEligibilityInfo } {
+    const details: ProblemDetails & { upgradeUrl: string; trialInfo?: TrialEligibilityInfo } = {
       ...super.toProblemDetails(traceId),
       upgradeUrl: this.upgradeUrl,
     };
+
+    if (this.trialInfo) {
+      details.trialInfo = this.trialInfo;
+    }
+
+    return details;
   }
 }

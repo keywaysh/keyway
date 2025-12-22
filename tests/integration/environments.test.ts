@@ -49,6 +49,9 @@ vi.mock('../../src/middleware/auth', () => ({
   requireAdminAccess: vi.fn(async () => {
     // Allow access by default
   }),
+  requireApiKeyScope: vi.fn(() => async () => {
+    // Allow access by default in tests
+  }),
 }));
 
 describe('Environment Routes', () => {

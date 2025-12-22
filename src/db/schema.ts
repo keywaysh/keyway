@@ -60,6 +60,10 @@ export const activityActionEnum = pgEnum('activity_action', [
   // API Key actions
   'api_key_created',
   'api_key_revoked',
+  // Trial actions
+  'org_trial_started',
+  'org_trial_expired',
+  'org_trial_converted',
 ]);
 
 // Activity platform types
@@ -462,6 +466,10 @@ export const organizations = pgTable('organizations', {
   // Billing (per-org for Team plan)
   plan: userPlanEnum('plan').notNull().default('free'),
   stripeCustomerId: text('stripe_customer_id'),
+  // Trial period (for Team plan - 15 days free trial)
+  trialStartedAt: timestamp('trial_started_at'),
+  trialEndsAt: timestamp('trial_ends_at'),
+  trialConvertedAt: timestamp('trial_converted_at'),
   // Default permissions for this org (can override global defaults)
   // Structure: { [role]: { [envType]: { read: boolean, write: boolean } } }
   defaultPermissions: jsonb('default_permissions').default({}),

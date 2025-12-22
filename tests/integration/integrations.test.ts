@@ -179,6 +179,9 @@ vi.mock('../../src/middleware/auth', () => ({
     request.accessToken = 'test-token';
     done();
   }),
+  requireApiKeyScope: vi.fn(() => async () => {
+    // Allow access by default in tests
+  }),
 }));
 
 // Mock config

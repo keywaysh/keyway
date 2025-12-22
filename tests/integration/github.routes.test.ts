@@ -60,6 +60,9 @@ vi.mock('../../src/middleware/auth', () => ({
       avatarUrl: null,
     };
   }),
+  requireApiKeyScope: vi.fn(() => async () => {
+    // Allow access by default in tests
+  }),
 }));
 
 /**

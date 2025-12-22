@@ -8,7 +8,9 @@ import { logger } from '../utils/sharedLogger';
 import {
   updateOrganizationPlan,
   setOrganizationStripeCustomerId,
+  getOrganizationById,
 } from './organization.service';
+import { convertTrial, hasHadTrial } from './trial.service';
 
 // Initialize Stripe client (only if configured)
 const stripe = config.stripe
@@ -668,6 +670,18 @@ export async function handleOrgSubscriptionChange(
   if (!plan) {
     logger.warn({ priceId }, 'Unknown price ID for org');
     return;
+  }
+
+  // Check if org was on trial and convert it
+  const org = await getOrganizationById(orgId);
+  if (org && hasHadTrial(org) && !org.trialConvertedAt && subscription.status === 'active') {
+    await convertTrial({
+      orgId,
+      userId: orgId, // System action - use org ID as actor
+      platform: 'api',
+      stripeCustomerId: subscription.customer as string,
+    });
+    logger.info({ orgId }, 'Converted trial to paid subscription');
   }
 
   // Update organization plan

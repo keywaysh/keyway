@@ -12,6 +12,7 @@ import {
   isKeywayApiKey,
   validateApiKeyFormat,
   hashApiKey,
+  hasRequiredScopes,
   type ApiKeyScope,
 } from '../utils/apiKeys';
 
@@ -419,6 +420,27 @@ export function requireEnvironmentAccess(permissionType: PermissionType) {
       const action = permissionType === 'read' ? 'read from' : 'write to';
       throw new ForbiddenError(
         `Your role (${userRole}) does not have permission to ${action} the "${environment}" environment`
+      );
+    }
+  };
+}
+
+/**
+ * Middleware to validate API key scopes
+ * If the request is authenticated via API key, checks that it has the required scopes
+ * If not using an API key (JWT, GitHub token, etc.), allows the request to proceed
+ */
+export function requireApiKeyScope(...requiredScopes: ApiKeyScope[]) {
+  return async function (request: FastifyRequest, _reply: FastifyReply) {
+    // If not authenticated via API key, allow (other auth methods have full access)
+    if (!request.apiKey) {
+      return;
+    }
+
+    // Check if API key has required scopes
+    if (!hasRequiredScopes(request.apiKey.scopes, requiredScopes)) {
+      throw new ForbiddenError(
+        `API key missing required scope(s): ${requiredScopes.join(', ')}`
       );
     }
   };

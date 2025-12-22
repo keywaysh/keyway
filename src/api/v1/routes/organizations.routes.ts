@@ -1,8 +1,7 @@
 import { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { authenticateGitHub } from '../../../middleware/auth';
-import { db, users } from '../../../db';
-import { eq, and } from 'drizzle-orm';
+import { db, users, vcsAppInstallations } from '../../../db';
 import { sendData, NotFoundError, ForbiddenError, BadRequestError } from '../../../lib';
 import {
   getOrganizationsForUser,
@@ -14,7 +13,15 @@ import {
   syncOrganizationMembers,
   getOrganizationMembership,
 } from '../../../services/organization.service';
-import { listOrgMembers } from '../../../utils/github';
+import {
+  startTrial,
+  getTrialInfo,
+  TRIAL_DURATION_DAYS,
+} from '../../../services/trial.service';
+import { detectPlatform } from '../../../services/activity.service';
+import { listOrgMembers, getOrgMembership } from '../../../utils/github';
+import { getInstallationToken } from '../../../services/github-app.service';
+import { eq, and } from 'drizzle-orm';
 import {
   isStripeEnabled,
   createOrgCheckoutSession,
@@ -95,7 +102,10 @@ export async function organizationsRoutes(fastify: FastifyInstance) {
 
     // Get full details
     const details = await getOrganizationDetails(org.id);
-    return sendData(reply, details, { requestId: request.id });
+    return sendData(reply, {
+      ...details,
+      role: membership.orgRole,  // Include current user's role
+    }, { requestId: request.id });
   });
 
   /**
@@ -422,5 +432,134 @@ export async function organizationsRoutes(fastify: FastifyInstance) {
     const portalUrl = await createOrgPortalSession(org.id, returnUrl);
 
     return sendData(reply, { url: portalUrl }, { requestId: request.id });
+  });
+
+  // =========================================================================
+  // Trial Routes
+  // =========================================================================
+
+  /**
+   * GET /:org/trial
+   * Get trial status for an organization
+   */
+  fastify.get<{
+    Params: { org: string };
+  }>('/:org/trial', {
+    preHandler: [authenticateGitHub],
+  }, async (request, reply) => {
+    const { org: orgLogin } = request.params;
+    const vcsUser = request.vcsUser || request.githubUser!;
+
+    // Get user from database
+    const user = await db.query.users.findFirst({
+      where: and(
+        eq(users.forgeType, vcsUser.forgeType),
+        eq(users.forgeUserId, vcsUser.forgeUserId)
+      ),
+    });
+
+    if (!user) {
+      throw new ForbiddenError('User not found');
+    }
+
+    // Get organization by login
+    const org = await getOrganizationByLogin(orgLogin);
+    if (!org) {
+      throw new NotFoundError('Organization not found');
+    }
+
+    // Check if user is a member
+    const membership = await getOrganizationMembership(org.id, user.id);
+    if (!membership) {
+      throw new ForbiddenError('You are not a member of this organization');
+    }
+
+    const trialInfo = getTrialInfo(org);
+
+    return sendData(reply, {
+      ...trialInfo,
+      trialDurationDays: TRIAL_DURATION_DAYS,
+      startedAt: trialInfo.startedAt?.toISOString() || null,
+      endsAt: trialInfo.endsAt?.toISOString() || null,
+      convertedAt: trialInfo.convertedAt?.toISOString() || null,
+    }, { requestId: request.id });
+  });
+
+  /**
+   * POST /:org/trial/start
+   * Start a Team trial for an organization (org owner only)
+   */
+  fastify.post<{
+    Params: { org: string };
+  }>('/:org/trial/start', {
+    preHandler: [authenticateGitHub],
+  }, async (request, reply) => {
+    const { org: orgLogin } = request.params;
+    const vcsUser = request.vcsUser || request.githubUser!;
+
+    // Get user from database
+    const user = await db.query.users.findFirst({
+      where: and(
+        eq(users.forgeType, vcsUser.forgeType),
+        eq(users.forgeUserId, vcsUser.forgeUserId)
+      ),
+    });
+
+    if (!user) {
+      throw new ForbiddenError('User not found');
+    }
+
+    // Get organization by login
+    const org = await getOrganizationByLogin(orgLogin);
+    if (!org) {
+      throw new NotFoundError('Organization not found');
+    }
+
+    // Check if user can start a trial
+    // First try Keyway DB (org owner)
+    const membership = await getOrganizationMembership(org.id, user.id);
+    let canStartTrial = membership?.orgRole === 'owner';
+
+    // If not owner in DB, check if GitHub App is installed for this org
+    // Having the app installed implies admin access was granted
+    if (!canStartTrial) {
+      const installation = await db.query.vcsAppInstallations.findFirst({
+        where: and(
+          eq(vcsAppInstallations.accountLogin, orgLogin),
+          eq(vcsAppInstallations.status, 'active')
+        ),
+      });
+
+      // If app is installed, user likely has admin access (they installed it or have org access)
+      canStartTrial = !!installation;
+    }
+
+    if (!canStartTrial) {
+      throw new ForbiddenError('GitHub App must be installed for this organization');
+    }
+
+    // Start the trial
+    const result = await startTrial({
+      orgId: org.id,
+      userId: user.id,
+      platform: detectPlatform(request),
+    });
+
+    if (!result.success) {
+      throw new BadRequestError(result.error || 'Failed to start trial');
+    }
+
+    const updatedOrg = result.organization!;
+    const trialInfo = getTrialInfo(updatedOrg);
+
+    return sendData(reply, {
+      message: `Trial started! You have ${TRIAL_DURATION_DAYS} days to try the Team plan.`,
+      trial: {
+        ...trialInfo,
+        startedAt: trialInfo.startedAt?.toISOString() || null,
+        endsAt: trialInfo.endsAt?.toISOString() || null,
+        convertedAt: trialInfo.convertedAt?.toISOString() || null,
+      },
+    }, { requestId: request.id });
   });
 }

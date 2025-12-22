@@ -30,6 +30,61 @@ export const mockFreeUser = {
 };
 
 /**
+ * Mock organization data for testing
+ */
+export const mockOrganization = {
+  id: 'test-org-id-123',
+  forgeType: 'github' as const,
+  forgeOrgId: '98765',
+  login: 'test-org',
+  displayName: 'Test Organization',
+  avatarUrl: 'https://github.com/test-org.png',
+  plan: 'free' as const,
+  stripeCustomerId: null,
+  trialStartedAt: null,
+  trialEndsAt: null,
+  trialConvertedAt: null,
+  defaultPermissions: {},
+  createdAt: new Date(),
+  updatedAt: new Date(),
+};
+
+/**
+ * Mock organization on active trial
+ */
+export const mockOrgOnTrial = {
+  ...mockOrganization,
+  id: 'test-org-trial-id',
+  plan: 'team' as const,
+  trialStartedAt: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000), // 5 days ago
+  trialEndsAt: new Date(Date.now() + 10 * 24 * 60 * 60 * 1000), // 10 days from now
+};
+
+/**
+ * Mock organization with expired trial
+ */
+export const mockOrgExpiredTrial = {
+  ...mockOrganization,
+  id: 'test-org-expired-trial-id',
+  plan: 'team' as const,
+  trialStartedAt: new Date(Date.now() - 20 * 24 * 60 * 60 * 1000), // 20 days ago
+  trialEndsAt: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000), // 5 days ago (expired)
+};
+
+/**
+ * Mock organization with paid Team plan
+ */
+export const mockOrgPaid = {
+  ...mockOrganization,
+  id: 'test-org-paid-id',
+  plan: 'team' as const,
+  stripeCustomerId: 'cus_test123',
+  trialStartedAt: new Date(Date.now() - 20 * 24 * 60 * 60 * 1000),
+  trialEndsAt: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000),
+  trialConvertedAt: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000),
+};
+
+/**
  * Mock vault data for testing
  */
 export const mockVault = {
@@ -52,12 +107,15 @@ export const mockVault = {
 export const mockSecret = {
   id: 'test-secret-id-123',
   vaultId: mockVault.id,
-  name: 'API_KEY',
+  key: 'API_KEY',
   encryptedValue: 'encrypted-value',
   iv: '0'.repeat(32),
   authTag: '0'.repeat(32),
+  encryptionVersion: 1,
   environment: 'development',
   createdById: mockUser.id,
+  lastModifiedById: mockUser.id,
+  deletedAt: null,
   createdAt: new Date(),
   updatedAt: new Date(),
 };
@@ -87,6 +145,49 @@ export const mockLegacySecretListItem = {
   createdAt: new Date().toISOString(),
   updatedAt: new Date().toISOString(),
   lastModifiedBy: null,
+};
+
+/**
+ * Mock API key data for testing
+ */
+export const mockApiKey = {
+  id: 'test-api-key-id-123',
+  userId: mockUser.id,
+  name: 'Test API Key',
+  keyPrefix: 'kw_live_abc123',
+  keyHash: 'hashed-key-value',
+  environment: 'live' as const,
+  scopes: ['read:secrets', 'write:secrets'],
+  expiresAt: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000), // 1 year
+  lastUsedAt: null,
+  usageCount: 0,
+  allowedIps: null,
+  revokedAt: null,
+  revokedReason: null,
+  createdFromIp: '127.0.0.1',
+  createdUserAgent: 'test-agent',
+  createdAt: new Date(),
+  updatedAt: new Date(),
+};
+
+/**
+ * Mock API key with read-only scope
+ */
+export const mockApiKeyReadOnly = {
+  ...mockApiKey,
+  id: 'test-api-key-readonly-id',
+  name: 'Read Only API Key',
+  scopes: ['read:secrets'],
+};
+
+/**
+ * Mock API key with admin scope only
+ */
+export const mockApiKeyAdminOnly = {
+  ...mockApiKey,
+  id: 'test-api-key-admin-id',
+  name: 'Admin Only API Key',
+  scopes: ['admin:api-keys'],
 };
 
 /**

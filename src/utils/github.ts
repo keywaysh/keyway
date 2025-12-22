@@ -818,3 +818,145 @@ export async function listOrgMembersWithApp(
     return [];
   }
 }
+
+// ============================================================================
+// GitHub Organization Info Functions
+// ============================================================================
+
+export interface GitHubOrgInfo {
+  id: number;
+  login: string;
+  name: string | null;
+  avatar_url: string;
+  type: 'Organization';
+}
+
+/**
+ * Get organization info from GitHub API using installation token
+ * Returns null if org doesn't exist or is not accessible
+ */
+export async function getGitHubOrgInfo(
+  orgLogin: string
+): Promise<GitHubOrgInfo | null> {
+  try {
+    // We need to find an installation that has access to this org
+    // Use the org's own installation if available
+    const installation = await findInstallationForRepo(orgLogin, '');
+    if (!installation) {
+      logger.debug({ orgLogin }, 'No installation found for org');
+      return null;
+    }
+
+    const token = await getInstallationToken(installation.installationId);
+
+    const response = await fetch(
+      `${GITHUB_API_BASE}/orgs/${orgLogin}`,
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: 'application/vnd.github+json',
+          'X-GitHub-Api-Version': '2022-11-28',
+        },
+      }
+    );
+
+    if (!response.ok) {
+      if (response.status === 404) {
+        logger.debug({ orgLogin }, 'GitHub org not found');
+        return null;
+      }
+      logger.warn(
+        { orgLogin, status: response.status },
+        'Failed to get org info from GitHub'
+      );
+      return null;
+    }
+
+    const data = await response.json() as {
+      id: number;
+      login: string;
+      name: string | null;
+      avatar_url: string;
+      type: 'Organization' | 'User';
+    };
+
+    // Verify it's actually an organization
+    if (data.type !== 'Organization') {
+      logger.debug({ orgLogin, type: data.type }, 'Not an organization');
+      return null;
+    }
+
+    return {
+      id: data.id,
+      login: data.login,
+      name: data.name,
+      avatar_url: data.avatar_url,
+      type: 'Organization',
+    };
+  } catch (error) {
+    logger.error(
+      { error: error instanceof Error ? error.message : 'Unknown error', orgLogin },
+      'Error getting GitHub org info'
+    );
+    return null;
+  }
+}
+
+/**
+ * Get organization info using a specific installation token
+ * Used when we already have the installation from the repo
+ */
+export async function getGitHubOrgInfoWithToken(
+  token: string,
+  orgLogin: string
+): Promise<GitHubOrgInfo | null> {
+  try {
+    const response = await fetch(
+      `${GITHUB_API_BASE}/orgs/${orgLogin}`,
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: 'application/vnd.github+json',
+          'X-GitHub-Api-Version': '2022-11-28',
+        },
+      }
+    );
+
+    if (!response.ok) {
+      if (response.status === 404) {
+        return null;
+      }
+      logger.warn(
+        { orgLogin, status: response.status },
+        'Failed to get org info from GitHub'
+      );
+      return null;
+    }
+
+    const data = await response.json() as {
+      id: number;
+      login: string;
+      name: string | null;
+      avatar_url: string;
+      type: 'Organization' | 'User';
+    };
+
+    if (data.type !== 'Organization') {
+      return null;
+    }
+
+    return {
+      id: data.id,
+      login: data.login,
+      name: data.name,
+      avatar_url: data.avatar_url,
+      type: 'Organization',
+    };
+  } catch (error) {
+    logger.error(
+      { error: error instanceof Error ? error.message : 'Unknown error', orgLogin },
+      'Error getting GitHub org info with token'
+    );
+    return null;
+  }
+}

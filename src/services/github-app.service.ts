@@ -381,7 +381,7 @@ export async function createInstallation(input: CreateInstallationInput): Promis
       installedByUserId: input.installedByUserId,
     })
     .onConflictDoUpdate({
-      target: vcsAppInstallations.installationId,
+      target: [vcsAppInstallations.forgeType, vcsAppInstallations.installationId],
       set: {
         accountLogin: input.accountLogin,
         repositorySelection: input.repositorySelection,

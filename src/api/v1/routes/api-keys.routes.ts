@@ -1,6 +1,6 @@
 import { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { authenticateGitHub } from '../../../middleware/auth';
+import { authenticateGitHub, requireApiKeyScope } from '../../../middleware/auth';
 import { db, users, apiKeys } from '../../../db';
 import { eq, and, isNull } from 'drizzle-orm';
 import { sendData, NotFoundError, BadRequestError, ForbiddenError } from '../../../lib';
@@ -39,7 +39,7 @@ export async function apiKeysRoutes(fastify: FastifyInstance) {
    * Create a new API key
    */
   fastify.post('/', {
-    preHandler: [authenticateGitHub],
+    preHandler: [authenticateGitHub, requireApiKeyScope('admin:api-keys')],
   }, async (request, reply) => {
     const body = CreateApiKeySchema.parse(request.body);
     const vcsUser = request.vcsUser || request.githubUser!;
@@ -128,7 +128,7 @@ export async function apiKeysRoutes(fastify: FastifyInstance) {
    * List all API keys for the authenticated user
    */
   fastify.get('/', {
-    preHandler: [authenticateGitHub],
+    preHandler: [authenticateGitHub, requireApiKeyScope('admin:api-keys')],
   }, async (request, reply) => {
     const vcsUser = request.vcsUser || request.githubUser!;
 
@@ -172,7 +172,7 @@ export async function apiKeysRoutes(fastify: FastifyInstance) {
    * Get a specific API key
    */
   fastify.get('/:id', {
-    preHandler: [authenticateGitHub],
+    preHandler: [authenticateGitHub, requireApiKeyScope('admin:api-keys')],
   }, async (request, reply) => {
     const params = ApiKeyIdParamsSchema.parse(request.params);
     const vcsUser = request.vcsUser || request.githubUser!;
@@ -221,7 +221,7 @@ export async function apiKeysRoutes(fastify: FastifyInstance) {
    * Revoke an API key
    */
   fastify.delete('/:id', {
-    preHandler: [authenticateGitHub],
+    preHandler: [authenticateGitHub, requireApiKeyScope('admin:api-keys')],
   }, async (request, reply) => {
     const params = ApiKeyIdParamsSchema.parse(request.params);
     const vcsUser = request.vcsUser || request.githubUser!;

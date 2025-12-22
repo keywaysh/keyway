@@ -122,10 +122,16 @@ export async function githubRoutes(fastify: FastifyInstance) {
    * Handle GitHub App webhooks
    */
   const webhookHandler = async (request: FastifyRequest, reply: FastifyReply) => {
-    // Check if webhook secret is configured
+    // SECURITY: Webhook secret is required to validate incoming webhooks
+    // This prevents attackers from forging webhook events
     if (!config.githubApp.webhookSecret) {
-      fastify.log.warn('GitHub App webhook received but webhook secret not configured');
-      return reply.status(200).send({ received: true, processed: false });
+      fastify.log.error('GitHub App webhook received but webhook secret not configured - rejecting for security');
+      return reply.status(503).send({
+        type: 'https://keyway.sh/errors/service-unavailable',
+        title: 'Service Unavailable',
+        status: 503,
+        detail: 'Webhook endpoint is not properly configured',
+      });
     }
 
     // Get headers

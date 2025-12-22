@@ -2,6 +2,8 @@ import { db } from '../db';
 import { organizations, organizationMembers, users, vaults } from '../db/schema';
 import { eq, and, desc } from 'drizzle-orm';
 import type { Organization, OrganizationMember, OrgRole, UserPlan, ForgeType } from '../db/schema';
+import { getEffectivePlanWithTrial, getTrialInfo, hasHadTrial, TRIAL_DURATION_DAYS, type TrialInfo } from './trial.service';
+import { getGitHubOrgInfoWithToken } from '../utils/github';
 
 // ============================================================================
 // Types
@@ -35,6 +37,8 @@ export interface OrganizationDetails extends OrganizationInfo {
   members: OrganizationMemberInfo[];
   defaultPermissions: Record<string, unknown>;
   stripeCustomerId: string | null;
+  trial: TrialInfo;
+  effectivePlan: UserPlan;
 }
 
 // ============================================================================
@@ -157,6 +161,8 @@ export async function getOrganizationDetails(orgId: string): Promise<Organizatio
     })),
     defaultPermissions: (org.defaultPermissions as Record<string, unknown>) ?? {},
     stripeCustomerId: org.stripeCustomerId,
+    trial: getTrialInfo(org),
+    effectivePlan: getEffectivePlanWithTrial(org),
     createdAt: org.createdAt.toISOString(),
   };
 }
@@ -454,6 +460,7 @@ export async function syncOrganizationMembers(
 
 /**
  * Get the effective plan for a vault (org plan or user plan)
+ * Takes into account trial status for organizations
  */
 export async function getEffectivePlanForVault(vaultId: string): Promise<UserPlan> {
   const vault = await db.query.vaults.findFirst({
@@ -468,11 +475,124 @@ export async function getEffectivePlanForVault(vaultId: string): Promise<UserPla
     return 'free';
   }
 
-  // If vault belongs to an org, use org's plan
+  // If vault belongs to an org, use org's effective plan (considering trial)
   if (vault.organization) {
-    return vault.organization.plan;
+    return getEffectivePlanWithTrial(vault.organization);
   }
 
   // Otherwise use owner's plan
   return vault.owner.plan;
+}
+
+// ============================================================================
+// On-Demand Organization Creation
+// ============================================================================
+
+export interface TrialEligibility {
+  eligible: boolean;
+  daysAvailable: number;
+  orgLogin: string;
+  reason?: string;
+}
+
+/**
+ * Ensure an organization exists in the database.
+ * If it doesn't exist, create it from GitHub data.
+ * Also ensures the current user is added as a member.
+ *
+ * This is called when creating a vault for an org repo to ensure
+ * we can properly calculate trial eligibility.
+ *
+ * @param orgLogin - The GitHub organization login (e.g., "keywaysh")
+ * @param token - GitHub installation token to fetch org info
+ * @param currentUserId - Optional user ID to add as member if org is created
+ * @returns The organization (existing or newly created), or null if not an org
+ */
+export async function ensureOrganizationExists(
+  orgLogin: string,
+  token: string,
+  currentUserId?: string
+): Promise<Organization | null> {
+  // First, check if org already exists in DB
+  const existingOrg = await getOrganizationByLogin(orgLogin);
+  if (existingOrg) {
+    // If user provided, ensure they're a member
+    if (currentUserId) {
+      const membership = await getOrganizationMembership(existingOrg.id, currentUserId);
+      if (!membership) {
+        // Add user as member (not owner - we don't know their GitHub role)
+        await upsertOrganizationMember(existingOrg.id, currentUserId, 'member');
+      }
+    }
+    return existingOrg;
+  }
+
+  // Fetch org info from GitHub
+  const githubOrg = await getGitHubOrgInfoWithToken(token, orgLogin);
+  if (!githubOrg) {
+    // Not a GitHub organization or not accessible
+    return null;
+  }
+
+  // Create the organization in DB
+  const org = await getOrCreateOrganization(
+    'github',
+    String(githubOrg.id),
+    githubOrg.login,
+    githubOrg.name ?? undefined,
+    githubOrg.avatar_url
+  );
+
+  // Add the current user as owner (they're creating the org entry)
+  if (currentUserId && org) {
+    await upsertOrganizationMember(org.id, currentUserId, 'owner');
+  }
+
+  return org;
+}
+
+/**
+ * Get trial eligibility for an organization.
+ * Works even if the org doesn't exist in DB yet.
+ *
+ * @param org - Organization from DB (may be newly created)
+ * @returns Trial eligibility info
+ */
+export function getTrialEligibility(org: Organization): TrialEligibility {
+  const trialInfo = getTrialInfo(org);
+
+  // Already on paid plan
+  if (org.stripeCustomerId && org.plan === 'team') {
+    return {
+      eligible: false,
+      daysAvailable: 0,
+      orgLogin: org.login,
+      reason: 'Organization already has a paid Team plan',
+    };
+  }
+
+  // Already had a trial
+  if (hasHadTrial(org)) {
+    if (trialInfo.status === 'active') {
+      return {
+        eligible: false,
+        daysAvailable: 0,
+        orgLogin: org.login,
+        reason: `Trial is already active (${trialInfo.daysRemaining} days remaining)`,
+      };
+    }
+    return {
+      eligible: false,
+      daysAvailable: 0,
+      orgLogin: org.login,
+      reason: 'Organization has already used their trial',
+    };
+  }
+
+  // Eligible for trial
+  return {
+    eligible: true,
+    daysAvailable: TRIAL_DURATION_DAYS,
+    orgLogin: org.login,
+  };
 }
