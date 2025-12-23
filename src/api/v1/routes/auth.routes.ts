@@ -19,6 +19,8 @@ import { logActivity, extractRequestInfo, detectPlatform } from '../../../servic
 // Schemas
 const DeviceFlowStartSchema = z.object({
   repository: z.string().optional(),
+  ownerId: z.number().optional(),
+  repoId: z.number().optional(),
 });
 
 const DeviceFlowPollSchema = z.object({
@@ -463,7 +465,17 @@ export async function authRoutes(fastify: FastifyInstance) {
       deviceCodeId: deviceCodeRecord.id,
       type: 'github_app_install',
     });
-    const githubAppInstallUrl = `${config.githubApp.installUrl}?state=${encodeURIComponent(state)}`;
+
+    // Build GitHub App install URL with deep linking if repo IDs are provided
+    let githubAppInstallUrl: string;
+    if (body.ownerId && body.repoId) {
+      // Deep link: pre-select the repo in GitHub's installation UI
+      // Format: /permissions?suggested_target_id=OWNER_ID&repository_ids[]=REPO_ID&state=...
+      githubAppInstallUrl = `${config.githubApp.installUrl}/permissions?suggested_target_id=${body.ownerId}&repository_ids[]=${body.repoId}&state=${encodeURIComponent(state)}`;
+    } else {
+      // Standard URL without deep linking
+      githubAppInstallUrl = `${config.githubApp.installUrl}?state=${encodeURIComponent(state)}`;
+    }
 
     return {
       deviceCode,

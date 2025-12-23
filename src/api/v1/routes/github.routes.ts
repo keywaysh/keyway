@@ -12,8 +12,9 @@ import {
   getInstallationsForUser,
   getInstallationByGitHubId,
   logActivity,
+  getInstallationToken,
 } from '../../../services';
-import { db, users } from '../../../db';
+import { db, users, vcsAppInstallations } from '../../../db';
 import { eq, and } from 'drizzle-orm';
 import { sendData, sendNoContent } from '../../../lib/response';
 import { BadRequestError, ForbiddenError } from '../../../lib/errors';
@@ -115,6 +116,63 @@ export async function githubRoutes(fastify: FastifyInstance) {
       })),
       installUrl: config.githubApp.installUrl,
     }, { requestId: request.id });
+  });
+
+  /**
+   * GET /repo-ids
+   * Get GitHub repository IDs for deep linking during GitHub App installation
+   * Uses existing "all repos" installation token if available
+   */
+  fastify.get('/repo-ids', async (request: FastifyRequest, reply: FastifyReply) => {
+    const query = request.query as { repo?: string };
+    if (!query.repo) {
+      throw new BadRequestError('repo parameter required');
+    }
+
+    const [owner, repo] = query.repo.split('/');
+    if (!owner || !repo) {
+      throw new BadRequestError('Invalid repo format. Expected: owner/repo');
+    }
+
+    // Chercher une installation "all repos" active pour cet owner
+    const installation = await db.query.vcsAppInstallations.findFirst({
+      where: and(
+        eq(vcsAppInstallations.accountLogin, owner),
+        eq(vcsAppInstallations.repositorySelection, 'all'),
+        eq(vcsAppInstallations.status, 'active')
+      ),
+    });
+
+    if (!installation) {
+      // Pas d'installation existante - retourner null (le CLI fera fallback vers API publique)
+      return sendData(reply, { ownerId: null, repoId: null }, { requestId: request.id });
+    }
+
+    try {
+      // Utiliser le token d'installation pour récupérer les IDs du repo
+      const token = await getInstallationToken(installation.installationId);
+      const response = await fetch(`https://api.github.com/repos/${owner}/${repo}`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: 'application/vnd.github.v3+json',
+          'User-Agent': 'Keyway-Backend',
+        },
+      });
+
+      if (!response.ok) {
+        // Repo privé non accessible ou n'existe pas
+        return sendData(reply, { ownerId: null, repoId: null }, { requestId: request.id });
+      }
+
+      const data = (await response.json()) as { id: number; owner: { id: number } };
+      return sendData(reply, {
+        ownerId: data.owner.id,
+        repoId: data.id,
+      }, { requestId: request.id });
+    } catch (error) {
+      fastify.log.warn({ error, owner, repo }, 'Failed to fetch repo IDs');
+      return sendData(reply, { ownerId: null, repoId: null }, { requestId: request.id });
+    }
   });
 
   /**
