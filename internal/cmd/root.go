@@ -179,4 +179,5 @@ func init() {
 	rootCmd.AddCommand(readmeCmd)
 	rootCmd.AddCommand(diffCmd)
 	rootCmd.AddCommand(scanCmd)
+	rootCmd.AddCommand(runCmd)
 }
