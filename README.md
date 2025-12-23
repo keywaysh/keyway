@@ -80,8 +80,7 @@ Then enter `npx -y @keywaysh/mcp` when prompted.
 You must be logged in with the Keyway CLI:
 
 ```bash
-npm install -g @keywaysh/cli
-keyway login
+npx @keywaysh/cli login
 ```
 
 ---
