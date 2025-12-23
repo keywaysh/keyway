@@ -17,9 +17,9 @@ var runCmd = &cobra.Command{
 	Long:  `Run a command with secrets injected into the environment.
 Secrets are fetched from the vault and injected directly into the process memory.
 They are never written to disk.`,
-	Example: `  keyway run npm run dev
-  keyway run -- python script.py
-  keyway run --env prod -- ./deploy.sh`,
+	Example: `  keyway run --env development -- npm run dev
+  keyway run --env development -- python3 main.py
+  keyway run --env production -- ./deploy.sh`,
 	RunE: runRun,
 }
 
