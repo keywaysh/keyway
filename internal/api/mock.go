@@ -8,10 +8,11 @@ import (
 // MockClient is a mock implementation of APIClient for testing
 type MockClient struct {
 	// Auth mocks
-	StartDeviceLoginFn           func(ctx context.Context, repository string) (*DeviceStartResponse, error)
+	StartDeviceLoginFn           func(ctx context.Context, repository string, repoIds *RepoIds) (*DeviceStartResponse, error)
 	PollDeviceLoginFn            func(ctx context.Context, deviceCode string) (*DevicePollResponse, error)
 	ValidateTokenFn              func(ctx context.Context) (*ValidateTokenResponse, error)
 	CheckGitHubAppInstallationFn func(ctx context.Context, repoOwner, repoName string) (*GitHubAppInstallationStatus, error)
+	GetRepoIdsFromBackendFn      func(ctx context.Context, repoFullName string) (*RepoIds, error)
 
 	// Vault mocks
 	InitVaultFn            func(ctx context.Context, repoFullName string) (*InitVaultResponse, error)
@@ -55,10 +56,10 @@ func (m *MockClient) track(method string) {
 }
 
 // Auth methods
-func (m *MockClient) StartDeviceLogin(ctx context.Context, repository string) (*DeviceStartResponse, error) {
+func (m *MockClient) StartDeviceLogin(ctx context.Context, repository string, repoIds *RepoIds) (*DeviceStartResponse, error) {
 	m.track("StartDeviceLogin")
 	if m.StartDeviceLoginFn != nil {
-		return m.StartDeviceLoginFn(ctx, repository)
+		return m.StartDeviceLoginFn(ctx, repository, repoIds)
 	}
 	return &DeviceStartResponse{
 		DeviceCode:              "test-device-code",
@@ -68,6 +69,14 @@ func (m *MockClient) StartDeviceLogin(ctx context.Context, repository string) (*
 		ExpiresIn:               900,
 		Interval:                5,
 	}, nil
+}
+
+func (m *MockClient) GetRepoIdsFromBackend(ctx context.Context, repoFullName string) (*RepoIds, error) {
+	m.track("GetRepoIdsFromBackend")
+	if m.GetRepoIdsFromBackendFn != nil {
+		return m.GetRepoIdsFromBackendFn(ctx, repoFullName)
+	}
+	return nil, nil
 }
 
 func (m *MockClient) PollDeviceLogin(ctx context.Context, deviceCode string) (*DevicePollResponse, error) {

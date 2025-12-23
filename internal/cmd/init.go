@@ -185,6 +185,16 @@ vaultCreated:
 	return nil
 }
 
+// buildDeepLinkInstallURL adds deep linking params to the GitHub App install URL
+func buildDeepLinkInstallURL(baseURL string, repoIds *api.RepoIds) string {
+	if repoIds == nil {
+		return baseURL
+	}
+	// Format: baseURL/permissions?suggested_target_id=OWNER_ID&repository_ids[]=REPO_ID
+	return fmt.Sprintf("%s/permissions?suggested_target_id=%d&repository_ids[]=%d",
+		strings.TrimSuffix(baseURL, "/"), repoIds.OwnerID, repoIds.RepoID)
+}
+
 func ensureLoginAndGitHubApp(repo string) (string, error) {
 	// First ensure login
 	token, err := EnsureLogin()
@@ -215,18 +225,22 @@ func ensureLoginAndGitHubApp(repo string) (string, error) {
 	ui.Warn("GitHub App not installed for this repository")
 	ui.Message(ui.Dim("The Keyway GitHub App is required for secure access."))
 
+	// Get repo IDs for deep linking
+	repoIds := getRepoIdsWithFallback(ctx, repo)
+	installURL := buildDeepLinkInstallURL(status.InstallURL, repoIds)
+
 	if !ui.IsInteractive() {
-		ui.Message(ui.Dim(fmt.Sprintf("Install: %s", status.InstallURL)))
+		ui.Message(ui.Dim(fmt.Sprintf("Install: %s", installURL)))
 		return "", fmt.Errorf("GitHub App installation required")
 	}
 
 	install, _ := ui.Confirm("Open browser to install GitHub App?", true)
 	if !install {
-		ui.Message(ui.Dim(fmt.Sprintf("Install later: %s", status.InstallURL)))
+		ui.Message(ui.Dim(fmt.Sprintf("Install later: %s", installURL)))
 		return "", fmt.Errorf("GitHub App installation required")
 	}
 
-	_ = browser.OpenURL(status.InstallURL)
+	_ = browser.OpenURL(installURL)
 
 	// Poll for installation (user completes installation in browser)
 	const pollInterval = 3 * time.Second

@@ -32,7 +32,7 @@ func TestClient_StartDeviceLogin(t *testing.T) {
 	client := NewClient("")
 	client.baseURL = server.URL
 
-	resp, err := client.StartDeviceLogin(context.Background(), "")
+	resp, err := client.StartDeviceLogin(context.Background(), "", nil)
 
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -77,7 +77,7 @@ func TestClient_StartDeviceLogin_WithRepository(t *testing.T) {
 	client := NewClient("")
 	client.baseURL = server.URL
 
-	_, err := client.StartDeviceLogin(context.Background(), "owner/repo")
+	_, err := client.StartDeviceLogin(context.Background(), "owner/repo", nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

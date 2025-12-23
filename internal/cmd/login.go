@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/keywaysh/cli/internal/analytics"
@@ -53,6 +54,30 @@ func runLogin(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
+// getRepoIdsWithFallback tries to get repo IDs from backend first, then GitHub public API
+func getRepoIdsWithFallback(ctx context.Context, repoFullName string) *api.RepoIds {
+	if repoFullName == "" {
+		return nil
+	}
+
+	parts := strings.Split(repoFullName, "/")
+	if len(parts) != 2 {
+		return nil
+	}
+	owner, repo := parts[0], parts[1]
+
+	// 1. Try backend (works for private repos if app installed with "all repos")
+	client := api.NewClient("")
+	ids, _ := client.GetRepoIdsFromBackend(ctx, repoFullName)
+	if ids != nil {
+		return ids
+	}
+
+	// 2. Fallback: GitHub public API (public repos only)
+	ids, _ = api.GetRepoIdsFromGitHub(ctx, owner, repo)
+	return ids
+}
+
 // RunDeviceLogin runs the device login flow and returns the token
 func RunDeviceLogin() (string, error) {
 	ctx := context.Background()
@@ -61,7 +86,10 @@ func RunDeviceLogin() (string, error) {
 	// Detect repo for better UX
 	repo, _ := git.DetectRepo()
 
-	start, err := client.StartDeviceLogin(ctx, repo)
+	// Get repo IDs for deep linking (best effort)
+	repoIds := getRepoIdsWithFallback(ctx, repo)
+
+	start, err := client.StartDeviceLogin(ctx, repo, repoIds)
 	if err != nil {
 		return "", fmt.Errorf("failed to start login: %w", err)
 	}

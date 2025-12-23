@@ -11,7 +11,7 @@ func TestMockClient_DefaultBehavior(t *testing.T) {
 	ctx := context.Background()
 
 	// Test StartDeviceLogin
-	resp, err := mock.StartDeviceLogin(ctx, "owner/repo")
+	resp, err := mock.StartDeviceLogin(ctx, "owner/repo", nil)
 	if err != nil {
 		t.Errorf("StartDeviceLogin() error = %v", err)
 	}

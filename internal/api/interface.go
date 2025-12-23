@@ -6,10 +6,11 @@ import "context"
 // This interface enables mocking in tests
 type APIClient interface {
 	// Auth methods
-	StartDeviceLogin(ctx context.Context, repository string) (*DeviceStartResponse, error)
+	StartDeviceLogin(ctx context.Context, repository string, repoIds *RepoIds) (*DeviceStartResponse, error)
 	PollDeviceLogin(ctx context.Context, deviceCode string) (*DevicePollResponse, error)
 	ValidateToken(ctx context.Context) (*ValidateTokenResponse, error)
 	CheckGitHubAppInstallation(ctx context.Context, repoOwner, repoName string) (*GitHubAppInstallationStatus, error)
+	GetRepoIdsFromBackend(ctx context.Context, repoFullName string) (*RepoIds, error)
 
 	// Vault methods
 	InitVault(ctx context.Context, repoFullName string) (*InitVaultResponse, error)
