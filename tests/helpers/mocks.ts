@@ -268,6 +268,29 @@ export function createMockDb(overrides: {
 }
 
 /**
+ * Mock secret access data for Exposure feature testing
+ */
+export const mockSecretAccess = {
+  id: 'test-access-id-123',
+  userId: mockUser.id,
+  username: mockUser.username,
+  userAvatarUrl: mockUser.avatarUrl,
+  secretId: mockSecret.id,
+  secretKey: mockSecret.key,
+  vaultId: mockVault.id,
+  repoFullName: mockVault.repoFullName,
+  environment: mockSecret.environment,
+  githubRole: 'admin' as const,
+  platform: 'cli' as const,
+  ipAddress: '127.0.0.1',
+  deviceId: 'device-123',
+  firstAccessedAt: new Date(),
+  lastAccessedAt: new Date(),
+  accessCount: 1,
+  pullEventId: null,
+};
+
+/**
  * Mock GitHub API responses
  */
 export const mockGitHubResponses = {

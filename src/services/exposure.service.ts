@@ -88,8 +88,6 @@ export async function recordSecretAccesses(
   ctx: RecordAccessContext,
   secretRecords: SecretAccessRecord[]
 ): Promise<void> {
-  // DEBUG: throw to verify this function is being called
-  // throw new Error(`[Exposure DEBUG] recordSecretAccesses called with ${secretRecords.length} secrets for user ${ctx.username}`);
 
   if (secretRecords.length === 0) return;
 
@@ -111,28 +109,24 @@ export async function recordSecretAccesses(
   }));
 
   // Batch insert with ON CONFLICT - update last_accessed_at and increment count
+  // Errors propagate to the call site's .catch() for logging (fire-and-forget pattern)
   for (const value of values) {
-    try {
-      await db
-        .insert(secretAccesses)
-        .values(value)
-        .onConflictDoUpdate({
-          target: [secretAccesses.userId, secretAccesses.secretId],
-          set: {
-            lastAccessedAt: new Date(),
-            accessCount: sql`${secretAccesses.accessCount} + 1`,
-            // Update context fields to latest values
-            githubRole: value.githubRole,
-            platform: value.platform,
-            ipAddress: value.ipAddress,
-            deviceId: value.deviceId,
-            pullEventId: value.pullEventId,
-          },
-        });
-    } catch (err) {
-      // Log error but don't expose secret key in logs
-      throw err;
-    }
+    await db
+      .insert(secretAccesses)
+      .values(value)
+      .onConflictDoUpdate({
+        target: [secretAccesses.userId, secretAccesses.secretId],
+        set: {
+          lastAccessedAt: new Date(),
+          accessCount: sql`${secretAccesses.accessCount} + 1`,
+          // Update context fields to latest values
+          githubRole: value.githubRole,
+          platform: value.platform,
+          ipAddress: value.ipAddress,
+          deviceId: value.deviceId,
+          pullEventId: value.pullEventId,
+        },
+      });
   }
 }
 
