@@ -14,6 +14,7 @@ No install required. This will authenticate with GitHub, create a vault, and syn
 
 ```bash
 npx @keywaysh/cli pull      # Pull secrets to .env
+npx @keywaysh/cli run       # Run command with secrets injected
 npx @keywaysh/cli push      # Push .env to vault
 npx @keywaysh/cli sync      # Sync with Vercel/Railway
 ```

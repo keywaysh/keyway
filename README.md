@@ -40,10 +40,26 @@ keyway logout     # Clear credentials
 keyway init       # Initialize vault for repository
 keyway push       # Upload secrets to vault
 keyway pull       # Download secrets from vault
+keyway run        # Run command with secrets injected
 keyway diff       # Compare local and remote secrets
 keyway sync       # Sync with external providers
 keyway scan       # Scan for leaked secrets
 keyway doctor     # Run environment checks
+```
+
+## Runtime Injection (Zero-Trust)
+
+Instead of writing secrets to a `.env` file on disk, you can inject them directly into your application process. This is more secure as secrets never touch the disk.
+
+```bash
+# Run with default environment (development)
+keyway run -- npm run dev
+
+# Run with specific environment
+keyway run --env production -- python3 script.py
+
+# Run a compiled binary
+keyway run -- ./my-app
 ```
 
 ## Environment Variables
