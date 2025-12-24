@@ -3,6 +3,7 @@ import { environmentPermissions, vaults, organizations } from '../db/schema';
 import { eq, and } from 'drizzle-orm';
 import type { CollaboratorRole, PermissionType } from '../db/schema';
 import { findApplicableOverride } from '../services/permission-override.service';
+import { ForbiddenError } from '../lib';
 
 // ============================================================================
 // Role Hierarchy
@@ -286,4 +287,40 @@ export function getDefaultPermissionsForRole(
   role: CollaboratorRole
 ): Record<EnvironmentType, { read: boolean; write: boolean }> {
   return DEFAULT_ROLE_PERMISSIONS[role];
+}
+
+// ============================================================================
+// Permission Enforcement Helpers
+// ============================================================================
+
+/**
+ * Check environment permission and throw ForbiddenError if denied
+ *
+ * This helper reduces boilerplate in routes by combining:
+ * 1. resolveEffectivePermission call
+ * 2. Error throwing with consistent message format
+ *
+ * @throws ForbiddenError if permission is denied
+ */
+export async function requireEnvironmentPermission(
+  vaultId: string,
+  environment: string,
+  userId: string,
+  userRole: CollaboratorRole,
+  permissionType: PermissionType
+): Promise<void> {
+  const hasPermission = await resolveEffectivePermission(
+    vaultId,
+    environment,
+    userId,
+    userRole,
+    permissionType
+  );
+
+  if (!hasPermission) {
+    const action = permissionType === 'read' ? 'read secrets from' : 'write to';
+    throw new ForbiddenError(
+      `Your role (${userRole}) does not have permission to ${action} the "${environment}" environment`
+    );
+  }
 }

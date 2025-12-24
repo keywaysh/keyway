@@ -6,7 +6,8 @@ import { ensureOrganizationExists, getTrialEligibility, getOrganizationById } fr
 import { getEffectivePlanWithTrial } from '../../../services/trial.service';
 import { getTokenForRepo } from '../../../utils/github';
 import { eq, and } from 'drizzle-orm';
-import { getVaultPermissions, getDefaultPermission, resolveEffectivePermission } from '../../../utils/permissions';
+import { getVaultPermissions, getDefaultPermission, requireEnvironmentPermission } from '../../../utils/permissions';
+import { getOrThrowUser, getUserFromVcsUser, type VcsUser } from '../../../utils/user-lookup';
 import type { CollaboratorRole } from '../../../db/schema';
 import { sendData, sendPaginatedData, sendCreated, sendNoContent, NotFoundError, ForbiddenError, ConflictError, PlanLimitError, buildPaginationMeta, parsePagination } from '../../../lib';
 import { canCreateEnvironment, canCreateSecret } from '../../../config/plans';
@@ -125,17 +126,11 @@ export async function vaultsRoutes(fastify: FastifyInstance) {
   fastify.get('/', {
     preHandler: [authenticateGitHub, requireApiKeyScope('read:secrets')],
   }, async (request, reply) => {
-    const vcsUser = request.vcsUser || request.githubUser!;
+    const vcsUser = (request.vcsUser || request.githubUser) as VcsUser;
     const pagination = parsePagination(request.query);
 
     // Get user from database
-    const user = await db.query.users.findFirst({
-      where: and(
-        eq(users.forgeType, vcsUser.forgeType),
-        eq(users.forgeUserId, vcsUser.forgeUserId)
-      ),
-    });
-
+    const user = await getUserFromVcsUser(vcsUser);
     if (!user) {
       return sendPaginatedData(reply, [], buildPaginationMeta(pagination, 0, 0), {
         requestId: request.id,
@@ -163,7 +158,7 @@ export async function vaultsRoutes(fastify: FastifyInstance) {
     preHandler: [authenticateGitHub, requireApiKeyScope('write:secrets'), requireAdminAccess],
   }, async (request, reply) => {
     const body = CreateVaultSchema.parse(request.body);
-    const vcsUser = request.vcsUser || request.githubUser!;
+    const vcsUser = (request.vcsUser || request.githubUser) as VcsUser;
 
     // Get repo info from GitHub App to determine visibility
     const repoInfo = await getRepoInfoWithApp(body.repoFullName);
@@ -172,16 +167,7 @@ export async function vaultsRoutes(fastify: FastifyInstance) {
     }
 
     // Get user from database - must exist from auth flow
-    const user = await db.query.users.findFirst({
-      where: and(
-        eq(users.forgeType, vcsUser.forgeType),
-        eq(users.forgeUserId, vcsUser.forgeUserId)
-      ),
-    });
-
-    if (!user) {
-      throw new ForbiddenError('User not found in database');
-    }
+    const user = await getOrThrowUser(vcsUser);
 
     // Check if repo owner is an organization and ensure it exists in DB
     const repoOwner = body.repoFullName.split('/')[0];
@@ -285,15 +271,10 @@ export async function vaultsRoutes(fastify: FastifyInstance) {
   }, async (request, reply) => {
     const params = request.params as { owner: string; repo: string };
     const repoFullName = `${params.owner}/${params.repo}`;
-    const vcsUser = request.vcsUser || request.githubUser!;
+    const vcsUser = (request.vcsUser || request.githubUser) as VcsUser;
 
     // Get user to determine plan for isReadOnly calculation
-    const user = await db.query.users.findFirst({
-      where: and(
-        eq(users.forgeType, vcsUser.forgeType),
-        eq(users.forgeUserId, vcsUser.forgeUserId)
-      ),
-    });
+    const user = await getUserFromVcsUser(vcsUser);
 
     // Default to 'free' plan if user not found (shouldn't happen but safe fallback)
     const userPlan = user?.plan ?? 'free';
@@ -337,15 +318,7 @@ export async function vaultsRoutes(fastify: FastifyInstance) {
 
     fastify.log.info({ repoFullName, vaultId: vault.id }, 'Deleting vault - step 2: finding user');
 
-    const user = await db.query.users.findFirst({
-      where: and(
-        eq(users.forgeType, vcsUser.forgeType),
-        eq(users.forgeUserId, vcsUser.forgeUserId)
-      ),
-    });
-    if (!user) {
-      throw new ForbiddenError('User not found in database');
-    }
+    const user = await getOrThrowUser(vcsUser);
 
     fastify.log.info({ repoFullName, vaultId: vault.id }, 'Deleting vault - step 3: deleting secrets');
 
@@ -438,15 +411,7 @@ export async function vaultsRoutes(fastify: FastifyInstance) {
     }
 
     // Get user from database first (needed for permission resolution)
-    const user = await db.query.users.findFirst({
-      where: and(
-        eq(users.forgeType, vcsUser.forgeType),
-        eq(users.forgeUserId, vcsUser.forgeUserId)
-      ),
-    });
-    if (!user) {
-      throw new ForbiddenError('User not found in database');
-    }
+    const user = await getOrThrowUser(vcsUser);
 
     // Check GitHub role using GitHub App
     const role = await getUserRoleWithApp(vault.repoFullName, vcsUser.username);
@@ -455,18 +420,7 @@ export async function vaultsRoutes(fastify: FastifyInstance) {
     }
 
     // Check environment-level write permission (uses override system)
-    const hasWritePermission = await resolveEffectivePermission(
-      vault.id,
-      body.environment,
-      user.id,
-      role,
-      'write'
-    );
-    if (!hasWritePermission) {
-      throw new ForbiddenError(
-        `Your role (${role}) does not have permission to write to the "${body.environment}" environment`
-      );
-    }
+    await requireEnvironmentPermission(vault.id, body.environment, user.id, role, 'write');
 
     // Check plan limit for write access (soft limit for downgraded users)
     const writeCheck = await canWriteToVault(user.id, user.plan, vault.id, vault.isPrivate);
@@ -536,15 +490,7 @@ export async function vaultsRoutes(fastify: FastifyInstance) {
     }
 
     // Get user from database first (needed for permission resolution)
-    const user = await db.query.users.findFirst({
-      where: and(
-        eq(users.forgeType, vcsUser.forgeType),
-        eq(users.forgeUserId, vcsUser.forgeUserId)
-      ),
-    });
-    if (!user) {
-      throw new ForbiddenError('User not found in database');
-    }
+    const user = await getOrThrowUser(vcsUser);
 
     // Check GitHub role using GitHub App
     const role = await getUserRoleWithApp(vault.repoFullName, vcsUser.username);
@@ -559,18 +505,7 @@ export async function vaultsRoutes(fastify: FastifyInstance) {
     }
 
     // Check environment-level write permission (uses override system)
-    const hasWritePermission = await resolveEffectivePermission(
-      vault.id,
-      existingSecret.environment,
-      user.id,
-      role,
-      'write'
-    );
-    if (!hasWritePermission) {
-      throw new ForbiddenError(
-        `Your role (${role}) does not have permission to write to the "${existingSecret.environment}" environment`
-      );
-    }
+    await requireEnvironmentPermission(vault.id, existingSecret.environment, user.id, role, 'write');
 
     // Check plan limit for write access (soft limit for downgraded users)
     const writeCheck = await canWriteToVault(user.id, user.plan, vault.id, vault.isPrivate);
@@ -618,15 +553,7 @@ export async function vaultsRoutes(fastify: FastifyInstance) {
     }
 
     // Get user from database first (needed for permission resolution)
-    const user = await db.query.users.findFirst({
-      where: and(
-        eq(users.forgeType, vcsUser.forgeType),
-        eq(users.forgeUserId, vcsUser.forgeUserId)
-      ),
-    });
-    if (!user) {
-      throw new ForbiddenError('User not found in database');
-    }
+    const user = await getOrThrowUser(vcsUser);
 
     // Check GitHub role using GitHub App
     const role = await getUserRoleWithApp(vault.repoFullName, vcsUser.username);
@@ -641,18 +568,7 @@ export async function vaultsRoutes(fastify: FastifyInstance) {
     }
 
     // Check environment-level write permission (uses override system)
-    const hasWritePermission = await resolveEffectivePermission(
-      vault.id,
-      existingSecret.environment,
-      user.id,
-      role,
-      'write'
-    );
-    if (!hasWritePermission) {
-      throw new ForbiddenError(
-        `Your role (${role}) does not have permission to write to the "${existingSecret.environment}" environment`
-      );
-    }
+    await requireEnvironmentPermission(vault.id, existingSecret.environment, user.id, role, 'write');
 
     // Check plan limit for write access (soft limit for downgraded users)
     const writeCheck = await canWriteToVault(user.id, user.plan, vault.id, vault.isPrivate);
@@ -719,15 +635,7 @@ export async function vaultsRoutes(fastify: FastifyInstance) {
     }
 
     // Get user from database first (needed for permission resolution)
-    const user = await db.query.users.findFirst({
-      where: and(
-        eq(users.forgeType, vcsUser.forgeType),
-        eq(users.forgeUserId, vcsUser.forgeUserId)
-      ),
-    });
-    if (!user) {
-      throw new ForbiddenError('User not found in database');
-    }
+    const user = await getOrThrowUser(vcsUser);
 
     // Check GitHub role using GitHub App
     const role = await getUserRoleWithApp(vault.repoFullName, vcsUser.username);
@@ -742,18 +650,7 @@ export async function vaultsRoutes(fastify: FastifyInstance) {
     }
 
     // Check environment-level read permission (uses override system)
-    const hasReadPermission = await resolveEffectivePermission(
-      vault.id,
-      secretData.environment,
-      user.id,
-      role,
-      'read'
-    );
-    if (!hasReadPermission) {
-      throw new ForbiddenError(
-        `Your role (${role}) does not have permission to read secrets from the "${secretData.environment}" environment`
-      );
-    }
+    await requireEnvironmentPermission(vault.id, secretData.environment, user.id, role, 'read');
 
     if (user) {
       await logActivity({
@@ -865,15 +762,7 @@ export async function vaultsRoutes(fastify: FastifyInstance) {
     }
 
     // Get user from database first (needed for permission resolution)
-    const user = await db.query.users.findFirst({
-      where: and(
-        eq(users.forgeType, vcsUser.forgeType),
-        eq(users.forgeUserId, vcsUser.forgeUserId)
-      ),
-    });
-    if (!user) {
-      throw new ForbiddenError('User not found in database');
-    }
+    const user = await getOrThrowUser(vcsUser);
 
     const role = await getUserRoleWithApp(vault.repoFullName, vcsUser.username);
     if (!role) {
@@ -887,18 +776,7 @@ export async function vaultsRoutes(fastify: FastifyInstance) {
     }
 
     // Check environment-level read permission (uses override system)
-    const hasReadPermission = await resolveEffectivePermission(
-      vault.id,
-      secret.environment,
-      user.id,
-      role,
-      'read'
-    );
-    if (!hasReadPermission) {
-      throw new ForbiddenError(
-        `Your role (${role}) does not have permission to read secrets from the "${secret.environment}" environment`
-      );
-    }
+    await requireEnvironmentPermission(vault.id, secret.environment, user.id, role, 'read');
 
     const versionData = await getSecretVersionValue(params.versionId, params.secretId, vault.id);
     if (!versionData) {
@@ -941,15 +819,7 @@ export async function vaultsRoutes(fastify: FastifyInstance) {
     }
 
     // Get user from database first (needed for permission resolution)
-    const user = await db.query.users.findFirst({
-      where: and(
-        eq(users.forgeType, vcsUser.forgeType),
-        eq(users.forgeUserId, vcsUser.forgeUserId)
-      ),
-    });
-    if (!user) {
-      throw new ForbiddenError('User not found in database');
-    }
+    const user = await getOrThrowUser(vcsUser);
 
     // Check GitHub role
     const role = await getUserRoleWithApp(vault.repoFullName, vcsUser.username);
@@ -964,18 +834,7 @@ export async function vaultsRoutes(fastify: FastifyInstance) {
     }
 
     // Check environment-level write permission (uses override system)
-    const hasWritePermission = await resolveEffectivePermission(
-      vault.id,
-      secret.environment,
-      user.id,
-      role,
-      'write'
-    );
-    if (!hasWritePermission) {
-      throw new ForbiddenError(
-        `Your role (${role}) does not have permission to write to the "${secret.environment}" environment`
-      );
-    }
+    await requireEnvironmentPermission(vault.id, secret.environment, user.id, role, 'write');
 
     // Check plan limit for write access (soft limit for downgraded users)
     const writeCheck = await canWriteToVault(user.id, user.plan, vault.id, vault.isPrivate);
@@ -1067,15 +926,7 @@ export async function vaultsRoutes(fastify: FastifyInstance) {
     }
 
     // Get user from database first (needed for permission resolution)
-    const user = await db.query.users.findFirst({
-      where: and(
-        eq(users.forgeType, vcsUser.forgeType),
-        eq(users.forgeUserId, vcsUser.forgeUserId)
-      ),
-    });
-    if (!user) {
-      throw new ForbiddenError('User not found in database');
-    }
+    const user = await getOrThrowUser(vcsUser);
 
     // Check GitHub role
     const role = await getUserRoleWithApp(vault.repoFullName, vcsUser.username);
@@ -1090,18 +941,7 @@ export async function vaultsRoutes(fastify: FastifyInstance) {
     }
 
     // Check environment-level write permission (uses override system)
-    const hasWritePermission = await resolveEffectivePermission(
-      vault.id,
-      trashedSecret.environment,
-      user.id,
-      role,
-      'write'
-    );
-    if (!hasWritePermission) {
-      throw new ForbiddenError(
-        `Your role (${role}) does not have permission to write to the "${trashedSecret.environment}" environment`
-      );
-    }
+    await requireEnvironmentPermission(vault.id, trashedSecret.environment, user.id, role, 'write');
 
     // Check plan limit for write access
     const writeCheck = await canWriteToVault(user.id, user.plan, vault.id, vault.isPrivate);
@@ -1161,15 +1001,7 @@ export async function vaultsRoutes(fastify: FastifyInstance) {
     }
 
     // Get user from database first (needed for permission resolution)
-    const user = await db.query.users.findFirst({
-      where: and(
-        eq(users.forgeType, vcsUser.forgeType),
-        eq(users.forgeUserId, vcsUser.forgeUserId)
-      ),
-    });
-    if (!user) {
-      throw new ForbiddenError('User not found in database');
-    }
+    const user = await getOrThrowUser(vcsUser);
 
     // Check GitHub role
     const role = await getUserRoleWithApp(vault.repoFullName, vcsUser.username);
@@ -1184,18 +1016,7 @@ export async function vaultsRoutes(fastify: FastifyInstance) {
     }
 
     // Check environment-level write permission (uses override system)
-    const hasWritePermission = await resolveEffectivePermission(
-      vault.id,
-      trashedSecret.environment,
-      user.id,
-      role,
-      'write'
-    );
-    if (!hasWritePermission) {
-      throw new ForbiddenError(
-        `Your role (${role}) does not have permission to write to the "${trashedSecret.environment}" environment`
-      );
-    }
+    await requireEnvironmentPermission(vault.id, trashedSecret.environment, user.id, role, 'write');
 
     const deletedSecret = await permanentlyDeleteSecret(params.secretId, vault.id);
     if (!deletedSecret) {
@@ -1237,15 +1058,7 @@ export async function vaultsRoutes(fastify: FastifyInstance) {
     }
 
     // Get user from database first
-    const user = await db.query.users.findFirst({
-      where: and(
-        eq(users.forgeType, vcsUser.forgeType),
-        eq(users.forgeUserId, vcsUser.forgeUserId)
-      ),
-    });
-    if (!user) {
-      throw new ForbiddenError('User not found in database');
-    }
+    const user = await getOrThrowUser(vcsUser);
 
     // Check GitHub role - require admin for bulk trash operations
     // This is because emptying trash affects multiple environments
@@ -1334,15 +1147,7 @@ export async function vaultsRoutes(fastify: FastifyInstance) {
     }
 
     // Get user for plan check
-    const user = await db.query.users.findFirst({
-      where: and(
-        eq(users.forgeType, vcsUser.forgeType),
-        eq(users.forgeUserId, vcsUser.forgeUserId)
-      ),
-    });
-    if (!user) {
-      throw new ForbiddenError('User not found in database');
-    }
+    const user = await getOrThrowUser(vcsUser);
 
     // Get current environments, fallback to defaults
     const currentEnvs = vault.environments && vault.environments.length > 0
@@ -1449,12 +1254,7 @@ export async function vaultsRoutes(fastify: FastifyInstance) {
     });
 
     // Log activity
-    const user = await db.query.users.findFirst({
-      where: and(
-        eq(users.forgeType, vcsUser.forgeType),
-        eq(users.forgeUserId, vcsUser.forgeUserId)
-      ),
-    });
+    const user = await getUserFromVcsUser(vcsUser);
     if (user) {
       await logActivity({
         userId: user.id,
@@ -1536,12 +1336,7 @@ export async function vaultsRoutes(fastify: FastifyInstance) {
     });
 
     // Log activity
-    const user = await db.query.users.findFirst({
-      where: and(
-        eq(users.forgeType, vcsUser.forgeType),
-        eq(users.forgeUserId, vcsUser.forgeUserId)
-      ),
-    });
+    const user = await getUserFromVcsUser(vcsUser);
     if (user) {
       await logActivity({
         userId: user.id,

@@ -4,6 +4,31 @@ import formbody from '@fastify/formbody';
 import cookie from '@fastify/cookie';
 import { mockUser, mockVault, createMockDb, createMockGitHubUtils, mockSecretListItem, mockLegacySecretListItem } from '../helpers/mocks';
 
+// Use vi.hoisted() to define mock data that will be available during mock factory hoisting
+const { mockUserForLookup } = vi.hoisted(() => ({
+  mockUserForLookup: {
+    id: 'test-user-id-123',
+    forgeType: 'github' as const,
+    forgeUserId: '12345',
+    username: 'testuser',
+    email: 'test@example.com',
+    avatarUrl: 'https://github.com/testuser.png',
+    accessToken: 'gho_testtoken123',
+    plan: 'pro' as const,
+    stripeCustomerId: null,
+    stripeSubscriptionId: null,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  },
+}));
+
+// Mock user-lookup helper (must use hoisted mockUserForLookup)
+vi.mock('../../src/utils/user-lookup', () => ({
+  getUserFromVcsUser: vi.fn().mockResolvedValue(mockUserForLookup),
+  getOrThrowUser: vi.fn().mockResolvedValue(mockUserForLookup),
+  extractVcsUser: vi.fn().mockImplementation((req: { vcsUser?: unknown; githubUser?: unknown }) => req.vcsUser || req.githubUser),
+}));
+
 // Mock installation data
 const mockInstallation = {
   id: 'inst-uuid-123',
@@ -187,6 +212,7 @@ vi.mock('../../src/utils/permissions', () => ({
   getDefaultPermission: vi.fn().mockReturnValue('read'),
   resolveEffectivePermission: vi.fn().mockResolvedValue(true),
   getEffectivePermissions: vi.fn().mockResolvedValue({ development: { read: true, write: true } }),
+  requireEnvironmentPermission: vi.fn().mockResolvedValue(undefined), // Resolves without throwing = permission granted
 }));
 
 // Mock config/plans

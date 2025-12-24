@@ -3,6 +3,32 @@ import Fastify, { FastifyInstance } from 'fastify';
 import formbody from '@fastify/formbody';
 import cookie from '@fastify/cookie';
 import { mockUser, mockVault, createMockGitHubUtils } from '../helpers/mocks';
+import { ForbiddenError } from '../../src/lib';
+
+// Use vi.hoisted() to define mock data that will be available during mock factory hoisting
+const { mockUserForLookup } = vi.hoisted(() => ({
+  mockUserForLookup: {
+    id: 'test-user-id-123',
+    forgeType: 'github' as const,
+    forgeUserId: '12345',
+    username: 'testuser',
+    email: 'test@example.com',
+    avatarUrl: 'https://github.com/testuser.png',
+    accessToken: 'gho_testtoken123',
+    plan: 'pro' as const,
+    stripeCustomerId: null,
+    stripeSubscriptionId: null,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  },
+}));
+
+// Mock user-lookup helper (must use hoisted mockUserForLookup)
+vi.mock('../../src/utils/user-lookup', () => ({
+  getUserFromVcsUser: vi.fn().mockResolvedValue(mockUserForLookup),
+  getOrThrowUser: vi.fn().mockResolvedValue(mockUserForLookup),
+  extractVcsUser: vi.fn().mockImplementation((req: { vcsUser?: unknown; githubUser?: unknown }) => req.vcsUser || req.githubUser),
+}));
 
 // Mock secret data
 const mockActiveSecret = {
@@ -194,6 +220,7 @@ vi.mock('../../src/utils/permissions', () => ({
   getDefaultPermission: vi.fn().mockReturnValue('read'),
   resolveEffectivePermission: vi.fn().mockResolvedValue(true),
   getEffectivePermissions: vi.fn().mockResolvedValue({ development: { read: true, write: true } }),
+  requireEnvironmentPermission: vi.fn().mockResolvedValue(undefined), // Resolves without throwing = permission granted
 }));
 
 // Mock config/plans
@@ -432,9 +459,12 @@ describe('Trash Routes', () => {
 
     it('should require write access', async () => {
       const { getUserRoleWithApp } = await import('../../src/utils/github');
-      const { resolveEffectivePermission } = await import('../../src/utils/permissions');
+      const { requireEnvironmentPermission } = await import('../../src/utils/permissions');
       (getUserRoleWithApp as any).mockResolvedValueOnce('read');
-      (resolveEffectivePermission as any).mockResolvedValueOnce(false);
+      // Mock requireEnvironmentPermission to throw ForbiddenError for write permission
+      (requireEnvironmentPermission as any).mockRejectedValueOnce(
+        new ForbiddenError('Your role (read) does not have permission to write to the "production" environment')
+      );
 
       const response = await app.inject({
         method: 'DELETE',
@@ -537,9 +567,12 @@ describe('Trash Routes', () => {
 
     it('should require write access', async () => {
       const { getUserRoleWithApp } = await import('../../src/utils/github');
-      const { resolveEffectivePermission } = await import('../../src/utils/permissions');
+      const { requireEnvironmentPermission } = await import('../../src/utils/permissions');
       (getUserRoleWithApp as any).mockResolvedValueOnce('read');
-      (resolveEffectivePermission as any).mockResolvedValueOnce(false);
+      // Mock requireEnvironmentPermission to throw ForbiddenError for write permission
+      (requireEnvironmentPermission as any).mockRejectedValueOnce(
+        new ForbiddenError('Your role (read) does not have permission to write to the "production" environment')
+      );
 
       const response = await app.inject({
         method: 'POST',
@@ -581,9 +614,12 @@ describe('Trash Routes', () => {
 
     it('should require write access', async () => {
       const { getUserRoleWithApp } = await import('../../src/utils/github');
-      const { resolveEffectivePermission } = await import('../../src/utils/permissions');
+      const { requireEnvironmentPermission } = await import('../../src/utils/permissions');
       (getUserRoleWithApp as any).mockResolvedValueOnce('read');
-      (resolveEffectivePermission as any).mockResolvedValueOnce(false);
+      // Mock requireEnvironmentPermission to throw ForbiddenError for write permission
+      (requireEnvironmentPermission as any).mockRejectedValueOnce(
+        new ForbiddenError('Your role (read) does not have permission to write to the "production" environment')
+      );
 
       const response = await app.inject({
         method: 'DELETE',
