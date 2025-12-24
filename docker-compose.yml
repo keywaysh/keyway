@@ -42,6 +42,7 @@ services:
       - GITHUB_APP_PRIVATE_KEY=${GITHUB_APP_PRIVATE_KEY}
       - GITHUB_APP_WEBHOOK_SECRET=${GITHUB_APP_WEBHOOK_SECRET}
       - GITHUB_APP_NAME=${GITHUB_APP_NAME:-keyway-local-dev}
+      - FRONTEND_URL=${FRONTEND_URL:-https://localhost}
       - ALLOWED_ORIGINS=https://localhost
     depends_on:
       db:
