@@ -732,21 +732,22 @@ export async function getOrgMembership(
 }
 
 /**
- * List all members of a GitHub organization
- * Requires admin access to the organization
+ * List all members of a GitHub organization with a specific role
+ * Uses the role filter parameter to avoid needing admin permissions
  */
-export async function listOrgMembers(
+async function listOrgMembersByRole(
   accessToken: string,
-  org: string
-): Promise<GitHubOrgMember[]> {
-  const members: GitHubOrgMember[] = [];
+  org: string,
+  role: 'admin' | 'member'
+): Promise<Array<{ id: number; login: string; avatar_url: string }>> {
+  const members: Array<{ id: number; login: string; avatar_url: string }> = [];
   let page = 1;
   const perPage = 100;
 
   try {
     while (true) {
       const response = await fetch(
-        `${GITHUB_API_BASE}/orgs/${org}/members?per_page=${perPage}&page=${page}`,
+        `${GITHUB_API_BASE}/orgs/${org}/members?role=${role}&per_page=${perPage}&page=${page}`,
         {
           headers: {
             Authorization: `Bearer ${accessToken}`,
@@ -757,9 +758,10 @@ export async function listOrgMembers(
       );
 
       if (!response.ok) {
+        const errorBody = await response.text();
         logger.warn(
-          { org, status: response.status },
-          'Failed to list org members'
+          { org, role, status: response.status, error: errorBody.substring(0, 500) },
+          'Failed to list org members by role'
         );
         break;
       }
@@ -773,16 +775,7 @@ export async function listOrgMembers(
         break;
       }
 
-      // Get each member's role by checking their membership
-      for (const member of data) {
-        const membership = await getOrgMembership(accessToken, org, member.login);
-        members.push({
-          id: member.id,
-          login: member.login,
-          avatar_url: member.avatar_url,
-          role: membership?.role ?? 'member',
-        });
-      }
+      members.push(...data);
 
       if (data.length < perPage) {
         break;
@@ -791,10 +784,54 @@ export async function listOrgMembers(
     }
   } catch (error) {
     logger.error(
-      { error: error instanceof Error ? error.message : 'Unknown error', org },
-      'Error listing org members'
+      { error: error instanceof Error ? error.message : 'Unknown error', org, role },
+      'Error listing org members by role'
     );
   }
+
+  return members;
+}
+
+/**
+ * List all members of a GitHub organization
+ * Fetches admins and members separately using the role filter
+ */
+export async function listOrgMembers(
+  accessToken: string,
+  org: string
+): Promise<GitHubOrgMember[]> {
+  // Fetch admins and members in parallel
+  const [admins, regularMembers] = await Promise.all([
+    listOrgMembersByRole(accessToken, org, 'admin'),
+    listOrgMembersByRole(accessToken, org, 'member'),
+  ]);
+
+  const members: GitHubOrgMember[] = [];
+
+  // Add admins with 'admin' role
+  for (const admin of admins) {
+    members.push({
+      id: admin.id,
+      login: admin.login,
+      avatar_url: admin.avatar_url,
+      role: 'admin',
+    });
+  }
+
+  // Add regular members with 'member' role
+  for (const member of regularMembers) {
+    members.push({
+      id: member.id,
+      login: member.login,
+      avatar_url: member.avatar_url,
+      role: 'member',
+    });
+  }
+
+  logger.info(
+    { org, adminCount: admins.length, memberCount: regularMembers.length },
+    'Listed org members'
+  );
 
   return members;
 }
@@ -829,6 +866,145 @@ export interface GitHubOrgInfo {
   name: string | null;
   avatar_url: string;
   type: 'Organization';
+}
+
+export interface GitHubUserOrg {
+  id: number;
+  login: string;
+  avatar_url: string;
+  description: string | null;
+  role: 'admin' | 'member';
+}
+
+/**
+ * List organizations where the GitHub App is installed and the user has access.
+ * Uses /user/installations endpoint which works with GitHub App tokens.
+ *
+ * Note: This only returns orgs where the app is installed, not ALL orgs the user belongs to.
+ * This is a limitation of GitHub Apps vs OAuth Apps.
+ */
+export async function listUserOrganizations(
+  accessToken: string
+): Promise<GitHubUserOrg[]> {
+  const orgs: GitHubUserOrg[] = [];
+  let page = 1;
+  const perPage = 100;
+
+  try {
+    while (true) {
+      const response = await fetch(
+        `${GITHUB_API_BASE}/user/installations?per_page=${perPage}&page=${page}`,
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            Accept: 'application/vnd.github+json',
+            'X-GitHub-Api-Version': '2022-11-28',
+          },
+        }
+      );
+
+      if (!response.ok) {
+        const errorBody = await response.text();
+        logger.warn(
+          { status: response.status, body: errorBody, tokenPreview: maskToken(accessToken) },
+          'Failed to list user installations'
+        );
+        break;
+      }
+
+      const data = await response.json() as {
+        total_count: number;
+        installations: Array<{
+          id: number;
+          account: {
+            id: number;
+            login: string;
+            avatar_url: string;
+            type: 'User' | 'Organization';
+          };
+          repository_selection: 'all' | 'selected';
+        }>;
+      };
+
+      logger.info(
+        { installationCount: data.installations?.length ?? 0, totalCount: data.total_count, page },
+        'Fetched user installations from GitHub'
+      );
+
+      if (!data.installations || data.installations.length === 0) {
+        break;
+      }
+
+      // Filter to only organizations (not user accounts)
+      const orgInstallations = data.installations.filter(
+        inst => inst.account.type === 'Organization'
+      );
+
+      // Get user's role in each org - fetch all memberships in parallel
+      const memberships = await Promise.all(
+        orgInstallations.map(inst => getOrgMembershipForCurrentUser(accessToken, inst.account.login))
+      );
+
+      for (let i = 0; i < orgInstallations.length; i++) {
+        const inst = orgInstallations[i];
+        const membership = memberships[i];
+        orgs.push({
+          id: inst.account.id,
+          login: inst.account.login,
+          avatar_url: inst.account.avatar_url,
+          description: null, // installations endpoint doesn't include description
+          role: membership?.role ?? 'member',
+        });
+      }
+
+      if (data.installations.length < perPage) {
+        break;
+      }
+      page++;
+    }
+  } catch (error) {
+    logger.error(
+      { error: error instanceof Error ? error.message : 'Unknown error' },
+      'Error listing user installations'
+    );
+  }
+
+  return orgs;
+}
+
+/**
+ * Get the current user's membership in an organization
+ * Uses /user/memberships/orgs/:org which works with the user's own token
+ */
+export async function getOrgMembershipForCurrentUser(
+  accessToken: string,
+  org: string
+): Promise<{ role: 'admin' | 'member'; state: 'active' | 'pending' } | null> {
+  try {
+    const response = await fetch(
+      `${GITHUB_API_BASE}/user/memberships/orgs/${org}`,
+      {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          Accept: 'application/vnd.github+json',
+          'X-GitHub-Api-Version': '2022-11-28',
+        },
+      }
+    );
+
+    if (!response.ok) {
+      return null;
+    }
+
+    const data = await response.json() as {
+      role: 'admin' | 'member';
+      state: 'active' | 'pending';
+    };
+
+    return { role: data.role, state: data.state };
+  } catch {
+    return null;
+  }
 }
 
 /**

@@ -89,7 +89,7 @@ export class GitHubProvider extends VcsProvider {
     const params = new URLSearchParams({
       client_id: this.clientId,
       redirect_uri: redirectUri,
-      scope: 'read:user user:email',
+      scope: 'read:user user:email read:org',
       state,
     });
     return `https://github.com/login/oauth/authorize?${params.toString()}`;
@@ -109,7 +109,7 @@ export class GitHubProvider extends VcsProvider {
     return {
       accessToken,
       tokenType: 'bearer',
-      scope: 'read:user,user:email',
+      scope: 'read:user,user:email,read:org',
     };
   }
 

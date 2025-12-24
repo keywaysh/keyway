@@ -431,7 +431,7 @@ export async function authRoutes(fastify: FastifyInstance) {
     const githubAuthUrl = new URL('https://github.com/login/oauth/authorize');
     githubAuthUrl.searchParams.set('client_id', config.github.clientId);
     githubAuthUrl.searchParams.set('redirect_uri', callbackUri);
-    githubAuthUrl.searchParams.set('scope', 'read:user user:email');
+    githubAuthUrl.searchParams.set('scope', 'read:user user:email read:org');
     githubAuthUrl.searchParams.set('state', state);
 
     return reply.redirect(githubAuthUrl.toString());
@@ -627,7 +627,7 @@ export async function authRoutes(fastify: FastifyInstance) {
     const githubAuthUrl = new URL('https://github.com/login/oauth/authorize');
     githubAuthUrl.searchParams.set('client_id', config.github.clientId);
     githubAuthUrl.searchParams.set('redirect_uri', callbackUri);
-    githubAuthUrl.searchParams.set('scope', 'read:user user:email');
+    githubAuthUrl.searchParams.set('scope', 'read:user user:email read:org');
     githubAuthUrl.searchParams.set('state', state);
 
     return reply.redirect(githubAuthUrl.toString());

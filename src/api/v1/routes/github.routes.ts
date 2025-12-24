@@ -19,8 +19,9 @@ import { eq, and } from 'drizzle-orm';
 import { sendData, sendNoContent } from '../../../lib/response';
 import { BadRequestError, ForbiddenError } from '../../../lib/errors';
 import type { InstallationAccountType } from '../../../db/schema';
-import { getOrCreateOrganization, syncOrganizationMembers } from '../../../services/organization.service';
-import { listOrgMembersWithApp } from '../../../utils/github';
+import { getOrCreateOrganization, syncOrganizationMembers, getOrganizationByLogin } from '../../../services/organization.service';
+import { listOrgMembersWithApp, listUserOrganizations } from '../../../utils/github';
+import { decryptAccessToken } from '../../../utils/tokenEncryption';
 
 // Schemas
 const CheckInstallationSchema = z.object({
@@ -115,6 +116,72 @@ export async function githubRoutes(fastify: FastifyInstance) {
         installedAt: inst.installedAt.toISOString(),
       })),
       installUrl: config.githubApp.installUrl,
+    }, { requestId: request.id });
+  });
+
+  /**
+   * GET /available-orgs
+   * List GitHub organizations where the user is a member, with their status
+   * Status can be: 'ready' (app installed), 'needs_install' (user is admin), 'contact_admin' (user is member)
+   */
+  fastify.get('/available-orgs', {
+    preHandler: [authenticateGitHub],
+  }, async (request: FastifyRequest, reply: FastifyReply) => {
+    const vcsUser = request.vcsUser || request.githubUser;
+
+    // Get the user from database to get their encrypted token
+    const user = await db.query.users.findFirst({
+      where: and(
+        eq(users.forgeType, vcsUser!.forgeType),
+        eq(users.forgeUserId, vcsUser!.forgeUserId)
+      ),
+    });
+
+    if (!user) {
+      return sendData(reply, { organizations: [] }, { requestId: request.id });
+    }
+
+    // Decrypt the user's GitHub token to list their orgs
+    const accessToken = await decryptAccessToken({
+      encryptedAccessToken: user.encryptedAccessToken,
+      accessTokenIv: user.accessTokenIv,
+      accessTokenAuthTag: user.accessTokenAuthTag,
+      tokenEncryptionVersion: user.tokenEncryptionVersion,
+    });
+    if (!accessToken) {
+      return sendData(reply, { organizations: [] }, { requestId: request.id });
+    }
+
+    // List orgs where the GitHub App is installed and user has access
+    // Note: This uses /user/installations, so all returned orgs have the app installed
+    const githubOrgs = await listUserOrganizations(accessToken);
+
+    // Check which orgs are already connected to Keyway
+    const orgLoginLookups = await Promise.all(
+      githubOrgs.map(async (org) => {
+        const keywayOrg = await getOrganizationByLogin(org.login);
+        return { login: org.login, connected: !!keywayOrg };
+      })
+    );
+    const connectedOrgs = new Map(orgLoginLookups.map(o => [o.login.toLowerCase(), o.connected]));
+
+    // Build the response - all orgs are "ready" since they come from /user/installations
+    const organizations = githubOrgs.map((org) => {
+      const isConnected = connectedOrgs.get(org.login.toLowerCase()) ?? false;
+
+      return {
+        login: org.login,
+        display_name: org.login,
+        avatar_url: org.avatar_url,
+        status: 'ready' as const, // App is installed on all returned orgs
+        user_role: org.role,
+        already_connected: isConnected,
+      };
+    });
+
+    return sendData(reply, {
+      organizations,
+      install_url: config.githubApp.installUrl,
     }, { requestId: request.id });
   });
 

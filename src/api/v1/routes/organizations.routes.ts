@@ -12,6 +12,8 @@ import {
   isOrganizationOwner,
   syncOrganizationMembers,
   getOrganizationMembership,
+  ensureOrganizationExists,
+  upsertOrganizationMember,
 } from '../../../services/organization.service';
 import {
   startTrial,
@@ -19,8 +21,8 @@ import {
   TRIAL_DURATION_DAYS,
 } from '../../../services/trial.service';
 import { detectPlatform } from '../../../services/activity.service';
-import { listOrgMembers, getOrgMembership } from '../../../utils/github';
-import { getInstallationToken } from '../../../services/github-app.service';
+import { listOrgMembers, getOrgMembership, listUserOrganizations } from '../../../utils/github';
+import { getInstallationToken, findOrgInstallationViaGitHubAPI, syncInstallationFromAPI } from '../../../services/github-app.service';
 import { eq, and } from 'drizzle-orm';
 import {
   isStripeEnabled,
@@ -65,6 +67,126 @@ export async function organizationsRoutes(fastify: FastifyInstance) {
   });
 
   /**
+   * POST /connect
+   * Connect a GitHub organization to Keyway
+   * Creates the org in DB and adds user as member
+   */
+  fastify.post<{
+    Body: { orgLogin: string };
+  }>('/connect', {
+    preHandler: [authenticateGitHub],
+  }, async (request, reply) => {
+    const { orgLogin } = request.body;
+    const vcsUser = request.vcsUser || request.githubUser!;
+
+    // Validate body
+    const bodySchema = z.object({
+      orgLogin: z.string().min(1).max(100),
+    });
+
+    bodySchema.parse({ orgLogin });
+
+    // Get user from database
+    const user = await db.query.users.findFirst({
+      where: and(
+        eq(users.forgeType, vcsUser.forgeType),
+        eq(users.forgeUserId, vcsUser.forgeUserId)
+      ),
+    });
+
+    if (!user) {
+      throw new ForbiddenError('User not found');
+    }
+
+    // SECURITY: Verify user has access to this organization via GitHub App installations
+    // The /user/installations endpoint only returns orgs where:
+    // 1. The GitHub App is installed
+    // 2. The user has authorized the app and has access to the org
+    const accessToken = request.accessToken;
+    if (!accessToken) {
+      throw new ForbiddenError('Access token required');
+    }
+
+    const userOrgs = await listUserOrganizations(accessToken);
+    const targetOrg = userOrgs.find(org => org.login.toLowerCase() === orgLogin.toLowerCase());
+    if (!targetOrg) {
+      throw new ForbiddenError(
+        'You do not have access to this organization or the Keyway app is not installed'
+      );
+    }
+
+    // Check if org is already connected
+    const existingOrg = await getOrganizationByLogin(orgLogin);
+    if (existingOrg) {
+      // Check if user is already a member
+      const membership = await getOrganizationMembership(existingOrg.id, user.id);
+      if (membership) {
+        // Already connected, just return the org details
+        const details = await getOrganizationDetails(existingOrg.id);
+        return sendData(reply, {
+          organization: details,
+          message: 'Organization already connected',
+        }, { requestId: request.id });
+      }
+      // Org exists but user isn't a member - add them
+      // Use role from /user/installations (admin or member)
+      const keywayRole = targetOrg.role === 'admin' ? 'owner' : 'member';
+      await upsertOrganizationMember(existingOrg.id, user.id, keywayRole);
+      const details = await getOrganizationDetails(existingOrg.id);
+      return sendData(reply, {
+        organization: details,
+        message: 'Connected to organization',
+      }, { requestId: request.id });
+    }
+
+    // Check if GitHub App is installed on this org (check DB first, then GitHub API)
+    let installation = await db.query.vcsAppInstallations.findFirst({
+      where: and(
+        eq(vcsAppInstallations.accountLogin, orgLogin),
+        eq(vcsAppInstallations.accountType, 'organization'),
+        eq(vcsAppInstallations.status, 'active')
+      ),
+    });
+
+    // If not in DB, try to find via GitHub API (installation webhook may have been missed)
+    if (!installation) {
+      const apiInstallation = await findOrgInstallationViaGitHubAPI(orgLogin);
+      if (apiInstallation) {
+        // Sync to DB for future use
+        await syncInstallationFromAPI(apiInstallation);
+        installation = apiInstallation;
+      }
+    }
+
+    if (!installation) {
+      throw new BadRequestError(
+        'GitHub App is not installed on this organization. ' +
+        'Please install the Keyway GitHub App first.'
+      );
+    }
+
+    // Get installation token to fetch org info
+    const installToken = await getInstallationToken(installation.installationId);
+
+    // Create the organization using existing service function
+    const org = await ensureOrganizationExists(orgLogin, installToken, user.id);
+
+    if (!org) {
+      throw new BadRequestError(
+        'Could not connect to organization. Please ensure it is a valid GitHub organization.'
+      );
+    }
+
+    // Get full details
+    const details = await getOrganizationDetails(org.id);
+
+    return sendData(reply, {
+      organization: details,
+      message: 'Organization connected successfully',
+    }, { requestId: request.id });
+  });
+
+  /**
    * GET /:org
    * Get organization details by login
    */
@@ -105,6 +227,7 @@ export async function organizationsRoutes(fastify: FastifyInstance) {
     return sendData(reply, {
       ...details,
       role: membership.orgRole,  // Include current user's role
+      trialDurationDays: TRIAL_DURATION_DAYS,  // For "Start X-day trial" display
     }, { requestId: request.id });
   });
 
@@ -242,7 +365,9 @@ export async function organizationsRoutes(fastify: FastifyInstance) {
       throw new ForbiddenError('Only organization owners can sync members');
     }
 
-    // Fetch members from GitHub
+    // Fetch members from GitHub using the user's OAuth token
+    // This allows seeing private members (the user is a member of the org)
+    // Requires the read:org OAuth scope
     const githubMembers = await listOrgMembers(accessToken, orgLogin);
 
     // Convert GitHub members to VCS format (id as string)

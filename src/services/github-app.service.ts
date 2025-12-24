@@ -124,8 +124,8 @@ export async function getInstallationToken(
 
   if (!response.ok) {
     const error = await response.text();
-    logger.error({ status: response.status, error }, 'Failed to get installation token from GitHub API');
-    throw new Error(`Failed to get installation token: ${response.status} ${error}`);
+    logger.error({ status: response.status, error, installationId }, 'Failed to get installation token from GitHub API');
+    throw new Error(`Failed to get installation token for installation ${installationId}: ${response.status} ${error}`);
   }
 
   const data = (await response.json()) as {
@@ -273,10 +273,64 @@ async function findInstallationViaGitHubAPI(
 }
 
 /**
+ * Find installation for an organization via GitHub API
+ * Used when the installation webhook was missed
+ */
+export async function findOrgInstallationViaGitHubAPI(
+  orgLogin: string
+): Promise<VcsAppInstallation | null> {
+  try {
+    const jwt = generateAppJWT();
+    const response = await fetch(
+      `${GITHUB_API_BASE}/orgs/${orgLogin}/installation`,
+      {
+        headers: {
+          Authorization: `Bearer ${jwt}`,
+          Accept: 'application/vnd.github.v3+json',
+        },
+      }
+    );
+
+    if (!response.ok) {
+      logger.debug({ status: response.status, orgLogin }, 'Org installation not found via GitHub API');
+      return null;
+    }
+
+    const data = await response.json() as {
+      id: number;
+      account: { id: number; login: string; type: string };
+      repository_selection: 'all' | 'selected';
+      permissions: Record<string, string>;
+    };
+
+    // Return a VcsAppInstallation-like object
+    return {
+      id: '', // Will be set when synced to DB
+      forgeType: 'github' as const,
+      installationId: data.id,
+      accountId: data.account.id,
+      accountLogin: data.account.login,
+      accountType: data.account.type.toLowerCase() as InstallationAccountType,
+      repositorySelection: data.repository_selection,
+      permissions: data.permissions,
+      status: 'active' as InstallationStatus,
+      installedByUserId: null,
+      installedAt: new Date(),
+      updatedAt: new Date(),
+      suspendedAt: null,
+      deletedAt: null,
+    };
+  } catch (error) {
+    logger.error({ error: error instanceof Error ? error.message : 'Unknown', orgLogin }, 'Error checking org installation via GitHub API');
+    return null;
+  }
+}
+
+/**
  * Sync an installation found via API to the database
  * Uses createInstallation which handles upsert
  */
-async function syncInstallationFromAPI(installation: VcsAppInstallation): Promise<void> {
+export async function syncInstallationFromAPI(installation: VcsAppInstallation): Promise<void> {
   try {
     await createInstallation({
       installationId: installation.installationId,
