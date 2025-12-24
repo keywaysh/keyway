@@ -297,7 +297,7 @@ describe('GitHub App Service', () => {
 
       const { getInstallationToken } = await import('../src/services/github-app.service');
 
-      await expect(getInstallationToken(12345678)).rejects.toThrow('Failed to get installation token: 404');
+      await expect(getInstallationToken(12345678)).rejects.toThrow('Failed to get installation token for installation 12345678: 404');
     });
 
     it('should refresh token within 5 minute buffer of expiration', async () => {

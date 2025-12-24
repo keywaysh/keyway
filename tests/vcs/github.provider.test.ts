@@ -129,7 +129,7 @@ describe('GitHubProvider', () => {
       expect(result).toEqual({
         accessToken: 'gho_new_token',
         tokenType: 'bearer',
-        scope: 'read:user,user:email',
+        scope: 'read:user,user:email,read:org',
       });
     });
   });
