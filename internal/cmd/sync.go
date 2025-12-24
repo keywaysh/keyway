@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -13,6 +14,13 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/text/cases"
 	"golang.org/x/text/language"
+)
+
+// Sentinel errors for user cancellation
+var (
+	errVaultCreationCancelled = errors.New("vault creation cancelled")
+	errConnectionCancelled    = errors.New("connection cancelled")
+	errProjectCancelled       = errors.New("project selection cancelled")
 )
 
 var syncCmd = &cobra.Command{
@@ -151,6 +159,261 @@ func findMatchingProject(projects []ProjectWithLinkedRepo, repoFullName string) 
 	return nil
 }
 
+// ensureProvider gets the provider from args or prompts the user to select one.
+func ensureProvider(ctx context.Context, client *api.Client, args []string) (string, error) {
+	if len(args) > 0 {
+		return strings.ToLower(args[0]), nil
+	}
+
+	// No provider specified - show list
+	providers, err := client.GetProviders(ctx)
+	if err != nil {
+		if apiErr, ok := err.(*api.APIError); ok {
+			if apiErr.StatusCode == 401 {
+				ui.Error("Authentication failed. Please login again.")
+				ui.Message(ui.Dim("Run: keyway login"))
+				return "", err
+			}
+			ui.Error(fmt.Sprintf("Failed to fetch providers: %s", apiErr.Error()))
+		} else {
+			ui.Error(fmt.Sprintf("Failed to fetch providers: %v", err))
+		}
+		return "", err
+	}
+
+	if len(providers) == 0 {
+		ui.Error("No providers available")
+		return "", fmt.Errorf("no providers")
+	}
+
+	options := make([]string, len(providers))
+	for i, p := range providers {
+		options[i] = p.DisplayName
+	}
+
+	selected, err := ui.Select("Select a provider to sync with:", options)
+	if err != nil {
+		return "", err
+	}
+
+	for _, p := range providers {
+		if p.DisplayName == selected {
+			return p.Name, nil
+		}
+	}
+
+	return "", fmt.Errorf("provider not found")
+}
+
+// ensureVaultExists checks if a vault exists for the repo and creates one if needed.
+func ensureVaultExists(ctx context.Context, client *api.Client, repo string) error {
+	exists, err := client.CheckVaultExists(ctx, repo)
+	if err != nil {
+		ui.Error("Failed to check vault")
+		return err
+	}
+
+	if exists {
+		return nil
+	}
+
+	ui.Warn(fmt.Sprintf("No vault found for %s.", repo))
+
+	if !ui.IsInteractive() {
+		return fmt.Errorf("vault not found")
+	}
+
+	shouldCreate, _ := ui.Confirm("Create vault now?", true)
+	if !shouldCreate {
+		return errVaultCreationCancelled
+	}
+
+	err = ui.Spin("Creating vault...", func() error {
+		_, err := client.InitVault(ctx, repo)
+		return err
+	})
+	if err != nil {
+		ui.Error("Failed to create vault")
+		return err
+	}
+
+	ui.Success("Vault created!")
+	return nil
+}
+
+// ensureProviderConnection checks if connected to provider and connects if needed.
+// Returns the projects and connections.
+func ensureProviderConnection(ctx context.Context, client *api.Client, provider, providerDisplayName string) ([]api.ProviderProject, []api.Connection, error) {
+	allProjects, connections, err := client.GetAllProviderProjects(ctx, provider)
+
+	notConnected := err != nil && (strings.Contains(err.Error(), "not connected") || strings.Contains(err.Error(), "no connections"))
+	notConnected = notConnected || (err == nil && len(connections) == 0)
+
+	if !notConnected {
+		if err != nil {
+			ui.Error("Failed to fetch provider projects")
+			return nil, nil, err
+		}
+		return allProjects, connections, nil
+	}
+
+	ui.Warn(fmt.Sprintf("Not connected to %s.", providerDisplayName))
+
+	if !ui.IsInteractive() {
+		ui.Message(ui.Dim(fmt.Sprintf("Run `keyway connect %s` first.", provider)))
+		return nil, nil, fmt.Errorf("not connected to provider")
+	}
+
+	shouldConnect, _ := ui.Confirm(fmt.Sprintf("Connect to %s now?", providerDisplayName), true)
+	if !shouldConnect {
+		return nil, nil, errConnectionCancelled
+	}
+
+	if err := RunConnectCommand(provider); err != nil {
+		return nil, nil, err
+	}
+
+	// Refresh projects after connecting
+	allProjects, connections, err = client.GetAllProviderProjects(ctx, provider)
+	if err != nil {
+		ui.Error("Failed to fetch projects after connecting")
+		return nil, nil, err
+	}
+
+	return allProjects, connections, nil
+}
+
+// selectSyncProject selects a project from the list, either by flag, auto-detection, or prompt.
+func selectSyncProject(projects []ProjectWithLinkedRepo, projectFlag, repo, providerDisplayName string, hasMultipleConnections bool) (ProjectWithLinkedRepo, error) {
+	if projectFlag != "" {
+		projectLower := strings.ToLower(projectFlag)
+		for _, p := range projects {
+			if p.ID == projectFlag ||
+				strings.ToLower(p.Name) == projectLower ||
+				(p.ServiceName != nil && strings.ToLower(*p.ServiceName) == projectLower) {
+				if !projectMatchesRepo(p, repo) {
+					ui.Warn("Project does not match current repository")
+					yellow := color.New(color.FgYellow)
+					yellow.Printf("Current repo:      %s\n", repo)
+					yellow.Printf("Selected project:  %s\n", getProjectDisplayName(p))
+				}
+				return p, nil
+			}
+		}
+		ui.Error(fmt.Sprintf("Project not found: %s", projectFlag))
+		ui.Message(ui.Dim("Available projects:"))
+		for _, p := range projects {
+			ui.Message(ui.Dim(fmt.Sprintf("  - %s", getProjectDisplayName(p))))
+		}
+		return ProjectWithLinkedRepo{}, fmt.Errorf("project not found")
+	}
+
+	// Auto-detect or prompt
+	match := findMatchingProject(projects, repo)
+
+	if match != nil && (match.MatchType == "linked_repo" || match.MatchType == "exact_name") {
+		matchReason := "exact name match"
+		if match.MatchType == "linked_repo" {
+			matchReason = fmt.Sprintf("linked to %s", repo)
+		}
+		teamInfo := ""
+		if match.Project.TeamName != nil {
+			teamInfo = ui.Dim(fmt.Sprintf(" (%s)", *match.Project.TeamName))
+		}
+		ui.Success(fmt.Sprintf("Auto-selected project: %s%s (%s)", getProjectDisplayName(match.Project), teamInfo, matchReason))
+		return match.Project, nil
+	}
+
+	if match != nil && match.MatchType == "partial_name" {
+		displayName := getProjectDisplayName(match.Project)
+		ui.Info(fmt.Sprintf("Detected project: %s (partial match)", displayName))
+
+		useDetected, _ := ui.Confirm(fmt.Sprintf("Use %s?", displayName), true)
+		if useDetected {
+			return match.Project, nil
+		}
+		return promptProjectSelection(projects, repo, providerDisplayName, hasMultipleConnections)
+	}
+
+	if len(projects) == 1 {
+		p := projects[0]
+		if !projectMatchesRepo(p, repo) {
+			ui.Warn("Project does not match current repository")
+			yellow := color.New(color.FgYellow)
+			yellow.Printf("Current repo:      %s\n", repo)
+			yellow.Printf("Only project:      %s\n", getProjectDisplayName(p))
+
+			if ui.IsInteractive() {
+				continueAnyway, _ := ui.Confirm("Continue anyway?", false)
+				if !continueAnyway {
+					return ProjectWithLinkedRepo{}, errProjectCancelled
+				}
+			}
+		}
+		return p, nil
+	}
+
+	ui.Warn(fmt.Sprintf("No matching project found for %s", repo))
+	ui.Message(ui.Dim("Select a project manually:"))
+	return promptProjectSelection(projects, repo, providerDisplayName, hasMultipleConnections)
+}
+
+// selectSyncEnvironments determines the Keyway and provider environments.
+func selectSyncEnvironments(ctx context.Context, client *api.Client, repo string, project ProjectWithLinkedRepo, envFlag, providerEnvFlag, provider, providerDisplayName string) (keywayEnv, providerEnv string, err error) {
+	keywayEnv = envFlag
+	providerEnv = providerEnvFlag
+
+	if keywayEnv == "" && ui.IsInteractive() {
+		vaultEnvs, err := client.GetVaultEnvironments(ctx, repo)
+		if err != nil || len(vaultEnvs) == 0 {
+			vaultEnvs = []string{"production", "staging", "development"}
+		}
+
+		selected, err := ui.Select("Keyway environment:", vaultEnvs)
+		if err != nil {
+			return "", "", err
+		}
+		keywayEnv = selected
+
+		// Auto-map provider environment if not specified
+		if providerEnv == "" {
+			if len(project.Environments) > 0 {
+				mapped := mapToProviderEnvironment(provider, keywayEnv)
+				found := false
+				for _, e := range project.Environments {
+					if strings.EqualFold(e, mapped) {
+						providerEnv = mapped
+						found = true
+						break
+					}
+				}
+				if !found && len(project.Environments) > 1 {
+					selected, err := ui.Select(fmt.Sprintf("%s environment:", providerDisplayName), project.Environments)
+					if err != nil {
+						return "", "", err
+					}
+					providerEnv = selected
+				} else if !found {
+					providerEnv = project.Environments[0]
+					ui.Message(ui.Dim(fmt.Sprintf("Using %s environment: %s", providerDisplayName, providerEnv)))
+				}
+			} else {
+				providerEnv = mapToProviderEnvironment(provider, keywayEnv)
+			}
+		}
+	}
+
+	// Default values
+	if keywayEnv == "" {
+		keywayEnv = "production"
+	}
+	if providerEnv == "" {
+		providerEnv = mapToProviderEnvironment(provider, keywayEnv)
+	}
+
+	return keywayEnv, providerEnv, nil
+}
+
 func runSync(cmd *cobra.Command, args []string) error {
 	pushFlag, _ := cmd.Flags().GetBool("push")
 	pullFlag, _ := cmd.Flags().GetBool("pull")
@@ -176,51 +439,10 @@ func runSync(cmd *cobra.Command, args []string) error {
 	client := api.NewClient(token)
 	ctx := context.Background()
 
-	// Get provider - either from args or prompt
-	var provider string
-	if len(args) > 0 {
-		provider = strings.ToLower(args[0])
-	} else {
-		// No provider specified - show list
-		providers, err := client.GetProviders(ctx)
-		if err != nil {
-			// Check if it's an auth error
-			if apiErr, ok := err.(*api.APIError); ok {
-				if apiErr.StatusCode == 401 {
-					ui.Error("Authentication failed. Please login again.")
-					ui.Message(ui.Dim("Run: keyway login"))
-					return err
-				}
-				ui.Error(fmt.Sprintf("Failed to fetch providers: %s", apiErr.Error()))
-			} else {
-				ui.Error(fmt.Sprintf("Failed to fetch providers: %v", err))
-			}
-			return err
-		}
-
-		if len(providers) == 0 {
-			ui.Error("No providers available")
-			return fmt.Errorf("no providers")
-		}
-
-		// Create options for selection
-		options := make([]string, len(providers))
-		for i, p := range providers {
-			options[i] = p.DisplayName
-		}
-
-		selected, err := ui.Select("Select a provider to sync with:", options)
-		if err != nil {
-			return err
-		}
-
-		// Find the provider name from display name
-		for _, p := range providers {
-			if p.DisplayName == selected {
-				provider = p.Name
-				break
-			}
-		}
+	// Get provider
+	provider, err := ensureProvider(ctx, client, args)
+	if err != nil {
+		return err
 	}
 
 	// Detect current repo
@@ -235,69 +457,20 @@ func runSync(cmd *cobra.Command, args []string) error {
 	ui.Step(fmt.Sprintf("Repository: %s", ui.Value(repo)))
 
 	// Check if vault exists
-	exists, err := client.CheckVaultExists(ctx, repo)
-	if err != nil {
-		ui.Error("Failed to check vault")
-		return err
-	}
-
-	if !exists {
-		ui.Warn(fmt.Sprintf("No vault found for %s.", repo))
-
-		if ui.IsInteractive() {
-			shouldCreate, _ := ui.Confirm("Create vault now?", true)
-			if !shouldCreate {
-				return nil
-			}
-
-			err = ui.Spin("Creating vault...", func() error {
-				_, err := client.InitVault(ctx, repo)
-				return err
-			})
-			if err != nil {
-				ui.Error("Failed to create vault")
-				return err
-			}
-			ui.Success("Vault created!")
-		} else {
-			return fmt.Errorf("vault not found")
+	if err := ensureVaultExists(ctx, client, repo); err != nil {
+		if errors.Is(err, errVaultCreationCancelled) {
+			return nil
 		}
+		return err
 	}
 
 	// Get all projects from provider
 	providerDisplayName := cases.Title(language.English).String(provider)
-	allProjects, connections, err := client.GetAllProviderProjects(ctx, provider)
-
-	// Check if not connected (either error or empty connections)
-	notConnected := err != nil && (strings.Contains(err.Error(), "not connected") || strings.Contains(err.Error(), "no connections"))
-	notConnected = notConnected || (err == nil && len(connections) == 0)
-
-	if notConnected {
-		ui.Warn(fmt.Sprintf("Not connected to %s.", providerDisplayName))
-
-		if ui.IsInteractive() {
-			shouldConnect, _ := ui.Confirm(fmt.Sprintf("Connect to %s now?", providerDisplayName), true)
-			if !shouldConnect {
-				return nil
-			}
-
-			err = RunConnectCommand(provider)
-			if err != nil {
-				return err
-			}
-
-			// Refresh projects
-			allProjects, connections, err = client.GetAllProviderProjects(ctx, provider)
-			if err != nil {
-				ui.Error("Failed to fetch projects after connecting")
-				return err
-			}
-		} else {
-			ui.Message(ui.Dim(fmt.Sprintf("Run `keyway connect %s` first.", provider)))
-			return fmt.Errorf("not connected to provider")
+	allProjects, connections, err := ensureProviderConnection(ctx, client, provider, providerDisplayName)
+	if err != nil {
+		if errors.Is(err, errConnectionCancelled) {
+			return nil
 		}
-	} else if err != nil {
-		ui.Error("Failed to fetch provider projects")
 		return err
 	}
 
@@ -358,95 +531,15 @@ func runSync(cmd *cobra.Command, args []string) error {
 	}
 
 	// Select project
-	var selectedProject ProjectWithLinkedRepo
-
-	if projectFlag != "" {
-		// Use specified project
-		var found bool
-		projectLower := strings.ToLower(projectFlag)
-		for _, p := range projects {
-			if p.ID == projectFlag ||
-				strings.ToLower(p.Name) == projectLower ||
-				(p.ServiceName != nil && strings.ToLower(*p.ServiceName) == projectLower) {
-				selectedProject = p
-				found = true
-				break
-			}
+	selectedProject, err := selectSyncProject(projects, projectFlag, repo, providerDisplayName, len(connections) > 1)
+	if err != nil {
+		if errors.Is(err, errProjectCancelled) {
+			return nil
 		}
-		if !found {
-			ui.Error(fmt.Sprintf("Project not found: %s", projectFlag))
-			ui.Message(ui.Dim("Available projects:"))
-			for _, p := range projects {
-				ui.Message(ui.Dim(fmt.Sprintf("  - %s", getProjectDisplayName(p))))
-			}
-			return fmt.Errorf("project not found")
-		}
-
-		if !projectMatchesRepo(selectedProject, repo) {
-			ui.Warn("Project does not match current repository")
-			yellow := color.New(color.FgYellow)
-			yellow.Printf("Current repo:      %s\n", repo)
-			yellow.Printf("Selected project:  %s\n", getProjectDisplayName(selectedProject))
-		}
-	} else {
-		// Auto-detect or prompt
-		match := findMatchingProject(projects, repo)
-
-		if match != nil && (match.MatchType == "linked_repo" || match.MatchType == "exact_name") {
-			selectedProject = match.Project
-			matchReason := "exact name match"
-			if match.MatchType == "linked_repo" {
-				matchReason = fmt.Sprintf("linked to %s", repo)
-			}
-			teamInfo := ""
-			if selectedProject.TeamName != nil {
-				teamInfo = ui.Dim(fmt.Sprintf(" (%s)", *selectedProject.TeamName))
-			}
-			ui.Success(fmt.Sprintf("Auto-selected project: %s%s (%s)", getProjectDisplayName(selectedProject), teamInfo, matchReason))
-		} else if match != nil && match.MatchType == "partial_name" {
-			displayName := getProjectDisplayName(match.Project)
-			ui.Info(fmt.Sprintf("Detected project: %s (partial match)", displayName))
-
-			useDetected, _ := ui.Confirm(fmt.Sprintf("Use %s?", displayName), true)
-			if useDetected {
-				selectedProject = match.Project
-			} else {
-				selected, err := promptProjectSelection(projects, repo, providerDisplayName, len(connections) > 1)
-				if err != nil {
-					return err
-				}
-				selectedProject = selected
-			}
-		} else if len(projects) == 1 {
-			selectedProject = projects[0]
-			if !projectMatchesRepo(selectedProject, repo) {
-				ui.Warn("Project does not match current repository")
-				yellow := color.New(color.FgYellow)
-				yellow.Printf("Current repo:      %s\n", repo)
-				yellow.Printf("Only project:      %s\n", getProjectDisplayName(selectedProject))
-
-				if ui.IsInteractive() {
-					continueAnyway, _ := ui.Confirm("Continue anyway?", false)
-					if !continueAnyway {
-						return nil
-					}
-				}
-			}
-		} else {
-			ui.Warn(fmt.Sprintf("No matching project found for %s", repo))
-			ui.Message(ui.Dim("Select a project manually:"))
-
-			selected, err := promptProjectSelection(projects, repo, providerDisplayName, len(connections) > 1)
-			if err != nil {
-				return err
-			}
-			selectedProject = selected
-		}
+		return err
 	}
 
 	// Determine environment and direction
-	keywayEnv := envFlag
-	providerEnv := providerEnvFlag
 	var direction string
 	if pushFlag {
 		direction = "push"
@@ -454,59 +547,12 @@ func runSync(cmd *cobra.Command, args []string) error {
 		direction = "pull"
 	}
 
-	needsEnvPrompt := keywayEnv == ""
+	keywayEnv, providerEnv, err := selectSyncEnvironments(ctx, client, repo, selectedProject, envFlag, providerEnvFlag, provider, providerDisplayName)
+	if err != nil {
+		return err
+	}
+
 	needsDirectionPrompt := direction == ""
-
-	if needsEnvPrompt && ui.IsInteractive() {
-		// Get available environments
-		vaultEnvs, err := client.GetVaultEnvironments(ctx, repo)
-		if err != nil || len(vaultEnvs) == 0 {
-			vaultEnvs = []string{"production", "staging", "development"}
-		}
-
-		selected, err := ui.Select("Keyway environment:", vaultEnvs)
-		if err != nil {
-			return err
-		}
-		keywayEnv = selected
-
-		// Auto-map provider environment if not specified
-		if providerEnv == "" {
-			if len(selectedProject.Environments) > 0 {
-				mapped := mapToProviderEnvironment(provider, keywayEnv)
-				// Check if mapped env exists
-				found := false
-				for _, e := range selectedProject.Environments {
-					if strings.EqualFold(e, mapped) {
-						providerEnv = mapped
-						found = true
-						break
-					}
-				}
-				if !found && len(selectedProject.Environments) > 1 {
-					// Multiple envs, ask user
-					selected, err := ui.Select(fmt.Sprintf("%s environment:", providerDisplayName), selectedProject.Environments)
-					if err != nil {
-						return err
-					}
-					providerEnv = selected
-				} else if !found {
-					providerEnv = selectedProject.Environments[0]
-					ui.Message(ui.Dim(fmt.Sprintf("Using %s environment: %s", providerDisplayName, providerEnv)))
-				}
-			} else {
-				providerEnv = mapToProviderEnvironment(provider, keywayEnv)
-			}
-		}
-	}
-
-	// Default values
-	if keywayEnv == "" {
-		keywayEnv = "production"
-	}
-	if providerEnv == "" {
-		providerEnv = mapToProviderEnvironment(provider, keywayEnv)
-	}
 
 	// Get diff and prompt for direction
 	var diff *api.SyncDiff

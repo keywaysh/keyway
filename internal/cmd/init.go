@@ -9,6 +9,7 @@ import (
 
 	"github.com/keywaysh/cli/internal/analytics"
 	"github.com/keywaysh/cli/internal/api"
+	"github.com/keywaysh/cli/internal/env"
 	"github.com/keywaysh/cli/internal/git"
 	"github.com/keywaysh/cli/internal/ui"
 	"github.com/pkg/browser"
@@ -158,7 +159,7 @@ vaultCreated:
 	}
 
 	// Check for env files and offer to push
-	candidates := discoverEnvFiles()
+	candidates := env.Discover()
 	if len(candidates) > 0 && ui.IsInteractive() {
 		ui.Message(ui.Dim(fmt.Sprintf("Found %d env file(s): %s", len(candidates), formatCandidates(candidates))))
 
@@ -287,10 +288,10 @@ func ensureLoginAndGitHubApp(repo string) (string, error) {
 	return token, nil
 }
 
-func formatCandidates(candidates []envCandidate) string {
+func formatCandidates(candidates []env.Candidate) string {
 	names := make([]string, len(candidates))
 	for i, c := range candidates {
-		names[i] = c.file
+		names[i] = c.File
 	}
 	return strings.Join(names, ", ")
 }

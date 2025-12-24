@@ -2,6 +2,8 @@ package cmd
 
 import (
 	"testing"
+
+	"github.com/keywaysh/cli/internal/env"
 )
 
 func TestFormatCandidates_Empty(t *testing.T) {
@@ -13,8 +15,8 @@ func TestFormatCandidates_Empty(t *testing.T) {
 }
 
 func TestFormatCandidates_Single(t *testing.T) {
-	candidates := []envCandidate{
-		{file: ".env", env: "development"},
+	candidates := []env.Candidate{
+		{File: ".env", Env: "development"},
 	}
 
 	result := formatCandidates(candidates)
@@ -25,10 +27,10 @@ func TestFormatCandidates_Single(t *testing.T) {
 }
 
 func TestFormatCandidates_Multiple(t *testing.T) {
-	candidates := []envCandidate{
-		{file: ".env", env: "development"},
-		{file: ".env.production", env: "production"},
-		{file: ".env.staging", env: "staging"},
+	candidates := []env.Candidate{
+		{File: ".env", Env: "development"},
+		{File: ".env.production", Env: "production"},
+		{File: ".env.staging", Env: "staging"},
 	}
 
 	result := formatCandidates(candidates)
@@ -40,8 +42,8 @@ func TestFormatCandidates_Multiple(t *testing.T) {
 }
 
 func TestFormatCandidates_OnlyProduction(t *testing.T) {
-	candidates := []envCandidate{
-		{file: ".env.production", env: "production"},
+	candidates := []env.Candidate{
+		{File: ".env.production", Env: "production"},
 	}
 
 	result := formatCandidates(candidates)
@@ -52,10 +54,10 @@ func TestFormatCandidates_OnlyProduction(t *testing.T) {
 }
 
 func TestFormatCandidates_VariousEnvFiles(t *testing.T) {
-	candidates := []envCandidate{
-		{file: ".env", env: "development"},
-		{file: ".env.test", env: "test"},
-		{file: ".env.development.local", env: "development.local"},
+	candidates := []env.Candidate{
+		{File: ".env", Env: "development"},
+		{File: ".env.test", Env: "test"},
+		{File: ".env.development.local", Env: "development.local"},
 	}
 
 	result := formatCandidates(candidates)

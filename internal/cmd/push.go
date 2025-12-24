@@ -4,11 +4,11 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/keywaysh/cli/internal/analytics"
 	"github.com/keywaysh/cli/internal/api"
+	"github.com/keywaysh/cli/internal/env"
 	"github.com/keywaysh/cli/internal/git"
 	"github.com/keywaysh/cli/internal/ui"
 	"github.com/spf13/cobra"
@@ -43,13 +43,13 @@ func runPush(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	env, _ := cmd.Flags().GetString("env")
+	envName, _ := cmd.Flags().GetString("env")
 	file, _ := cmd.Flags().GetString("file")
 	yes, _ := cmd.Flags().GetBool("yes")
 	envFlagSet := cmd.Flags().Changed("env")
 
 	// Discover env files
-	candidates := discoverEnvFiles()
+	candidates := env.Discover()
 
 	if len(candidates) == 0 && file == "" {
 		if !ui.IsInteractive() {
@@ -71,17 +71,17 @@ func runPush(cmd *cobra.Command, args []string) error {
 	if file == "" && ui.IsInteractive() && len(candidates) > 1 {
 		options := make([]string, len(candidates))
 		for i, c := range candidates {
-			options[i] = fmt.Sprintf("%s (env: %s)", c.file, c.env)
+			options[i] = fmt.Sprintf("%s (env: %s)", c.File, c.Env)
 		}
 		selected, err := ui.Select("Select an env file to push:", options)
 		if err != nil {
 			return err
 		}
 		for _, c := range candidates {
-			if strings.HasPrefix(selected, c.file) {
-				file = c.file
-				if env == "" {
-					env = c.env
+			if strings.HasPrefix(selected, c.File) {
+				file = c.File
+				if envName == "" {
+					envName = c.Env
 				}
 				break
 			}
@@ -91,16 +91,16 @@ func runPush(cmd *cobra.Command, args []string) error {
 	// Defaults
 	if file == "" {
 		if len(candidates) > 0 {
-			file = candidates[0].file
-			if env == "" {
-				env = candidates[0].env
+			file = candidates[0].File
+			if envName == "" {
+				envName = candidates[0].Env
 			}
 		} else {
 			file = ".env"
 		}
 	}
-	if env == "" {
-		env = deriveEnvFromFile(file)
+	if envName == "" {
+		envName = env.DeriveEnvFromFile(file)
 	}
 
 	// Read file
@@ -115,7 +115,7 @@ func runPush(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("file is empty")
 	}
 
-	secrets := parseEnvContent(string(content))
+	secrets := env.Parse(string(content))
 	if len(secrets) == 0 {
 		ui.Error("No valid environment variables found in file")
 		return fmt.Errorf("no variables found")
@@ -149,7 +149,7 @@ func runPush(cmd *cobra.Command, args []string) error {
 		}
 
 		// Find current env in list or add it
-		derivedEnv := env
+		derivedEnv := envName
 		found := false
 		for _, e := range vaultEnvs {
 			if e == derivedEnv {
@@ -175,15 +175,15 @@ func runPush(cmd *cobra.Command, args []string) error {
 		if err != nil {
 			return err
 		}
-		env = selected
+		envName = selected
 	}
 
-	ui.Step(fmt.Sprintf("Environment: %s", ui.Value(env)))
+	ui.Step(fmt.Sprintf("Environment: %s", ui.Value(envName)))
 
 	// Fetch current vault state to show preview
 	var vaultSecrets map[string]string
 	err = ui.Spin("Fetching current vault state...", func() error {
-		resp, err := client.PullSecrets(ctx, repo, env)
+		resp, err := client.PullSecrets(ctx, repo, envName)
 		if err != nil {
 			// Vault might not exist yet, that's ok
 			if apiErr, ok := err.(*api.APIError); ok && apiErr.StatusCode == 404 {
@@ -192,7 +192,7 @@ func runPush(cmd *cobra.Command, args []string) error {
 			}
 			return err
 		}
-		vaultSecrets = parseEnvContent(resp.Content)
+		vaultSecrets = env.Parse(resp.Content)
 		return nil
 	})
 
@@ -206,26 +206,26 @@ func runPush(cmd *cobra.Command, args []string) error {
 	}
 
 	// Calculate and show diff
-	diff := calculatePushDiff(secrets, vaultSecrets)
+	diff := env.CalculatePushDiff(secrets, vaultSecrets)
 
-	if diff.hasChanges() {
+	if diff.HasChanges() {
 		// Show additions and updates
-		if len(diff.added) > 0 || len(diff.changed) > 0 {
+		if len(diff.Added) > 0 || len(diff.Changed) > 0 {
 			ui.Message("")
 			ui.Message("Will be pushed to vault:")
-			for _, key := range diff.added {
+			for _, key := range diff.Added {
 				ui.DiffAdded(key)
 			}
-			for _, key := range diff.changed {
+			for _, key := range diff.Changed {
 				ui.DiffChanged(key)
 			}
 		}
 
 		// Show removals separately (soft-delete to trash)
-		if len(diff.removed) > 0 {
+		if len(diff.Removed) > 0 {
 			ui.Message("")
 			ui.Message("Will be moved to trash (not in local file):")
-			for _, key := range diff.removed {
+			for _, key := range diff.Removed {
 				ui.DiffRemoved(key)
 			}
 		}
@@ -248,14 +248,14 @@ func runPush(cmd *cobra.Command, args []string) error {
 	// Track push event
 	analytics.Track(analytics.EventPush, map[string]interface{}{
 		"repoFullName":  repo,
-		"environment":   env,
+		"environment":   envName,
 		"variableCount": len(secrets),
 	})
 
 	var resp *api.PushSecretsResponse
 	err = ui.Spin("Uploading secrets...", func() error {
 		var err error
-		resp, err = client.PushSecrets(ctx, repo, env, secrets)
+		resp, err = client.PushSecrets(ctx, repo, envName, secrets)
 		return err
 	})
 
@@ -300,110 +300,4 @@ func runPush(cmd *cobra.Command, args []string) error {
 	ui.Outro(fmt.Sprintf("Dashboard: %s", ui.Link(dashboardURL)))
 
 	return nil
-}
-
-type envCandidate struct {
-	file string
-	env  string
-}
-
-func discoverEnvFiles() []envCandidate {
-	entries, err := os.ReadDir(".")
-	if err != nil {
-		return nil
-	}
-
-	// Template files to exclude (not real secrets)
-	excludeFiles := map[string]bool{
-		".env.local":    true, // Local overrides
-		".env.example":  true, // Template files
-		".env.sample":   true,
-		".env.template": true,
-	}
-
-	var candidates []envCandidate
-	for _, entry := range entries {
-		name := entry.Name()
-		if strings.HasPrefix(name, ".env") && !excludeFiles[name] && !entry.IsDir() {
-			candidates = append(candidates, envCandidate{
-				file: name,
-				env:  deriveEnvFromFile(name),
-			})
-		}
-	}
-	return candidates
-}
-
-func deriveEnvFromFile(file string) string {
-	base := filepath.Base(file)
-	if base == ".env" {
-		return "development"
-	}
-	if strings.HasPrefix(base, ".env.") {
-		return strings.TrimPrefix(base, ".env.")
-	}
-	return "development"
-}
-
-func parseEnvContent(content string) map[string]string {
-	result := make(map[string]string)
-	for _, line := range strings.Split(content, "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
-		}
-		idx := strings.Index(line, "=")
-		if idx == -1 {
-			continue
-		}
-		key := strings.TrimSpace(line[:idx])
-		value := line[idx+1:]
-
-		// Remove surrounding quotes
-		if len(value) >= 2 {
-			if (value[0] == '"' && value[len(value)-1] == '"') ||
-				(value[0] == '\'' && value[len(value)-1] == '\'') {
-				value = value[1 : len(value)-1]
-			}
-		}
-
-		if key != "" {
-			result[key] = value
-		}
-	}
-	return result
-}
-
-type pushDiff struct {
-	added   []string // in local, not in vault (will be created)
-	changed []string // in both, different values (will be updated)
-	removed []string // in vault, not in local (will be deleted)
-}
-
-func (d *pushDiff) hasChanges() bool {
-	return len(d.added) > 0 || len(d.changed) > 0 || len(d.removed) > 0
-}
-
-func calculatePushDiff(local, vault map[string]string) *pushDiff {
-	diff := &pushDiff{}
-
-	// Check local secrets against vault
-	for key, localVal := range local {
-		if vaultVal, exists := vault[key]; exists {
-			if localVal != vaultVal {
-				diff.changed = append(diff.changed, key)
-			}
-		} else {
-			diff.added = append(diff.added, key)
-		}
-	}
-
-	// Find vault-only secrets (will be removed)
-	for key := range vault {
-		if _, exists := local[key]; !exists {
-			diff.removed = append(diff.removed, key)
-		}
-	}
-
-	return diff
 }

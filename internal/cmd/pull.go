@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/keywaysh/cli/internal/analytics"
 	"github.com/keywaysh/cli/internal/api"
+	"github.com/keywaysh/cli/internal/env"
 	"github.com/keywaysh/cli/internal/git"
 	"github.com/keywaysh/cli/internal/ui"
 	"github.com/spf13/cobra"
@@ -44,7 +44,7 @@ func runPull(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	env, _ := cmd.Flags().GetString("env")
+	envName, _ := cmd.Flags().GetString("env")
 	file, _ := cmd.Flags().GetString("file")
 	yes, _ := cmd.Flags().GetBool("yes")
 	force, _ := cmd.Flags().GetBool("force")
@@ -92,20 +92,20 @@ func runPull(cmd *cobra.Command, args []string) error {
 		if err != nil {
 			return err
 		}
-		env = selected
+		envName = selected
 	}
 
-	ui.Step(fmt.Sprintf("Environment: %s", ui.Value(env)))
+	ui.Step(fmt.Sprintf("Environment: %s", ui.Value(envName)))
 
 	// Track pull event
 	analytics.Track(analytics.EventPull, map[string]interface{}{
 		"repoFullName": repo,
-		"environment":  env,
+		"environment":  envName,
 	})
 
 	var vaultContent string
 	err = ui.Spin("Downloading secrets...", func() error {
-		resp, err := client.PullSecrets(ctx, repo, env)
+		resp, err := client.PullSecrets(ctx, repo, envName)
 		if err != nil {
 			return err
 		}
@@ -133,11 +133,11 @@ func runPull(cmd *cobra.Command, args []string) error {
 	if ui.IsInteractive() {
 		ui.Message("")
 		ui.Message(fmt.Sprintf("%s %s", ui.Bold("💡 Tip:"), "To avoid writing secrets to disk (safer for AI agents), use:"))
-		ui.Message(fmt.Sprintf("   %s", ui.Command(fmt.Sprintf("keyway run --env %s -- <command>", env))))
+		ui.Message(fmt.Sprintf("   %s", ui.Command(fmt.Sprintf("keyway run --env %s -- <command>", envName))))
 		ui.Message("")
 	}
 
-	vaultSecrets := parseEnvContent(vaultContent)
+	vaultSecrets := env.Parse(vaultContent)
 	envFilePath := filepath.Join(".", file)
 
 	// Read existing local file if it exists
@@ -145,39 +145,39 @@ func runPull(cmd *cobra.Command, args []string) error {
 	localExists := false
 	if data, err := os.ReadFile(envFilePath); err == nil {
 		localExists = true
-		localSecrets = parseEnvContent(string(data))
+		localSecrets = env.Parse(string(data))
 	} else {
 		localSecrets = make(map[string]string)
 	}
 
 	// Calculate diff
-	diff := calculateDiff(localSecrets, vaultSecrets)
+	diff := env.CalculatePullDiff(localSecrets, vaultSecrets)
 
 	// Show diff if there are changes and file exists
-	if localExists && diff.hasChanges() {
+	if localExists && diff.HasChanges() {
 		// Show vault changes (added/changed)
-		if len(diff.added) > 0 || len(diff.changed) > 0 {
+		if len(diff.Added) > 0 || len(diff.Changed) > 0 {
 			ui.Message("")
 			ui.Message("Changes from vault:")
-			for _, key := range diff.added {
+			for _, key := range diff.Added {
 				ui.DiffAdded(key)
 			}
-			for _, key := range diff.changed {
+			for _, key := range diff.Changed {
 				ui.DiffChanged(key)
 			}
 		}
 
 		// Show local-only variables
-		if len(diff.localOnly) > 0 {
+		if len(diff.LocalOnly) > 0 {
 			ui.Message("")
 			if !force {
 				ui.Message("Not in vault (will be preserved):")
-				for _, key := range diff.localOnly {
+				for _, key := range diff.LocalOnly {
 					ui.DiffKept(key)
 				}
 			} else {
 				ui.Message("Not in vault (will be removed):")
-				for _, key := range diff.localOnly {
+				for _, key := range diff.LocalOnly {
 					ui.DiffRemoved(key)
 				}
 			}
@@ -211,7 +211,7 @@ func runPull(cmd *cobra.Command, args []string) error {
 		finalContent = vaultContent
 	} else {
 		// Merge mode: start with vault secrets, add local-only secrets
-		finalContent = mergeSecrets(vaultContent, localSecrets, vaultSecrets)
+		finalContent = env.Merge(vaultContent, localSecrets, vaultSecrets)
 	}
 
 	// Write file with restricted permissions
@@ -220,89 +220,15 @@ func runPull(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	lines := countEnvLines(finalContent)
+	lines := env.CountLines(finalContent)
 	ui.Success(fmt.Sprintf("Secrets downloaded to %s", ui.File(file)))
 	ui.Message(fmt.Sprintf("Variables: %s", ui.Value(lines)))
 
-	if !force && len(diff.localOnly) > 0 {
-		ui.Message(fmt.Sprintf("Kept %s local-only variables", ui.Value(len(diff.localOnly))))
+	if !force && len(diff.LocalOnly) > 0 {
+		ui.Message(fmt.Sprintf("Kept %s local-only variables", ui.Value(len(diff.LocalOnly))))
 	}
 
 	ui.Outro("Secrets synced!")
 
 	return nil
-}
-
-type secretsDiff struct {
-	added     []string // in vault, not in local
-	changed   []string // in both, different values
-	localOnly []string // in local, not in vault
-	unchanged []string // in both, same values
-}
-
-func (d *secretsDiff) hasChanges() bool {
-	return len(d.added) > 0 || len(d.changed) > 0 || len(d.localOnly) > 0
-}
-
-func calculateDiff(local, vault map[string]string) *secretsDiff {
-	diff := &secretsDiff{}
-
-	// Check vault secrets against local
-	for key, vaultVal := range vault {
-		if localVal, exists := local[key]; exists {
-			if localVal != vaultVal {
-				diff.changed = append(diff.changed, key)
-			} else {
-				diff.unchanged = append(diff.unchanged, key)
-			}
-		} else {
-			diff.added = append(diff.added, key)
-		}
-	}
-
-	// Find local-only secrets
-	for key := range local {
-		if _, exists := vault[key]; !exists {
-			diff.localOnly = append(diff.localOnly, key)
-		}
-	}
-
-	return diff
-}
-
-func mergeSecrets(vaultContent string, local, vault map[string]string) string {
-	// Start with vault content
-	result := strings.TrimRight(vaultContent, "\n")
-
-	// Find local-only secrets and append them
-	var localOnlyLines []string
-	for key, value := range local {
-		if _, exists := vault[key]; !exists {
-			// Preserve the original format
-			localOnlyLines = append(localOnlyLines, fmt.Sprintf("%s=%s", key, value))
-		}
-	}
-
-	if len(localOnlyLines) > 0 {
-		result += "\n\n# Local variables (not in vault)\n"
-		for _, line := range localOnlyLines {
-			result += line + "\n"
-		}
-	} else {
-		result += "\n"
-	}
-
-	return result
-}
-
-// countEnvLines counts non-empty, non-comment lines in env content
-func countEnvLines(content string) int {
-	count := 0
-	for _, line := range strings.Split(content, "\n") {
-		line = strings.TrimSpace(line)
-		if line != "" && !strings.HasPrefix(line, "#") {
-			count++
-		}
-	}
-	return count
 }

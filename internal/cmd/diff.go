@@ -9,6 +9,7 @@ import (
 	"github.com/fatih/color"
 	"github.com/keywaysh/cli/internal/analytics"
 	"github.com/keywaysh/cli/internal/api"
+	"github.com/keywaysh/cli/internal/env"
 	"github.com/keywaysh/cli/internal/git"
 	"github.com/keywaysh/cli/internal/ui"
 	"github.com/spf13/cobra"
@@ -163,14 +164,14 @@ func runDiff(cmd *cobra.Command, args []string) error {
 		if err != nil {
 			pullErr1 = err
 		} else {
-			secrets1 = parseEnvContent(resp1.Content)
+			secrets1 = env.Parse(resp1.Content)
 		}
 
 		resp2, err := client.PullSecrets(ctx, repo, env2)
 		if err != nil {
 			pullErr2 = err
 		} else {
-			secrets2 = parseEnvContent(resp2.Content)
+			secrets2 = env.Parse(resp2.Content)
 		}
 
 		return nil
@@ -231,8 +232,6 @@ func normalizeEnvName(env string) string {
 		return env
 	}
 }
-
-// parseEnvContent is defined in push.go and reused here
 
 func compareSecrets(env1, env2 string, secrets1, secrets2 map[string]string, includeValues bool) *DiffResult {
 	result := &DiffResult{

@@ -2,6 +2,8 @@ package cmd
 
 import (
 	"testing"
+
+	"github.com/keywaysh/cli/internal/env"
 )
 
 func TestCountEnvLines_SimpleContent(t *testing.T) {
@@ -9,10 +11,10 @@ func TestCountEnvLines_SimpleContent(t *testing.T) {
 DB_HOST=localhost
 DB_PORT=5432`
 
-	result := countEnvLines(content)
+	result := env.CountLines(content)
 
 	if result != 3 {
-		t.Errorf("countEnvLines() = %d, want 3", result)
+		t.Errorf("CountLines() = %d, want 3", result)
 	}
 }
 
@@ -22,10 +24,10 @@ API_KEY=secret123
 # Another comment
 DB_HOST=localhost`
 
-	result := countEnvLines(content)
+	result := env.CountLines(content)
 
 	if result != 2 {
-		t.Errorf("countEnvLines() = %d, want 2 (comments should be excluded)", result)
+		t.Errorf("CountLines() = %d, want 2 (comments should be excluded)", result)
 	}
 }
 
@@ -38,18 +40,18 @@ DB_PORT=5432
 
 `
 
-	result := countEnvLines(content)
+	result := env.CountLines(content)
 
 	if result != 3 {
-		t.Errorf("countEnvLines() = %d, want 3 (empty lines should be excluded)", result)
+		t.Errorf("CountLines() = %d, want 3 (empty lines should be excluded)", result)
 	}
 }
 
 func TestCountEnvLines_EmptyContent(t *testing.T) {
-	result := countEnvLines("")
+	result := env.CountLines("")
 
 	if result != 0 {
-		t.Errorf("countEnvLines(\"\") = %d, want 0", result)
+		t.Errorf("CountLines(\"\") = %d, want 0", result)
 	}
 }
 
@@ -58,10 +60,10 @@ func TestCountEnvLines_OnlyComments(t *testing.T) {
 # Comment 2
 # Comment 3`
 
-	result := countEnvLines(content)
+	result := env.CountLines(content)
 
 	if result != 0 {
-		t.Errorf("countEnvLines() = %d, want 0 (only comments)", result)
+		t.Errorf("CountLines() = %d, want 0 (only comments)", result)
 	}
 }
 
@@ -70,10 +72,10 @@ func TestCountEnvLines_WhitespaceOnly(t *testing.T) {
 
   `
 
-	result := countEnvLines(content)
+	result := env.CountLines(content)
 
 	if result != 0 {
-		t.Errorf("countEnvLines() = %d, want 0 (whitespace only)", result)
+		t.Errorf("CountLines() = %d, want 0 (whitespace only)", result)
 	}
 }
 
@@ -88,22 +90,22 @@ STRIPE_KEY=sk_test_123
 # Empty value is still a line
 EMPTY_VAR=`
 
-	result := countEnvLines(content)
+	result := env.CountLines(content)
 
 	if result != 4 {
-		t.Errorf("countEnvLines() = %d, want 4", result)
+		t.Errorf("CountLines() = %d, want 4", result)
 	}
 }
 
 func TestCountEnvLines_WindowsLineEndings(t *testing.T) {
 	content := "API_KEY=secret123\r\nDB_HOST=localhost\r\nDB_PORT=5432"
 
-	result := countEnvLines(content)
+	result := env.CountLines(content)
 
 	// Note: Windows line endings may be handled differently
 	// The trimming should handle \r
 	if result < 1 {
-		t.Errorf("countEnvLines() = %d, should handle Windows line endings", result)
+		t.Errorf("CountLines() = %d, should handle Windows line endings", result)
 	}
 }
 
@@ -111,10 +113,10 @@ func TestCountEnvLines_IndentedLines(t *testing.T) {
 	content := `  API_KEY=secret123
 		DB_HOST=localhost`
 
-	result := countEnvLines(content)
+	result := env.CountLines(content)
 
 	if result != 2 {
-		t.Errorf("countEnvLines() = %d, want 2 (indented lines should be counted)", result)
+		t.Errorf("CountLines() = %d, want 2 (indented lines should be counted)", result)
 	}
 }
 
@@ -123,9 +125,9 @@ func TestCountEnvLines_CommentAfterHash(t *testing.T) {
   # This is indented comment
 DB_HOST=localhost`
 
-	result := countEnvLines(content)
+	result := env.CountLines(content)
 
 	if result != 2 {
-		t.Errorf("countEnvLines() = %d, want 2 (indented comments should be excluded)", result)
+		t.Errorf("CountLines() = %d, want 2 (indented comments should be excluded)", result)
 	}
 }

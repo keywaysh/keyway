@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/keywaysh/cli/internal/api"
+	"github.com/keywaysh/cli/internal/env"
 	"github.com/keywaysh/cli/internal/git"
 	"github.com/keywaysh/cli/internal/injector"
 	"github.com/keywaysh/cli/internal/ui"
@@ -59,7 +60,7 @@ func runRun(cmd *cobra.Command, args []string) error {
 	ctx := context.Background()
 
 	// 4. Determine Environment
-	env, _ := cmd.Flags().GetString("env")
+	envName, _ := cmd.Flags().GetString("env")
 	envFlagSet := cmd.Flags().Changed("env")
 
 	if !envFlagSet && ui.IsInteractive() {
@@ -87,15 +88,15 @@ func runRun(cmd *cobra.Command, args []string) error {
 		if err != nil {
 			return err
 		}
-		env = selected
+		envName = selected
 	}
 
-	ui.Step(fmt.Sprintf("Environment: %s", ui.Value(env)))
+	ui.Step(fmt.Sprintf("Environment: %s", ui.Value(envName)))
 
 	// 5. Fetch Secrets
 	var vaultContent string
 	err = ui.Spin("Fetching secrets...", func() error {
-		resp, err := client.PullSecrets(ctx, repo, env)
+		resp, err := client.PullSecrets(ctx, repo, envName)
 		if err != nil {
 			return err
 		}
@@ -113,7 +114,7 @@ func runRun(cmd *cobra.Command, args []string) error {
 	}
 
 	// 6. Parse Secrets
-	secrets := parseEnvContent(vaultContent)
+	secrets := env.Parse(vaultContent)
 	ui.Success(fmt.Sprintf("Injected %d secrets", len(secrets)))
 
 	// 7. Execute Command
