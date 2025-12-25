@@ -370,3 +370,201 @@ export async function getSecretAccessHistory(
     total: countResult?.count ?? 0,
   };
 }
+
+// ============ GLOBAL USER EXPOSURE ============
+
+/**
+ * Get exposure summary for all vaults owned by a user (global view)
+ */
+export async function getExposureForUserGlobal(
+  ownerId: string,
+  options?: {
+    startDate?: Date;
+    endDate?: Date;
+    limit?: number;
+    offset?: number;
+  }
+): Promise<ExposureOrgSummary> {
+  // Get all vaults owned by user
+  const userVaults = await db.query.vaults.findMany({
+    where: eq(vaults.ownerId, ownerId),
+    columns: { id: true },
+  });
+  const vaultIds = userVaults.map(v => v.id);
+
+  if (vaultIds.length === 0) {
+    return {
+      summary: { users: 0, secrets: 0, accesses: 0 },
+      users: [],
+    };
+  }
+
+  // Build where conditions
+  const conditions = [inArray(secretAccesses.vaultId, vaultIds)];
+
+  if (options?.startDate) {
+    conditions.push(gte(secretAccesses.lastAccessedAt, options.startDate));
+  }
+  if (options?.endDate) {
+    conditions.push(lte(secretAccesses.lastAccessedAt, options.endDate));
+  }
+
+  const whereClause = and(...conditions);
+
+  // Get unique users with their access stats
+  const userStats = await db
+    .select({
+      username: secretAccesses.username,
+      userId: secretAccesses.userId,
+      userAvatarUrl: secretAccesses.userAvatarUrl,
+      secretCount: count(secretAccesses.id),
+      lastAccess: sql<Date>`MAX(${secretAccesses.lastAccessedAt})`.as('last_access'),
+    })
+    .from(secretAccesses)
+    .where(whereClause)
+    .groupBy(
+      secretAccesses.username,
+      secretAccesses.userId,
+      secretAccesses.userAvatarUrl
+    )
+    .orderBy(desc(sql`MAX(${secretAccesses.lastAccessedAt})`))
+    .limit(options?.limit ?? 100)
+    .offset(options?.offset ?? 0);
+
+  // Get vault counts per user
+  const userVaultCounts = await db
+    .select({
+      username: secretAccesses.username,
+      vaultCount: sql<number>`COUNT(DISTINCT ${secretAccesses.vaultId})`.as('vault_count'),
+    })
+    .from(secretAccesses)
+    .where(whereClause)
+    .groupBy(secretAccesses.username);
+
+  const vaultCountMap = new Map(
+    userVaultCounts.map(u => [u.username, Number(u.vaultCount)])
+  );
+
+  // Get total counts
+  const [totals] = await db
+    .select({
+      users: sql<number>`COUNT(DISTINCT ${secretAccesses.username})`.as('users'),
+      secrets: sql<number>`COUNT(DISTINCT ${secretAccesses.secretId})`.as('secrets'),
+      accesses: sql<number>`SUM(${secretAccesses.accessCount})`.as('accesses'),
+    })
+    .from(secretAccesses)
+    .where(whereClause);
+
+  const usersResult: ExposureUserSummary[] = userStats.map(stat => ({
+    user: {
+      id: stat.userId,
+      username: stat.username,
+      avatarUrl: stat.userAvatarUrl,
+    },
+    secretsAccessed: Number(stat.secretCount),
+    vaultsAccessed: vaultCountMap.get(stat.username) ?? 0,
+    lastAccess: stat.lastAccess instanceof Date
+      ? stat.lastAccess.toISOString()
+      : new Date(stat.lastAccess).toISOString(),
+  }));
+
+  return {
+    summary: {
+      users: Number(totals?.users ?? 0),
+      secrets: Number(totals?.secrets ?? 0),
+      accesses: Number(totals?.accesses ?? 0),
+    },
+    users: usersResult,
+  };
+}
+
+/**
+ * Get exposure report for a specific user across all vaults owned by the requester
+ */
+export async function getExposureForUserByUsername(
+  ownerId: string,
+  targetUsername: string
+): Promise<ExposureUserReport | null> {
+  // Get all vaults owned by user
+  const userVaults = await db.query.vaults.findMany({
+    where: eq(vaults.ownerId, ownerId),
+    columns: { id: true, repoFullName: true },
+  });
+  const vaultIds = userVaults.map(v => v.id);
+
+  if (vaultIds.length === 0) {
+    return null;
+  }
+
+  // Get all accesses for this username in user's vaults
+  const accesses = await db.query.secretAccesses.findMany({
+    where: and(
+      eq(secretAccesses.username, targetUsername),
+      inArray(secretAccesses.vaultId, vaultIds)
+    ),
+    orderBy: [desc(secretAccesses.lastAccessedAt)],
+  });
+
+  if (accesses.length === 0) {
+    return null;
+  }
+
+  // Get user info from first access
+  const firstAccess = accesses[0];
+
+  // Group by vault
+  const vaultMap = new Map<string, ExposureSecretDetail[]>();
+  let firstAccessDate: Date | null = null;
+  let lastAccessDate: Date | null = null;
+
+  for (const access of accesses) {
+    const vaultKey = access.repoFullName;
+    if (!vaultMap.has(vaultKey)) {
+      vaultMap.set(vaultKey, []);
+    }
+
+    vaultMap.get(vaultKey)!.push({
+      secretId: access.secretId,
+      key: access.secretKey,
+      environment: access.environment,
+      roleAtAccess: access.githubRole,
+      firstAccess: access.firstAccessedAt.toISOString(),
+      lastAccess: access.lastAccessedAt.toISOString(),
+      accessCount: access.accessCount,
+    });
+
+    // Track date range
+    if (!firstAccessDate || access.firstAccessedAt < firstAccessDate) {
+      firstAccessDate = access.firstAccessedAt;
+    }
+    if (!lastAccessDate || access.lastAccessedAt > lastAccessDate) {
+      lastAccessDate = access.lastAccessedAt;
+    }
+  }
+
+  const vaultGroups: ExposureVaultGroup[] = Array.from(vaultMap.entries()).map(
+    ([repoFullName, secrets]) => {
+      const vaultAccess = accesses.find(a => a.repoFullName === repoFullName);
+      return {
+        vaultId: vaultAccess?.vaultId || null,
+        repoFullName,
+        secrets,
+      };
+    }
+  );
+
+  return {
+    user: {
+      id: firstAccess.userId,
+      username: firstAccess.username,
+      avatarUrl: firstAccess.userAvatarUrl,
+    },
+    summary: {
+      totalSecretsAccessed: accesses.length,
+      totalVaultsAccessed: vaultMap.size,
+      firstAccess: firstAccessDate?.toISOString() || null,
+      lastAccess: lastAccessDate?.toISOString() || null,
+    },
+    vaults: vaultGroups,
+  };
+}

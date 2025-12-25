@@ -1,6 +1,6 @@
-import { db, organizations } from '../db';
-import { eq } from 'drizzle-orm';
-import type { Organization } from '../db/schema';
+import { db, organizations, organizationMembers, users } from '../db';
+import { eq, and } from 'drizzle-orm';
+import type { Organization, UserPlan } from '../db/schema';
 import { logActivity } from './activity.service';
 import type { ActivityPlatform } from '../db/schema';
 
@@ -338,4 +338,51 @@ export function getEffectivePlanWithTrial(org: Organization): 'free' | 'pro' | '
     default:
       return org.plan;
   }
+}
+
+// ============================================================================
+// Effective Plan for User (across all their orgs)
+// ============================================================================
+
+/**
+ * Get the effective plan for a user considering:
+ * - User's personal plan
+ * - Any organization where user is owner with Team plan
+ *
+ * Returns 'team' if user has access to team features via any path
+ */
+export async function getEffectivePlanForUser(userId: string): Promise<UserPlan> {
+  // Get user's personal plan
+  const user = await db.query.users.findFirst({
+    where: eq(users.id, userId),
+    columns: { plan: true },
+  });
+
+  // If user has team plan personally, return it
+  if (user?.plan === 'team') {
+    return 'team';
+  }
+
+  // Check if user is owner of any org with effective team plan
+  const ownedOrgs = await db.query.organizationMembers.findMany({
+    where: and(
+      eq(organizationMembers.userId, userId),
+      eq(organizationMembers.orgRole, 'owner')
+    ),
+    with: {
+      organization: true,
+    },
+  });
+
+  for (const membership of ownedOrgs) {
+    if (membership.organization) {
+      const effectivePlan = getEffectivePlanWithTrial(membership.organization);
+      if (effectivePlan === 'team') {
+        return 'team';
+      }
+    }
+  }
+
+  // Fall back to user's personal plan
+  return user?.plan ?? 'free';
 }

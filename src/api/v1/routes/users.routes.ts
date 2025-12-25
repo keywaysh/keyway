@@ -2,16 +2,23 @@ import { FastifyInstance } from 'fastify';
 import { authenticateGitHub } from '../../../middleware/auth';
 import { db, users } from '../../../db';
 import { eq, and } from 'drizzle-orm';
-import { sendData } from '../../../lib';
+import { sendData, ForbiddenError } from '../../../lib';
 import { getUserUsageResponse } from '../../../services';
 import { getPlanLimits, formatLimit } from '../../../config/plans';
-import { getSecurityAlertsForUser } from '../../../services/security.service';
+import { getSecurityAlertsForUser, getSecurityOverview, getAccessLog } from '../../../services/security.service';
+import { getExposureForUserGlobal, getExposureForUserByUsername } from '../../../services/exposure.service';
+import { getEffectivePlanForUser } from '../../../services/trial.service';
+import { PlanLimitError } from '../../../lib';
 
 /**
  * User routes
  * GET /api/v1/users/me - Get current user profile
  * GET /api/v1/users/me/usage - Get current user usage and plan limits
+ * GET /api/v1/users/me/security/overview - Get security overview dashboard
  * GET /api/v1/users/me/security/alerts - Get security alerts across all user's vaults
+ * GET /api/v1/users/me/security/access-log - Get access log (pull events)
+ * GET /api/v1/users/me/exposure - Get global exposure summary (Team plan)
+ * GET /api/v1/users/me/exposure/:username - Get exposure for a specific user (Team plan)
  */
 export async function usersRoutes(fastify: FastifyInstance) {
   /**
@@ -136,5 +143,134 @@ export async function usersRoutes(fastify: FastifyInstance) {
         deviceId: a.pullEvent.deviceId,
       } : null,
     })), { requestId: request.id });
+  });
+
+  /**
+   * GET /me/security/overview
+   * Return the security overview dashboard with aggregated stats
+   */
+  fastify.get('/me/security/overview', {
+    preHandler: [authenticateGitHub],
+  }, async (request, reply) => {
+    const vcsUser = request.vcsUser || request.githubUser!;
+
+    const user = await db.query.users.findFirst({
+      where: and(
+        eq(users.forgeType, vcsUser.forgeType),
+        eq(users.forgeUserId, vcsUser.forgeUserId)
+      ),
+    });
+
+    if (!user) {
+      return sendData(reply, {
+        alerts: { total: 0, critical: 0, warning: 0, last7Days: 0, last30Days: 0 },
+        access: { uniqueUsers: 0, totalPulls: 0, last7Days: 0, topVaults: [], topUsers: [] },
+        exposure: { usersWithAccess: 0, secretsAccessed: 0, lastAccessAt: null },
+      }, { requestId: request.id });
+    }
+
+    const overview = await getSecurityOverview(user.id);
+    return sendData(reply, overview, { requestId: request.id });
+  });
+
+  /**
+   * GET /me/security/access-log
+   * Return paginated access log (pull events)
+   */
+  fastify.get('/me/security/access-log', {
+    preHandler: [authenticateGitHub],
+  }, async (request, reply) => {
+    const vcsUser = request.vcsUser || request.githubUser!;
+    const query = request.query as { limit?: string; offset?: string; vaultId?: string };
+    const limit = Math.min(parseInt(query.limit || '50', 10), 100);
+    const offset = parseInt(query.offset || '0', 10);
+    const vaultId = query.vaultId || undefined;
+
+    const user = await db.query.users.findFirst({
+      where: and(
+        eq(users.forgeType, vcsUser.forgeType),
+        eq(users.forgeUserId, vcsUser.forgeUserId)
+      ),
+    });
+
+    if (!user) {
+      return sendData(reply, { events: [], total: 0 }, { requestId: request.id });
+    }
+
+    const accessLog = await getAccessLog(user.id, { limit, offset, vaultId });
+    return sendData(reply, accessLog, { requestId: request.id });
+  });
+
+  /**
+   * GET /me/exposure
+   * Return global exposure summary (Team plan only)
+   */
+  fastify.get('/me/exposure', {
+    preHandler: [authenticateGitHub],
+  }, async (request, reply) => {
+    const vcsUser = request.vcsUser || request.githubUser!;
+    const query = request.query as {
+      startDate?: string;
+      endDate?: string;
+      limit?: string;
+      offset?: string;
+    };
+
+    const user = await db.query.users.findFirst({
+      where: and(
+        eq(users.forgeType, vcsUser.forgeType),
+        eq(users.forgeUserId, vcsUser.forgeUserId)
+      ),
+    });
+
+    if (!user) {
+      throw new ForbiddenError('User not found');
+    }
+
+    // Check Team plan
+    const effectivePlan = await getEffectivePlanForUser(user.id);
+    if (effectivePlan !== 'team') {
+      throw new PlanLimitError('Exposure reports require a Team plan. Upgrade to track which secrets your team members have accessed.');
+    }
+
+    const exposure = await getExposureForUserGlobal(user.id, {
+      startDate: query.startDate ? new Date(query.startDate) : undefined,
+      endDate: query.endDate ? new Date(query.endDate) : undefined,
+      limit: query.limit ? parseInt(query.limit, 10) : 100,
+      offset: query.offset ? parseInt(query.offset, 10) : 0,
+    });
+
+    return sendData(reply, exposure, { requestId: request.id });
+  });
+
+  /**
+   * GET /me/exposure/:username
+   * Return exposure for a specific user (Team plan only)
+   */
+  fastify.get<{ Params: { username: string } }>('/me/exposure/:username', {
+    preHandler: [authenticateGitHub],
+  }, async (request, reply) => {
+    const { username } = request.params;
+    const vcsUser = request.vcsUser || request.githubUser!;
+
+    const user = await db.query.users.findFirst({
+      where: and(
+        eq(users.forgeType, vcsUser.forgeType),
+        eq(users.forgeUserId, vcsUser.forgeUserId)
+      ),
+    });
+
+    if (!user) {
+      throw new ForbiddenError('User not found');
+    }
+
+    // Check Team plan
+    const effectivePlan = await getEffectivePlanForUser(user.id);
+    if (effectivePlan !== 'team') {
+      throw new PlanLimitError('Exposure reports require a Team plan. Upgrade to track which secrets your team members have accessed.');
+    }
+
+    const exposure = await getExposureForUserByUsername(user.id, username);
+    return sendData(reply, exposure, { requestId: request.id });
   });
 }
