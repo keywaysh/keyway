@@ -1,5 +1,5 @@
 import crypto from 'crypto';
-import { db, pullEvents, securityAlerts, users, vaults, secretAccesses } from '../db';
+import { db, pullEvents, securityAlerts, users, vaults, secretAccesses, activityLogs } from '../db';
 import { eq, and, desc, gte, isNotNull, count, inArray, sql } from 'drizzle-orm';
 import type { SecurityAlertType } from '../db/schema';
 import { config } from '../config';
@@ -413,15 +413,23 @@ export async function getSecurityOverview(userId: string): Promise<SecurityOverv
 
 // ============ ACCESS LOG ============
 
+export type AccessLogAction = 'pull' | 'view' | 'view_version';
+
 export interface AccessLogEvent {
   id: string;
   timestamp: string;
+  action: AccessLogAction;
   user: { username: string; avatarUrl: string | null } | null;
   vault: { repoFullName: string } | null;
   ip: string;
   location: { country: string | null; city: string | null };
   deviceId: string;
   hasAlert: boolean;
+  metadata?: {
+    secretKey?: string;
+    environment?: string;
+    platform?: string;
+  };
 }
 
 export interface AccessLogResponse {
@@ -456,17 +464,26 @@ export async function getAccessLog(
     return { events: [], total: 0 };
   }
 
-  // Get total count
-  const [countResult] = await db.select({ count: count() })
+  // Get total count for pull events
+  const [pullCountResult] = await db.select({ count: count() })
     .from(pullEvents)
     .where(inArray(pullEvents.vaultId, targetVaultIds));
 
+  // Get total count for view events (secret_value_accessed, secret_version_value_accessed)
+  const [viewCountResult] = await db.select({ count: count() })
+    .from(activityLogs)
+    .where(and(
+      inArray(activityLogs.vaultId, targetVaultIds),
+      inArray(activityLogs.action, ['secret_value_accessed', 'secret_version_value_accessed'])
+    ));
+
+  const totalCount = (pullCountResult?.count ?? 0) + (viewCountResult?.count ?? 0);
+
   // Get pull events with related data
-  const events = await db.query.pullEvents.findMany({
+  const pullEventsData = await db.query.pullEvents.findMany({
     where: inArray(pullEvents.vaultId, targetVaultIds),
     orderBy: [desc(pullEvents.createdAt)],
-    limit,
-    offset,
+    limit: limit * 2, // Get more to allow for merged sorting
     with: {
       user: {
         columns: { username: true, avatarUrl: true },
@@ -481,18 +498,66 @@ export async function getAccessLog(
     },
   });
 
-  return {
-    events: events.map(e => ({
+  // Get view events from activity logs
+  const viewEventsData = await db.query.activityLogs.findMany({
+    where: and(
+      inArray(activityLogs.vaultId, targetVaultIds),
+      inArray(activityLogs.action, ['secret_value_accessed', 'secret_version_value_accessed'])
+    ),
+    orderBy: [desc(activityLogs.createdAt)],
+    limit: limit * 2, // Get more to allow for merged sorting
+    with: {
+      user: {
+        columns: { username: true, avatarUrl: true },
+      },
+      vault: {
+        columns: { repoFullName: true },
+      },
+    },
+  });
+
+  // Map pull events
+  const mappedPullEvents: AccessLogEvent[] = pullEventsData.map(e => ({
+    id: e.id,
+    timestamp: e.createdAt.toISOString(),
+    action: 'pull' as AccessLogAction,
+    user: e.user ? { username: e.user.username, avatarUrl: e.user.avatarUrl } : null,
+    vault: e.vault ? { repoFullName: e.vault.repoFullName } : null,
+    ip: e.ip,
+    location: { country: e.country, city: e.city },
+    deviceId: e.deviceId,
+    hasAlert: e.securityAlerts && e.securityAlerts.length > 0,
+  }));
+
+  // Map view events
+  const mappedViewEvents: AccessLogEvent[] = viewEventsData.map(e => {
+    const metadata = e.metadata ? JSON.parse(e.metadata) : {};
+    return {
       id: e.id,
       timestamp: e.createdAt.toISOString(),
+      action: (e.action === 'secret_version_value_accessed' ? 'view_version' : 'view') as AccessLogAction,
       user: e.user ? { username: e.user.username, avatarUrl: e.user.avatarUrl } : null,
       vault: e.vault ? { repoFullName: e.vault.repoFullName } : null,
-      ip: e.ip,
-      location: { country: e.country, city: e.city },
-      deviceId: e.deviceId,
-      hasAlert: e.securityAlerts && e.securityAlerts.length > 0,
-    })),
-    total: countResult?.count ?? 0,
+      ip: e.ipAddress || 'unknown',
+      location: { country: null, city: null }, // Activity logs don't have geo data
+      deviceId: '', // Activity logs don't have device ID
+      hasAlert: false, // No security alerts for view events
+      metadata: {
+        secretKey: metadata.key,
+        environment: metadata.environment,
+        platform: e.platform,
+      },
+    };
+  });
+
+  // Combine and sort by timestamp descending
+  const allEvents = [...mappedPullEvents, ...mappedViewEvents]
+    .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+    .slice(offset, offset + limit);
+
+  return {
+    events: allEvents,
+    total: totalCount,
   };
 }
 
