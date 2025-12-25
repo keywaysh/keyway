@@ -5,11 +5,13 @@ import { eq, and } from 'drizzle-orm';
 import { sendData } from '../../../lib';
 import { getUserUsageResponse } from '../../../services';
 import { getPlanLimits, formatLimit } from '../../../config/plans';
+import { getSecurityAlertsForUser } from '../../../services/security.service';
 
 /**
  * User routes
  * GET /api/v1/users/me - Get current user profile
  * GET /api/v1/users/me/usage - Get current user usage and plan limits
+ * GET /api/v1/users/me/security/alerts - Get security alerts across all user's vaults
  */
 export async function usersRoutes(fastify: FastifyInstance) {
   /**
@@ -93,5 +95,46 @@ export async function usersRoutes(fastify: FastifyInstance) {
 
     const usageResponse = await getUserUsageResponse(user.id, user.plan);
     return sendData(reply, usageResponse, { requestId: request.id });
+  });
+
+  /**
+   * GET /me/security/alerts
+   * Return security alerts across all vaults the user has accessed
+   */
+  fastify.get('/me/security/alerts', {
+    preHandler: [authenticateGitHub],
+  }, async (request, reply) => {
+    const vcsUser = request.vcsUser || request.githubUser!;
+    const query = request.query as { limit?: string; offset?: string };
+    const limit = Math.min(parseInt(query.limit || '50', 10), 100);
+    const offset = parseInt(query.offset || '0', 10);
+
+    // Get user from database
+    const user = await db.query.users.findFirst({
+      where: and(
+        eq(users.forgeType, vcsUser.forgeType),
+        eq(users.forgeUserId, vcsUser.forgeUserId)
+      ),
+    });
+
+    // If user doesn't exist in DB yet, return empty array
+    if (!user) {
+      return sendData(reply, [], { requestId: request.id });
+    }
+
+    const alerts = await getSecurityAlertsForUser(user.id, limit, offset);
+
+    return sendData(reply, alerts.map(a => ({
+      id: a.id,
+      type: a.alertType,
+      message: a.message,
+      createdAt: a.createdAt,
+      vault: a.vault ? { repoFullName: a.vault.repoFullName } : null,
+      event: a.pullEvent ? {
+        ip: a.pullEvent.ip,
+        location: { country: a.pullEvent.country, city: a.pullEvent.city },
+        deviceId: a.pullEvent.deviceId,
+      } : null,
+    })), { requestId: request.id });
   });
 }

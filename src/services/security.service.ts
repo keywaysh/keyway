@@ -1,8 +1,10 @@
 import crypto from 'crypto';
-import { db, pullEvents, securityAlerts } from '../db';
+import { db, pullEvents, securityAlerts, users, vaults } from '../db';
 import { eq, and, desc, gte, isNotNull, count } from 'drizzle-orm';
 import type { SecurityAlertType } from '../db/schema';
 import { config } from '../config';
+import { sendSecurityAlertEmail } from '../utils/email';
+import { logger } from '../utils/sharedLogger';
 
 // Types
 export interface PullContext {
@@ -187,7 +189,7 @@ export async function processPullEvent(ctx: PullContext): Promise<void> {
     { type: 'rate_anomaly', check: () => checkRateAnomaly(ctx) },
   ];
 
-  // 4. Create alerts (with dedup)
+  // 4. Create alerts (with dedup) and send email notifications
   for (const { type, check } of checks) {
     const message = await check();
     if (message && !(await isDuplicate(ctx.vaultId, ctx.deviceId, type))) {
@@ -200,7 +202,48 @@ export async function processPullEvent(ctx: PullContext): Promise<void> {
         details: { ip: ctx.ip, userAgent: ctx.userAgent, location },
         pullEventId: pullEvent.id,
       });
+
+      // Send email notification (fire-and-forget)
+      notifyUserOfAlert(ctx.userId, ctx.vaultId, type, message, ctx.ip, location)
+        .catch(err => logger.error({ err, userId: ctx.userId, alertType: type }, 'notifyUserOfAlert failed'));
     }
+  }
+}
+
+// Helper to send security alert email notification
+async function notifyUserOfAlert(
+  userId: string,
+  vaultId: string,
+  alertType: SecurityAlertType,
+  message: string,
+  ip: string,
+  location: { country: string | null; city: string | null }
+): Promise<void> {
+  try {
+    const [user, vault] = await Promise.all([
+      db.query.users.findFirst({
+        where: eq(users.id, userId),
+        columns: { email: true, username: true },
+      }),
+      db.query.vaults.findFirst({
+        where: eq(vaults.id, vaultId),
+        columns: { repoFullName: true },
+      }),
+    ]);
+
+    if (user?.email) {
+      await sendSecurityAlertEmail({
+        to: user.email,
+        username: user.username,
+        alertType,
+        message,
+        vaultName: vault?.repoFullName || 'Unknown vault',
+        ip,
+        location,
+      });
+    }
+  } catch (err) {
+    logger.error({ err, userId, vaultId, alertType }, 'Failed to send security alert notification');
   }
 }
 
@@ -212,6 +255,21 @@ export async function getSecurityAlerts(vaultId: string, limit = 50, offset = 0)
     limit,
     offset,
     with: {
+      pullEvent: true,
+    },
+  });
+}
+
+export async function getSecurityAlertsForUser(userId: string, limit = 50, offset = 0) {
+  return db.query.securityAlerts.findMany({
+    where: eq(securityAlerts.userId, userId),
+    orderBy: [desc(securityAlerts.createdAt)],
+    limit,
+    offset,
+    with: {
+      vault: {
+        columns: { repoFullName: true },
+      },
       pullEvent: true,
     },
   });
