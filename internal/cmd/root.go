@@ -1,10 +1,12 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"os"
 
 	"github.com/fatih/color"
+	"github.com/keywaysh/cli/internal/api"
 	"github.com/keywaysh/cli/internal/auth"
 	"github.com/keywaysh/cli/internal/git"
 	"github.com/keywaysh/cli/internal/ui"
@@ -36,11 +38,18 @@ func runRoot(cmd *cobra.Command, args []string) error {
 	// Check if user is logged in
 	store := auth.NewStore()
 	storedAuth, err := store.GetAuth()
-	isLoggedIn := err == nil && storedAuth != nil && storedAuth.KeywayToken != ""
+	var token string
+	isLoggedIn := false
+
+	if err == nil && storedAuth != nil && storedAuth.KeywayToken != "" {
+		isLoggedIn = true
+		token = storedAuth.KeywayToken
+	}
 
 	// Also check env var
-	if os.Getenv("KEYWAY_TOKEN") != "" {
+	if envToken := os.Getenv("KEYWAY_TOKEN"); envToken != "" {
 		isLoggedIn = true
+		token = envToken
 	}
 
 	if !isLoggedIn {
@@ -48,8 +57,8 @@ func runRoot(cmd *cobra.Command, args []string) error {
 		return runOnboarding(cmd)
 	}
 
-	// Logged in: show action menu
-	return runActionMenu(cmd)
+	// Logged in: show action menu (will check if vault exists)
+	return runActionMenu(cmd, token)
 }
 
 func runOnboarding(cmd *cobra.Command) error {
@@ -72,15 +81,42 @@ func runOnboarding(cmd *cobra.Command) error {
 	return runInit(initCmd, nil)
 }
 
-func runActionMenu(cmd *cobra.Command) error {
+func runActionMenu(cmd *cobra.Command, token string) error {
 	fmt.Println()
 
-	// Show current repo if available
-	repo, _ := git.DetectRepo()
-	if repo != "" {
-		ui.Step(fmt.Sprintf("Repository: %s", ui.Value(repo)))
+	// Check current repo
+	repo, err := git.DetectRepo()
+	if err != nil {
+		ui.Error("Not in a git repository with GitHub remote")
+		ui.Message(ui.Dim("Navigate to your project folder and try again."))
+		return err
+	}
+	if repo == "" {
+		ui.Error("Could not detect GitHub remote")
+		ui.Message(ui.Dim("Make sure this repo has a GitHub remote configured."))
+		return fmt.Errorf("no GitHub remote found")
 	}
 
+	ui.Step(fmt.Sprintf("Repository: %s", ui.Value(repo)))
+
+	// Check if vault exists for this repo
+	client := api.NewClient(token)
+	vaultExists, err := client.CheckVaultExists(context.Background(), repo)
+	if err != nil {
+		// If we can't check (network error, etc.), assume vault doesn't exist
+		// and let the user try init
+		vaultExists = false
+	}
+
+	if !vaultExists {
+		// Vault doesn't exist: run init flow
+		ui.Message("")
+		ui.Message("No vault found for this repository. Let's set one up!")
+		ui.Message("")
+		return runInit(initCmd, nil)
+	}
+
+	// Vault exists: show action menu
 	options := []string{
 		"Pull secrets from vault",
 		"Push secrets to vault",
@@ -102,10 +138,7 @@ func runActionMenu(cmd *cobra.Command) error {
 	case "Sync with Vercel/Railway/Netlify":
 		return runSync(syncCmd, nil)
 	case "Open dashboard":
-		url := "https://www.keyway.sh/dashboard"
-		if repo != "" {
-			url = fmt.Sprintf("https://www.keyway.sh/dashboard/vaults/%s", repo)
-		}
+		url := fmt.Sprintf("https://www.keyway.sh/dashboard/vaults/%s", repo)
 		ui.Success(fmt.Sprintf("Opening %s", ui.Link(url)))
 		_ = browser.OpenURL(url)
 		return nil
