@@ -15,6 +15,20 @@ vi.mock('../src/config', () => ({
   },
 }));
 
+// Helper: mock site response with account_id
+const mockSiteResponse = (siteId = 'site-123', accountId = 'account-456') => ({
+  ok: true,
+  json: () => Promise.resolve({
+    id: siteId,
+    name: 'my-site',
+    url: 'https://my-site.netlify.app',
+    admin_url: 'https://app.netlify.com/sites/my-site',
+    account_id: accountId,
+    account_name: 'Test Account',
+    account_slug: 'test-account',
+  }),
+});
+
 describe('Netlify Provider', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -203,6 +217,9 @@ describe('Netlify Provider', () => {
 
   describe('listEnvVars', () => {
     it('should list environment variables for target context', async () => {
+      // First call: get site to retrieve account_id
+      mockFetch.mockResolvedValueOnce(mockSiteResponse());
+      // Second call: get env vars from account-level endpoint
       mockFetch.mockResolvedValueOnce({
         ok: true,
         json: () => Promise.resolve([
@@ -237,9 +254,20 @@ describe('Netlify Provider', () => {
       expect(envVars).toHaveLength(1);
       expect(envVars[0].key).toBe('API_KEY');
       expect(envVars[0].value).toBe('prod-secret');
+
+      // Verify account-level endpoint was called
+      expect(mockFetch).toHaveBeenNthCalledWith(2,
+        'https://api.netlify.com/api/v1/accounts/account-456/env?site_id=site-123',
+        expect.objectContaining({
+          headers: expect.objectContaining({
+            Authorization: 'Bearer access-token',
+          }),
+        })
+      );
     });
 
     it('should filter out system variables (NETLIFY_*)', async () => {
+      mockFetch.mockResolvedValueOnce(mockSiteResponse());
       mockFetch.mockResolvedValueOnce({
         ok: true,
         json: () => Promise.resolve([
@@ -269,6 +297,7 @@ describe('Netlify Provider', () => {
     });
 
     it('should include is_secret vars with undefined value', async () => {
+      mockFetch.mockResolvedValueOnce(mockSiteResponse());
       mockFetch.mockResolvedValueOnce({
         ok: true,
         json: () => Promise.resolve([
@@ -295,12 +324,14 @@ describe('Netlify Provider', () => {
 
   describe('setEnvVars', () => {
     it('should bulk create new env vars', async () => {
-      // First call: get existing env vars (empty)
+      // First call: get site to retrieve account_id
+      mockFetch.mockResolvedValueOnce(mockSiteResponse());
+      // Second call: get existing env vars (empty)
       mockFetch.mockResolvedValueOnce({
         ok: true,
         json: () => Promise.resolve([]),
       });
-      // Second call: bulk create env vars
+      // Third call: bulk create env vars
       mockFetch.mockResolvedValueOnce({
         ok: true,
         json: () => Promise.resolve([
@@ -319,9 +350,9 @@ describe('Netlify Provider', () => {
       expect(result.created).toBe(2);
       expect(result.updated).toBe(0);
 
-      // Verify bulk create was called
-      expect(mockFetch).toHaveBeenNthCalledWith(2,
-        'https://api.netlify.com/api/v1/sites/site-123/env',
+      // Verify bulk create was called with account-level endpoint
+      expect(mockFetch).toHaveBeenNthCalledWith(3,
+        'https://api.netlify.com/api/v1/accounts/account-456/env?site_id=site-123',
         expect.objectContaining({
           method: 'POST',
         })
@@ -329,14 +360,16 @@ describe('Netlify Provider', () => {
     });
 
     it('should update existing env vars with PATCH', async () => {
-      // First call: get existing env vars
+      // First call: get site to retrieve account_id
+      mockFetch.mockResolvedValueOnce(mockSiteResponse());
+      // Second call: get existing env vars
       mockFetch.mockResolvedValueOnce({
         ok: true,
         json: () => Promise.resolve([
           { key: 'EXISTING_VAR', values: [{ context: 'production', value: 'old' }] },
         ]),
       });
-      // Second call: PATCH existing var
+      // Third call: PATCH existing var
       mockFetch.mockResolvedValueOnce({
         ok: true,
         json: () => Promise.resolve({}),
@@ -351,9 +384,9 @@ describe('Netlify Provider', () => {
       expect(result.created).toBe(0);
       expect(result.updated).toBe(1);
 
-      // Verify PATCH was called with /value endpoint
-      expect(mockFetch).toHaveBeenNthCalledWith(2,
-        'https://api.netlify.com/api/v1/sites/site-123/env/EXISTING_VAR/value',
+      // Verify PATCH was called with account-level endpoint
+      expect(mockFetch).toHaveBeenNthCalledWith(3,
+        'https://api.netlify.com/api/v1/accounts/account-456/env/EXISTING_VAR?site_id=site-123',
         expect.objectContaining({
           method: 'PATCH',
         })
@@ -361,19 +394,21 @@ describe('Netlify Provider', () => {
     });
 
     it('should handle mixed create and update', async () => {
-      // First call: get existing env vars
+      // First call: get site to retrieve account_id
+      mockFetch.mockResolvedValueOnce(mockSiteResponse());
+      // Second call: get existing env vars
       mockFetch.mockResolvedValueOnce({
         ok: true,
         json: () => Promise.resolve([
           { key: 'EXISTING', values: [{ context: 'production', value: 'old' }] },
         ]),
       });
-      // Second call: bulk create new vars
+      // Third call: bulk create new vars
       mockFetch.mockResolvedValueOnce({
         ok: true,
         json: () => Promise.resolve([{ key: 'NEW_VAR' }]),
       });
-      // Third call: PATCH existing var
+      // Fourth call: PATCH existing var
       mockFetch.mockResolvedValueOnce({
         ok: true,
         json: () => Promise.resolve({}),
@@ -393,6 +428,9 @@ describe('Netlify Provider', () => {
 
   describe('deleteEnvVar', () => {
     it('should delete specific context value, not entire var', async () => {
+      // First call: get site to retrieve account_id
+      mockFetch.mockResolvedValueOnce(mockSiteResponse());
+      // Second call: delete env var
       mockFetch.mockResolvedValueOnce({
         ok: true,
         json: () => Promise.resolve({}),
@@ -402,14 +440,15 @@ describe('Netlify Provider', () => {
 
       await netlifyProvider.deleteEnvVar('access-token', 'site-123', 'production', 'TO_DELETE');
 
-      // Should use the value-specific endpoint with context query param
-      expect(mockFetch).toHaveBeenCalledWith(
-        'https://api.netlify.com/api/v1/sites/site-123/env/TO_DELETE/value?context=production',
+      // Should use account-level endpoint with context query param
+      expect(mockFetch).toHaveBeenNthCalledWith(2,
+        'https://api.netlify.com/api/v1/accounts/account-456/env/TO_DELETE/value?site_id=site-123&context=production',
         expect.objectContaining({ method: 'DELETE' })
       );
     });
 
     it('should URL-encode special characters in key', async () => {
+      mockFetch.mockResolvedValueOnce(mockSiteResponse());
       mockFetch.mockResolvedValueOnce({
         ok: true,
         json: () => Promise.resolve({}),
@@ -419,7 +458,7 @@ describe('Netlify Provider', () => {
 
       await netlifyProvider.deleteEnvVar('access-token', 'site-123', 'production', 'MY_VAR/TEST');
 
-      expect(mockFetch).toHaveBeenCalledWith(
+      expect(mockFetch).toHaveBeenNthCalledWith(2,
         expect.stringContaining('MY_VAR%2FTEST'),
         expect.any(Object)
       );
@@ -428,6 +467,9 @@ describe('Netlify Provider', () => {
 
   describe('deleteEnvVars', () => {
     it('should delete multiple env vars', async () => {
+      // First call: get site to retrieve account_id
+      mockFetch.mockResolvedValueOnce(mockSiteResponse());
+      // Subsequent calls: delete each var
       mockFetch.mockResolvedValue({
         ok: true,
         json: () => Promise.resolve({}),
@@ -439,13 +481,17 @@ describe('Netlify Provider', () => {
 
       expect(result.deleted).toBe(2);
       expect(result.failed).toBe(0);
-      expect(mockFetch).toHaveBeenCalledTimes(2);
+      // 1 site fetch + 2 deletes = 3 calls
+      expect(mockFetch).toHaveBeenCalledTimes(3);
     });
 
     it('should track failures and continue', async () => {
-      mockFetch
-        .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({}) })
-        .mockResolvedValueOnce({ ok: false, status: 404, json: () => Promise.resolve({ error: 'not_found' }) });
+      // First call: get site to retrieve account_id
+      mockFetch.mockResolvedValueOnce(mockSiteResponse());
+      // First delete succeeds
+      mockFetch.mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({}) });
+      // Second delete fails
+      mockFetch.mockResolvedValueOnce({ ok: false, status: 404, json: () => Promise.resolve({ error: 'not_found' }) });
 
       const { netlifyProvider } = await import('../src/services/providers/netlify.provider');
 

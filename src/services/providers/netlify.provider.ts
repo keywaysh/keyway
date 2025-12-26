@@ -123,6 +123,9 @@ interface NetlifySite {
   name: string;
   url: string;
   admin_url: string;
+  account_id: string;
+  account_name?: string;
+  account_slug?: string;
   build_settings?: {
     repo_url?: string;
     repo_type?: string;
@@ -259,8 +262,20 @@ export const netlifyProvider: Provider = {
     siteId: string,
     environment: string
   ): Promise<ProviderEnvVar[]> {
+    // First, get the site to retrieve the account_id (required for new API)
+    logger.debug({ siteId }, 'Fetching site info to get account_id');
+    const site = await netlifyFetch<NetlifySite>(
+      `${NETLIFY_API_BASE}/sites/${siteId}`,
+      accessToken
+    );
+    logger.debug({ siteId, accountId: site.account_id, accountName: site.account_name }, 'Got site info');
+
+    // Use account-level endpoint (site-level was deprecated Feb 2023)
+    const envUrl = `${NETLIFY_API_BASE}/accounts/${site.account_id}/env?site_id=${siteId}`;
+    logger.debug({ envUrl, environment }, 'Fetching env vars from account-level endpoint');
+
     const vars = await netlifyFetch<NetlifyEnvVar[]>(
-      `${NETLIFY_API_BASE}/sites/${siteId}/env`,
+      envUrl,
       accessToken
     );
 
@@ -291,12 +306,24 @@ export const netlifyProvider: Provider = {
     environment: string,
     vars: Record<string, string>
   ): Promise<{ created: number; updated: number; failed: number; failedKeys: string[] }> {
-    // Get existing vars to determine create vs update
+    // First, get the site to retrieve the account_id (required for new API)
+    logger.debug({ siteId, environment, varCount: Object.keys(vars).length }, 'Starting setEnvVars');
+    const site = await netlifyFetch<NetlifySite>(
+      `${NETLIFY_API_BASE}/sites/${siteId}`,
+      accessToken
+    );
+    const accountId = site.account_id;
+    logger.debug({ siteId, accountId, accountName: site.account_name }, 'Got site info for setEnvVars');
+
+    // Get existing vars to determine create vs update (using account-level endpoint)
+    const envUrl = `${NETLIFY_API_BASE}/accounts/${accountId}/env?site_id=${siteId}`;
+    logger.debug({ envUrl }, 'Fetching existing env vars');
     const existingVars = await netlifyFetch<NetlifyEnvVar[]>(
-      `${NETLIFY_API_BASE}/sites/${siteId}/env`,
+      envUrl,
       accessToken
     );
     const existingKeys = new Set(existingVars.map(v => v.key));
+    logger.debug({ existingCount: existingVars.length, existingKeys: Array.from(existingKeys) }, 'Got existing env vars');
 
     let created = 0;
     let updated = 0;
@@ -306,8 +333,9 @@ export const netlifyProvider: Provider = {
     // Separate new vars from existing vars
     const newVarsEntries = Object.entries(vars).filter(([key]) => !existingKeys.has(key));
     const existingVarsEntries = Object.entries(vars).filter(([key]) => existingKeys.has(key));
+    logger.debug({ newCount: newVarsEntries.length, updateCount: existingVarsEntries.length }, 'Separated vars for create vs update');
 
-    // Bulk create new vars (Netlify supports this)
+    // Bulk create new vars (Netlify supports this via account-level endpoint)
     if (newVarsEntries.length > 0) {
       const newVarsPayload = newVarsEntries.map(([key, value]) => ({
         key,
@@ -315,9 +343,12 @@ export const netlifyProvider: Provider = {
         values: [{ context: environment, value }],
       }));
 
+      const createUrl = `${NETLIFY_API_BASE}/accounts/${accountId}/env?site_id=${siteId}`;
+      logger.debug({ createUrl, keys: newVarsEntries.map(([k]) => k) }, 'Bulk creating new env vars');
+
       try {
         await netlifyFetch(
-          `${NETLIFY_API_BASE}/sites/${siteId}/env`,
+          createUrl,
           accessToken,
           {
             method: 'POST',
@@ -325,11 +356,12 @@ export const netlifyProvider: Provider = {
           }
         );
         created = newVarsEntries.length;
+        logger.info({ siteId, created, environment }, 'Successfully bulk created env vars');
       } catch (error) {
         failed += newVarsEntries.length;
         failedKeys.push(...newVarsEntries.map(([key]) => key));
         logger.error(
-          { siteId, environment, error: error instanceof Error ? error.message : 'Unknown error' },
+          { siteId, accountId, environment, createUrl, error: error instanceof Error ? error.message : 'Unknown error' },
           'Failed to bulk create env vars'
         );
       }
@@ -337,13 +369,17 @@ export const netlifyProvider: Provider = {
 
     // Update existing vars one by one (using PATCH to update value for specific context)
     for (const [key, value] of existingVarsEntries) {
+      const updateUrl = `${NETLIFY_API_BASE}/accounts/${accountId}/env/${encodeURIComponent(key)}?site_id=${siteId}`;
       try {
         await netlifyFetch(
-          `${NETLIFY_API_BASE}/sites/${siteId}/env/${encodeURIComponent(key)}/value`,
+          updateUrl,
           accessToken,
           {
             method: 'PATCH',
-            body: JSON.stringify({ context: environment, value }),
+            body: JSON.stringify({
+              context: environment,
+              value,
+            }),
           }
         );
         updated++;
@@ -351,11 +387,13 @@ export const netlifyProvider: Provider = {
         failed++;
         failedKeys.push(key);
         logger.error(
-          { key, siteId, environment, error: error instanceof Error ? error.message : 'Unknown error' },
+          { key, siteId, accountId, environment, updateUrl, error: error instanceof Error ? error.message : 'Unknown error' },
           'Failed to update env var'
         );
       }
     }
+
+    logger.info({ siteId, created, updated, failed, failedKeys }, 'Completed setEnvVars');
 
     // If all operations failed, throw an error
     if (failed > 0 && created === 0 && updated === 0) {
@@ -375,14 +413,25 @@ export const netlifyProvider: Provider = {
     environment: string,
     key: string
   ): Promise<void> {
-    // Use the value-specific endpoint to delete only one context
-    // DELETE /env/{key}/value removes the value for a specific context
-    // while DELETE /env/{key} would delete the entire variable
+    // First, get the site to retrieve the account_id (required for new API)
+    logger.debug({ siteId, key, environment }, 'Starting deleteEnvVar');
+    const site = await netlifyFetch<NetlifySite>(
+      `${NETLIFY_API_BASE}/sites/${siteId}`,
+      accessToken
+    );
+    const accountId = site.account_id;
+
+    // Use account-level endpoint to delete only one context value
+    // DELETE /accounts/{account_id}/env/{key}/value?site_id={site_id}&context={context}
+    const deleteUrl = `${NETLIFY_API_BASE}/accounts/${accountId}/env/${encodeURIComponent(key)}/value?site_id=${siteId}&context=${encodeURIComponent(environment)}`;
+    logger.debug({ deleteUrl, key, environment }, 'Deleting env var');
+
     await netlifyFetch(
-      `${NETLIFY_API_BASE}/sites/${siteId}/env/${encodeURIComponent(key)}/value?context=${encodeURIComponent(environment)}`,
+      deleteUrl,
       accessToken,
       { method: 'DELETE' }
     );
+    logger.info({ siteId, key, environment }, 'Successfully deleted env var');
   },
 
   async deleteEnvVars(
@@ -391,23 +440,40 @@ export const netlifyProvider: Provider = {
     environment: string,
     keys: string[]
   ): Promise<{ deleted: number; failed: number; failedKeys: string[] }> {
+    logger.debug({ siteId, environment, keyCount: keys.length }, 'Starting deleteEnvVars');
+
+    // Get the site once for all deletes (optimization)
+    const site = await netlifyFetch<NetlifySite>(
+      `${NETLIFY_API_BASE}/sites/${siteId}`,
+      accessToken
+    );
+    const accountId = site.account_id;
+    logger.debug({ siteId, accountId }, 'Got site info for deleteEnvVars');
+
     let deleted = 0;
     let failed = 0;
     const failedKeys: string[] = [];
 
     for (const key of keys) {
+      const deleteUrl = `${NETLIFY_API_BASE}/accounts/${accountId}/env/${encodeURIComponent(key)}/value?site_id=${siteId}&context=${encodeURIComponent(environment)}`;
       try {
-        await this.deleteEnvVar(accessToken, siteId, environment, key);
+        await netlifyFetch(
+          deleteUrl,
+          accessToken,
+          { method: 'DELETE' }
+        );
         deleted++;
       } catch (error) {
         failed++;
         failedKeys.push(key);
         logger.error(
-          { key, siteId, environment, error: error instanceof Error ? error.message : 'Unknown error' },
+          { key, siteId, accountId, environment, deleteUrl, error: error instanceof Error ? error.message : 'Unknown error' },
           'Failed to delete env var'
         );
       }
     }
+
+    logger.info({ siteId, deleted, failed, failedKeys }, 'Completed deleteEnvVars');
 
     if (failed > 0 && deleted === 0) {
       throw new NetlifyProviderError(
