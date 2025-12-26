@@ -337,9 +337,9 @@ export const netlifyProvider: Provider = {
 
     // Bulk create new vars (Netlify supports this via account-level endpoint)
     if (newVarsEntries.length > 0) {
+      // Note: omit 'scopes' field - it requires a paid Netlify plan
       const newVarsPayload = newVarsEntries.map(([key, value]) => ({
         key,
-        scopes: ['builds', 'functions', 'runtime'],
         values: [{ context: environment, value }],
       }));
 
