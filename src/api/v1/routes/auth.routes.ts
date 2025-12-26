@@ -13,7 +13,7 @@ import { encryptAccessToken } from '../../../utils/tokenEncryption';
 import { signState, verifyState } from '../../../utils/state';
 import { sendWelcomeEmail } from '../../../utils/email';
 import { sendData, sendNoContent } from '../../../lib/response';
-import { handleInstallationCreated } from '../../../services/github-app.service';
+import { handleInstallationCreated, checkInstallationStatus } from '../../../services/github-app.service';
 import { logActivity, extractRequestInfo, detectPlatform } from '../../../services';
 
 // Schemas
@@ -169,16 +169,35 @@ export async function authRoutes(fastify: FastifyInstance) {
             try {
               const stateData = verifyState(query.state as string);
               if (stateData?.deviceCodeId && stateData?.type === 'github_app_install') {
-                await db
-                  .update(deviceCodes)
-                  .set({ status: 'approved', userId: user.id })
-                  .where(eq(deviceCodes.id, stateData.deviceCodeId as string));
+                // Check if this is a chained flow (oauth_complete) or direct
+                const deviceCodeRecord = await db.query.deviceCodes.findFirst({
+                  where: eq(deviceCodes.id, stateData.deviceCodeId as string),
+                });
 
-                fastify.log.info({
-                  deviceCodeId: stateData.deviceCodeId,
-                  userId: user.id,
-                  username: user.username,
-                }, 'Device code approved via state parameter');
+                if (deviceCodeRecord?.status === 'oauth_complete') {
+                  // Chained flow: OAuth already done, userId already set, just approve
+                  await db
+                    .update(deviceCodes)
+                    .set({ status: 'approved' })
+                    .where(eq(deviceCodes.id, stateData.deviceCodeId as string));
+
+                  fastify.log.info({
+                    deviceCodeId: stateData.deviceCodeId,
+                    userId: deviceCodeRecord.userId,
+                  }, 'Device code approved after GitHub App installation (chained flow)');
+                } else {
+                  // Direct flow: user did OAuth via the app installation
+                  await db
+                    .update(deviceCodes)
+                    .set({ status: 'approved', userId: user.id })
+                    .where(eq(deviceCodes.id, stateData.deviceCodeId as string));
+
+                  fastify.log.info({
+                    deviceCodeId: stateData.deviceCodeId,
+                    userId: user.id,
+                    username: user.username,
+                  }, 'Device code approved via state parameter');
+                }
                 isFromCli = true;
               }
             } catch (err) {
@@ -321,6 +340,59 @@ export async function authRoutes(fastify: FastifyInstance) {
         const redirectUrl = (stateData.redirectUri as string | null) || `${config.app.frontendUrl}${config.app.dashboardPath}`;
         return reply.redirect(redirectUrl);
       } else if (stateData.deviceCodeId) {
+        // Get device code to check for suggestedRepository
+        const deviceCodeRecord = await db.query.deviceCodes.findFirst({
+          where: eq(deviceCodes.id, stateData.deviceCodeId as string),
+        });
+
+        // Check if we should chain to GitHub App installation
+        if (deviceCodeRecord?.suggestedRepository) {
+          const [owner, repo] = deviceCodeRecord.suggestedRepository.split('/');
+
+          if (owner && repo) {
+            try {
+              const installStatus = await checkInstallationStatus(owner, repo);
+
+              if (!installStatus.installed) {
+                // DON'T approve yet - mark as oauth_complete and redirect to app install
+                await db
+                  .update(deviceCodes)
+                  .set({ status: 'oauth_complete', userId: user.id })
+                  .where(eq(deviceCodes.id, stateData.deviceCodeId as string));
+
+                // Build GitHub App install URL with state
+                const appInstallState = signState({
+                  deviceCodeId: stateData.deviceCodeId,
+                  type: 'github_app_install',
+                });
+
+                // Deep linking if we have the IDs (stored by /device/start)
+                let appInstallUrl: string;
+                if (deviceCodeRecord.suggestedOwnerId && deviceCodeRecord.suggestedRepoId) {
+                  appInstallUrl = `${config.githubApp.installUrl}/permissions?` +
+                    `suggested_target_id=${deviceCodeRecord.suggestedOwnerId}&` +
+                    `repository_ids[]=${deviceCodeRecord.suggestedRepoId}&` +
+                    `state=${encodeURIComponent(appInstallState)}`;
+                } else {
+                  appInstallUrl = `${config.githubApp.installUrl}?state=${encodeURIComponent(appInstallState)}`;
+                }
+
+                fastify.log.info({
+                  deviceCodeId: stateData.deviceCodeId,
+                  userId: user.id,
+                  suggestedRepository: deviceCodeRecord.suggestedRepository,
+                }, 'OAuth complete, chaining to GitHub App installation');
+
+                return reply.redirect(appInstallUrl);
+              }
+            } catch (err) {
+              // If check fails, continue normally (fallback to approve immediately)
+              fastify.log.warn({ error: err }, 'Failed to check GitHub App installation, continuing with approval');
+            }
+          }
+        }
+
+        // App already installed OR no suggestedRepository OR error -> approve now
         await db
           .update(deviceCodes)
           .set({
@@ -453,6 +525,8 @@ export async function authRoutes(fastify: FastifyInstance) {
       userCode,
       status: 'pending',
       suggestedRepository: body.repository,
+      suggestedOwnerId: body.ownerId,   // For deep linking in chained OAuth flow
+      suggestedRepoId: body.repoId,     // For deep linking in chained OAuth flow
       expiresAt,
     }).returning({ id: deviceCodes.id });
 
@@ -519,6 +593,12 @@ export async function authRoutes(fastify: FastifyInstance) {
     }
 
     if (deviceCodeRecord.status === 'pending') {
+      return { status: 'pending' };
+    }
+
+    if (deviceCodeRecord.status === 'oauth_complete') {
+      // OAuth done, waiting for GitHub App installation
+      // Return 'pending' so CLI keeps polling
       return { status: 'pending' };
     }
 

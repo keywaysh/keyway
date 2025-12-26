@@ -216,6 +216,30 @@ describe('Auth Routes', () => {
       expect(body.status).toBe('expired');
       expect(body).not.toHaveProperty('keywayToken');
     });
+
+    it('should return pending status for oauth_complete device code (chained flow)', async () => {
+      const { db } = await import('../../src/db');
+      // oauth_complete = OAuth done, waiting for GitHub App installation
+      (db.query.deviceCodes.findFirst as any).mockResolvedValue({
+        ...mockDeviceCode,
+        status: 'oauth_complete',
+        userId: mockUser.id,
+      });
+
+      const response = await app.inject({
+        method: 'POST',
+        url: '/v1/auth/device/poll',
+        payload: {
+          deviceCode: 'DEVICE123456',
+        },
+      });
+
+      // Should return pending (not approved) so CLI keeps polling
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.body);
+      expect(body.status).toBe('pending');
+      expect(body).not.toHaveProperty('keywayToken');
+    });
   });
 
   describe('GET /v1/auth/device/verify', () => {

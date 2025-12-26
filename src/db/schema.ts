@@ -5,6 +5,7 @@ import { DEFAULT_ENVIRONMENTS } from '../types';
 // Device flow status enum
 export const deviceCodeStatusEnum = pgEnum('device_code_status', [
   'pending',
+  'oauth_complete',  // OAuth done, waiting for GitHub App install
   'approved',
   'denied',
   'expired',
@@ -223,6 +224,8 @@ export const deviceCodes = pgTable('device_codes', {
   status: deviceCodeStatusEnum('status').notNull().default('pending'),
   userId: uuid('user_id').references(() => users.id, { onDelete: 'cascade' }),
   suggestedRepository: text('suggested_repository'), // Optional repo suggested by CLI
+  suggestedOwnerId: integer('suggested_owner_id'),   // For deep linking to GitHub App install
+  suggestedRepoId: integer('suggested_repo_id'),     // For deep linking to GitHub App install
   expiresAt: timestamp('expires_at').notNull(),
   createdAt: timestamp('created_at').notNull().defaultNow(),
 });
