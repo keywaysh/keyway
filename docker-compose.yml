@@ -56,6 +56,7 @@ services:
       args:
         - NEXT_PUBLIC_KEYWAY_API_URL=https://localhost/api
         - NEXT_PUBLIC_SENTRY_DSN=${NEXT_PUBLIC_SENTRY_DSN:-}
+        - NEXT_PUBLIC_CRISP_WEBSITE_ID=${NEXT_PUBLIC_CRISP_WEBSITE_ID:-}
         - NEXT_PUBLIC_DISABLE_IMAGE_OPTIMIZATION=true
     depends_on:
       - backend
