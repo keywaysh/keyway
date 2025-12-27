@@ -12,6 +12,7 @@ const mockIsOrganizationOwner = vi.hoisted(() => vi.fn());
 const mockCreateOrgCheckoutSession = vi.hoisted(() => vi.fn());
 const mockCreateOrgPortalSession = vi.hoisted(() => vi.fn());
 const mockGetTrialInfo = vi.hoisted(() => vi.fn());
+const mockStartTrial = vi.hoisted(() => vi.fn());
 const mockFindFirst = vi.hoisted(() => vi.fn());
 
 // Mock config
@@ -46,7 +47,7 @@ vi.mock('../../src/services/organization.service', () => ({
 
 // Mock trial service
 vi.mock('../../src/services/trial.service', () => ({
-  startTrial: vi.fn(),
+  startTrial: mockStartTrial,
   getTrialInfo: mockGetTrialInfo,
   TRIAL_DURATION_DAYS: 15,
 }));
@@ -525,6 +526,96 @@ describe('Organization Billing Routes', () => {
 
       // Zod validation throws which results in 400 or 500 depending on error handling
       expect([400, 500]).toContain(response.statusCode);
+    });
+  });
+
+  describe('POST /v1/orgs/:org/trial/start', () => {
+    beforeEach(() => {
+      mockStartTrial.mockResolvedValue({
+        success: true,
+        organization: {
+          ...mockOrg,
+          trialStartedAt: new Date('2024-12-01'),
+          trialEndsAt: new Date('2024-12-16'),
+        },
+      });
+      mockGetTrialInfo.mockReturnValue({
+        status: 'active',
+        startedAt: new Date('2024-12-01'),
+        endsAt: new Date('2024-12-16'),
+        convertedAt: null,
+        daysRemaining: 15,
+      });
+    });
+
+    it('should allow organization owner to start a trial', async () => {
+      mockIsOrganizationOwner.mockResolvedValue(true);
+      mockGetOrganizationMembership.mockResolvedValue({
+        id: 'membership-123',
+        orgRole: 'owner',
+      });
+
+      const response = await app.inject({
+        method: 'POST',
+        url: '/v1/orgs/test-org/trial/start',
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.body);
+
+      expect(body).toHaveProperty('data');
+      expect(body.data).toHaveProperty('trial');
+      expect(mockStartTrial).toHaveBeenCalledWith(
+        expect.objectContaining({
+          orgId: 'org-123',
+          userId: 'user-123',
+        })
+      );
+    });
+
+    it('should return 403 when user is a member but not owner', async () => {
+      mockIsOrganizationOwner.mockResolvedValue(false);
+      mockGetOrganizationMembership.mockResolvedValue({
+        id: 'membership-123',
+        orgRole: 'member',
+      });
+
+      const response = await app.inject({
+        method: 'POST',
+        url: '/v1/orgs/test-org/trial/start',
+      });
+
+      expect(response.statusCode).toBe(403);
+      const body = JSON.parse(response.body);
+
+      expect(body).toHaveProperty('detail');
+      expect(body.detail).toContain('owner');
+      expect(mockStartTrial).not.toHaveBeenCalled();
+    });
+
+    it('should return 403 when user is not a member of the organization', async () => {
+      mockIsOrganizationOwner.mockResolvedValue(false);
+      mockGetOrganizationMembership.mockResolvedValue(null);
+
+      const response = await app.inject({
+        method: 'POST',
+        url: '/v1/orgs/test-org/trial/start',
+      });
+
+      expect(response.statusCode).toBe(403);
+      expect(mockStartTrial).not.toHaveBeenCalled();
+    });
+
+    it('should return 404 when organization does not exist', async () => {
+      mockGetOrganizationByLogin.mockResolvedValue(null);
+
+      const response = await app.inject({
+        method: 'POST',
+        url: '/v1/orgs/unknown-org/trial/start',
+      });
+
+      expect(response.statusCode).toBe(404);
+      expect(mockStartTrial).not.toHaveBeenCalled();
     });
   });
 });
