@@ -1,37 +1,76 @@
-# Keyway Web (Next.js 15)
+# Keyway Dashboard
 
-[![Keyway Secrets](https://keyway.sh/badge.svg?repo=NicolasRitouet/soma-app)](https://keyway.sh/repo/NicolasRitouet/soma-app)
-
-Front-end only for marketing and backoffice UI, consuming the Keyway API.
+Authenticated dashboard application for Keyway secrets management.
 
 ## Stack
-- Next.js 15 (App Router, TypeScript)
-- No backend logic here; all data comes from the Keyway API.
 
-## Setup
+- Next.js 15 (App Router, TypeScript)
+- Tailwind CSS v4
+- shadcn/ui components
+- React Query for data fetching
+
+## Local Development
+
+### Prerequisites
+
+- Node.js 20+
+- pnpm 9+
+- Running instance of [keyway-backend](https://github.com/keywaysh/keyway-backend)
+
+### Setup
+
 ```bash
-npm install
-npm run dev
+# Install dependencies
+pnpm install
+
+# Copy environment file
+cp .env.example .env.local
+
+# Start development server (port 3000)
+pnpm dev
 ```
 
-Environment variables (set in `.env.local` or Vercel project settings):
-- `NEXT_PUBLIC_GITHUB_CLIENT_ID`, `NEXT_PUBLIC_GITHUB_REDIRECT`, `NEXT_PUBLIC_GITHUB_SCOPE` or `NEXT_PUBLIC_GITHUB_OAUTH_URL` → for waitlist/marketing GitHub auth.
-- `NEXT_PUBLIC_KEYWAY_AUTH_URL` → front-only login link to your API OAuth entrypoint (used on `/login`).
-- `NEXT_PUBLIC_POSTHOG_KEY` (+ optional `NEXT_PUBLIC_POSTHOG_HOST`, default `https://app.posthog.com`) → enable PostHog analytics on the client.
-- `POSTHOG_SERVER_API_KEY` (+ optional `POSTHOG_HOST`, default `https://app.posthog.com`) → server-side PostHog for badge analytics.
+### Environment Variables
 
-Wire the API later: add your fetch client and auth/session (middleware or proxy) once the backend contract is ready.
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `NEXT_PUBLIC_KEYWAY_API_URL` | Backend API URL | `http://localhost:3000` |
+| `NEXT_PUBLIC_POSTHOG_KEY` | PostHog analytics key | - |
+| `NEXT_PUBLIC_CRISP_WEBSITE_ID` | Crisp live chat ID | - |
+| `NEXT_PUBLIC_SENTRY_DSN` | Sentry error tracking | - |
 
-## Deploy on Vercel (Hobby)
-1. Import the repo in Vercel (root `.`).
-2. Build command: `npm run build` ; Output: `.next` (default).
-3. Add env vars above in Vercel.
-4. Deploy. Point `keyway.sh`/`www` to Vercel when ready.
+### Running with Backend
 
-## Notes
-- Next.js pinned to `^15.0.0`; adjust if you need a newer patch.
-- Existing `index.html` is kept for reference; the app entry is under `app/`.
+```bash
+# Terminal 1: Backend (port 3000)
+cd ../keyway-backend && pnpm dev
 
-## Badge
-- SVG is served from this app at `/badge.svg`. Use the `repo` query only for analytics (`?repo=org/project`); the badge visuals stay minimal (Keyway mark only).
-- If `POSTHOG_SERVER_API_KEY` is set, each view is sent to PostHog (`event: badge_view`) with repo, referer, ua, path, ts. Errors are swallowed so the badge always renders.
+# Terminal 2: Dashboard (port 3002 to avoid conflict)
+cd ../keyway-dashboard && pnpm dev --port 3002
+```
+
+Then update `.env.local`:
+```
+NEXT_PUBLIC_KEYWAY_API_URL=http://localhost:3000
+```
+
+## Production Deployment
+
+### Vercel
+
+1. Import repository in Vercel
+2. Set environment variables:
+   - `NEXT_PUBLIC_KEYWAY_API_URL=https://api.keyway.sh`
+3. Configure domain: `app.keyway.sh`
+
+## Testing
+
+```bash
+pnpm test          # Run tests
+pnpm test:watch    # Watch mode
+pnpm test:coverage # Coverage report
+```
+
+## License
+
+MIT
