@@ -71,7 +71,8 @@ const envSchema = z.object({
   STRIPE_PRICE_TEAM_YEARLY: z.string().optional(),
 
   // Frontend URLs (for redirects after auth)
-  FRONTEND_URL: z.string().url().optional(),
+  FRONTEND_URL: z.string().url().optional(),      // Landing page (marketing)
+  DASHBOARD_URL: z.string().url().optional(),     // Dashboard app
 
   // Sentry Error Tracking (optional)
   SENTRY_DSN: z.string().url().optional(),
@@ -111,10 +112,12 @@ export const config = {
   },
 
   app: {
-    // Frontend URL for redirects after authentication
-    // Defaults: https://keyway.sh (prod), https://localhost (dev)
-    frontendUrl: env.FRONTEND_URL || (env.NODE_ENV === 'production' ? 'https://keyway.sh' : 'https://localhost'),
-    dashboardPath: '/dashboard',
+    // Landing page URL (marketing site)
+    // Defaults: https://keyway.sh (prod), http://localhost:3001 (dev)
+    frontendUrl: env.FRONTEND_URL || (env.NODE_ENV === 'production' ? 'https://keyway.sh' : 'http://localhost:3001'),
+    // Dashboard URL (authenticated app)
+    // Defaults: https://app.keyway.sh (prod), http://localhost:3000 (dev)
+    dashboardUrl: env.DASHBOARD_URL || (env.NODE_ENV === 'production' ? 'https://app.keyway.sh' : 'http://localhost:3000'),
   },
 
   database: {
@@ -153,7 +156,13 @@ export const config = {
   },
 
   cors: {
-    allowedOrigins: env.ALLOWED_ORIGINS,
+    // In production, allow landing and dashboard by default
+    // In development with no ALLOWED_ORIGINS, allow all
+    allowedOrigins: env.ALLOWED_ORIGINS.length > 0
+      ? env.ALLOWED_ORIGINS
+      : env.NODE_ENV === 'production'
+        ? ['https://keyway.sh', 'https://app.keyway.sh']
+        : [],
     allowAll: env.ALLOWED_ORIGINS.length === 0 && env.NODE_ENV === 'development',
   },
 

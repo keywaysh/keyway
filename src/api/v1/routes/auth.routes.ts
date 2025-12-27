@@ -88,10 +88,22 @@ function setSessionCookies(
   const maxAge = 30 * 24 * 60 * 60; // 30 days
 
   const host = (request.headers.host || '').split(':')[0];
-  const isLocalhost = host === 'localhost' || host === '127.0.0.1' || host.endsWith('.localhost');
+  const isLocalDev = host === 'localhost' || host === '127.0.0.1' ||
+                     host.endsWith('.localhost') || host.endsWith('.local');
   let domain: string | undefined;
 
-  if (isProduction && !isLocalhost) {
+  if (isLocalDev) {
+    // For local development, set domain to share cookies across subdomains
+    // e.g., keyway.local, app.keyway.local, api.keyway.local
+    if (host.endsWith('.local')) {
+      // Extract base domain (e.g., keyway.local from api.keyway.local)
+      const parts = host.split('.');
+      domain = parts.slice(-2).join('.');
+    } else {
+      domain = 'localhost';
+    }
+  } else if (isProduction) {
+    // In production, set domain to parent domain (e.g., .keyway.sh)
     const parts = host.split('.');
     if (parts.length >= 2) {
       domain = `.${parts.slice(-2).join('.')}`;
@@ -248,7 +260,7 @@ export async function authRoutes(fastify: FastifyInstance) {
             username: user.username,
           });
           setSessionCookies(reply, request, keywayToken);
-          return reply.redirect(`${config.app.frontendUrl}${config.app.dashboardPath}`);
+          return reply.redirect(config.app.dashboardUrl);
         } catch (error) {
           fastify.log.error({ err: error, installationId: query.installation_id }, 'GitHub App installation error');
           return reply.type('text/html').send(renderErrorPage('Installation Error', 'An error occurred while processing the GitHub App installation. Please try again.'));
@@ -314,7 +326,7 @@ export async function authRoutes(fastify: FastifyInstance) {
 
         setSessionCookies(reply, request, keywayToken);
 
-        const redirectUrl = (stateData.redirectUri as string | null) || `${config.app.frontendUrl}${config.app.dashboardPath}`;
+        const redirectUrl = (stateData.redirectUri as string | null) || config.app.dashboardUrl;
         return reply.redirect(redirectUrl);
       } else if (stateData.deviceCodeId) {
         // Get device code to check for suggestedRepository
@@ -1207,7 +1219,7 @@ function renderVerifyPage(userCode: string, autoSubmit: boolean): string {
 
 function renderInstallSuccessPage(installationId: string, isFromCli = false): string {
   const actionHtml = isFromCli ? '' : `
-    <a href="${config.app.frontendUrl}${config.app.dashboardPath}" class="dashboard-link">
+    <a href="${config.app.dashboardUrl}" class="dashboard-link">
       Go to Dashboard
       <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
         <path stroke-linecap="round" stroke-linejoin="round" d="M13 7l5 5m0 0l-5 5m5-5H6"/>
