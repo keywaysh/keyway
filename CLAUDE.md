@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Keyway Site is the Next.js 15 frontend for Keyway, providing marketing pages and a dashboard for managing secrets. Uses App Router, shadcn/ui components, and Tailwind CSS v4.
+Keyway Dashboard is the authenticated Next.js 15 frontend for Keyway secrets management. Uses App Router, shadcn/ui components, and Tailwind CSS v4.
 
 ## Development Commands
 
@@ -14,7 +14,7 @@ pnpm run dev          # Dev server (localhost:3000)
 pnpm run build        # Production build
 pnpm run start        # Start production server
 pnpm run lint         # ESLint
-pnpm run type-check   # TypeScript check
+pnpm run test         # Run tests
 ```
 
 ## Architecture
@@ -22,45 +22,40 @@ pnpm run type-check   # TypeScript check
 ### Directory Structure
 ```
 app/
-├── (marketing)/         # Public marketing pages
-│   ├── page.tsx         # Landing page
-│   ├── pricing/         # Pricing page
-│   └── terms/           # Legal pages
-├── (app)/               # Authenticated dashboard
-│   └── dashboard/
-│       ├── page.tsx     # Vault list
-│       ├── [owner]/[repo]/  # Vault detail
-│       └── settings/    # User settings, billing
-├── (public)/            # Public vault views
-├── admin/               # Admin dashboard
+├── (dashboard)/           # Authenticated dashboard (protected)
+│   ├── page.tsx           # Vault list (home)
+│   ├── activity/          # Activity log
+│   ├── api-keys/          # API key management
+│   ├── orgs/              # Organization management
+│   │   └── [org]/         # Org detail, billing, members
+│   ├── security/          # Security overview
+│   ├── settings/          # User settings
+│   ├── upgrade/           # Plan upgrade
+│   └── vaults/
+│       └── [owner]/[repo]/ # Vault detail, secrets
+├── login/                 # Login page
 ├── auth/
-│   └── callback/        # OAuth callback handling
-├── login/               # Login page
-├── badge.svg/           # Dynamic SVG badge
-├── components/          # Shared components
+│   └── callback/          # OAuth callback handling
+├── badge.svg/             # Dynamic SVG badge
+├── components/
+│   ├── dashboard/         # Dashboard-specific components
+│   └── Button.tsx, etc.   # Shared components
 └── lib/
-    ├── api.ts           # Keyway API client
-    ├── auth.tsx         # Auth context provider
-    ├── analytics.ts     # PostHog tracking
-    └── types.ts         # TypeScript types
+    ├── api.ts             # Keyway API client
+    ├── auth.tsx           # Auth context provider
+    ├── analytics.ts       # PostHog tracking
+    └── types.ts           # TypeScript types
 ```
-
-### Route Groups
-
-- `(marketing)` - Public pages, no auth required
-- `(app)` - Dashboard, requires authentication
-- `(public)` - Public vault views (read-only)
 
 ### Key Components
 
 ```
-app/components/
-├── dashboard/
-│   ├── vault-card.tsx      # Vault list item
-│   ├── secret-row.tsx      # Secret table row
-│   ├── environment-tabs.tsx # Environment switcher
-│   └── modals/             # Create/edit modals
-└── ui/                     # shadcn/ui components
+app/components/dashboard/
+├── VaultCard.tsx          # Vault list item
+├── SecretRow.tsx          # Secret table row
+├── Sidebar.tsx            # Navigation sidebar
+├── Topbar.tsx             # Top navigation
+└── modals/                # Create/edit modals
 ```
 
 ### API Client (`lib/api.ts`)
@@ -85,14 +80,6 @@ function Component() {
 }
 ```
 
-### Analytics (`lib/analytics.ts`)
-
-```typescript
-import { trackEvent, AnalyticsEvents } from '@/lib/analytics';
-
-trackEvent(AnalyticsEvents.VAULT_CREATED, { repo: 'owner/repo' });
-```
-
 ## UI Components
 
 Uses **shadcn/ui** with Tailwind CSS v4. Components in `components/ui/`.
@@ -109,37 +96,26 @@ import { Badge } from '@/components/ui/badge';
 - Use opacity modifiers: `bg-red-500/50` not `bg-opacity-50`
 - Use `gap-*` not `space-x-*` in flex containers
 - Use `text-base/6` for line-height modifiers
-- See `keyway-infra/CLAUDE.md` for full Tailwind v4 guidelines
 
 ## Environment Variables
 
 ```
 NEXT_PUBLIC_KEYWAY_API_URL=https://api.keyway.sh
 NEXT_PUBLIC_POSTHOG_KEY=...
-NEXT_PUBLIC_POSTHOG_HOST=...
+NEXT_PUBLIC_CRISP_WEBSITE_ID=...
 ```
 
 ## Key Patterns
 
-**Protected Routes**: Dashboard pages check auth in layout
-```typescript
-// app/(app)/layout.tsx
-const { isAuthenticated, isLoading } = useAuth();
-if (!isAuthenticated && !isLoading) redirect('/login');
-```
+**Protected Routes**: All dashboard routes require authentication via middleware.
 
-**Data Fetching**: Client-side with useEffect + api client
-```typescript
-useEffect(() => {
-  api.getVaults().then(setVaults).catch(console.error);
-}, []);
-```
+**Data Fetching**: Client-side with React Query (useQuery hooks).
 
-**Error Handling**: API errors throw with RFC 7807 `detail` field
+**Error Handling**: API errors throw with RFC 7807 `detail` field.
 ```typescript
 try {
   await api.createSecret(...);
 } catch (error) {
-  toast.error(error.message); // Shows error.detail from API
+  toast.error(error.message);
 }
 ```
