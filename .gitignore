@@ -16,3 +16,6 @@ keyway-e2e/
 caddy_data/
 caddy_config/
 postgres_data/
+
+# Local development certificates
+certs/

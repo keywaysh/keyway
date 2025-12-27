@@ -29,7 +29,9 @@ echo ""
 
 REPOS=(
     "keyway-backend"
-    "keyway-site"
+    "keyway-dashboard"
+    "keyway-landing"
+    "keyway-docs"
     "cli"
     "keyway-crypto"
     "keyway-action"
@@ -164,7 +166,7 @@ if [ "$KEYWAY_SUCCESS" = false ]; then
         echo -e "   ${BLUE}https://github.com/settings/apps/new${NC}"
         echo ""
         echo "   • Homepage URL: https://localhost"
-        echo "   • Callback URL: https://localhost/auth/callback"
+        echo "   • Callback URL: https://localhost/v1/auth/callback"
         echo "   • Permissions: Repository metadata (read-only)"
         echo ""
         echo "2. Edit .env with your GitHub App values:"
@@ -179,6 +181,47 @@ if [ "$KEYWAY_SUCCESS" = false ]; then
 fi
 
 echo ""
+echo -e "${BLUE}Configuring local domain (keyway.local)...${NC}"
+echo ""
+
+# Check if /etc/hosts has keyway.local entries
+if grep -q "keyway.local" /etc/hosts 2>/dev/null; then
+    echo -e "  ${GREEN}✓${NC} /etc/hosts already configured"
+else
+    echo -e "  ${YELLOW}!${NC} Adding keyway.local to /etc/hosts (requires sudo)"
+    echo "# Keyway local development
+127.0.0.1 keyway.local
+127.0.0.1 app.keyway.local
+127.0.0.1 api.keyway.local" | sudo tee -a /etc/hosts > /dev/null
+    if [ $? -eq 0 ]; then
+        echo -e "  ${GREEN}✓${NC} /etc/hosts configured"
+    else
+        echo -e "  ${RED}✗${NC} Failed to update /etc/hosts"
+        echo -e "    Run manually: ${BLUE}echo '127.0.0.1 keyway.local app.keyway.local api.keyway.local' | sudo tee -a /etc/hosts${NC}"
+    fi
+fi
+
+echo ""
+echo -e "${BLUE}Generating local SSL certificates...${NC}"
+echo ""
+
+if command -v mkcert &> /dev/null; then
+    if [ ! -f "certs/local.pem" ]; then
+        mkdir -p certs
+        mkcert -install 2>/dev/null || true
+        mkcert -cert-file certs/local.pem -key-file certs/local-key.pem \
+            keyway.local app.keyway.local api.keyway.local "*.keyway.local" 127.0.0.1 ::1
+        echo -e "  ${GREEN}✓${NC} Certificates generated"
+    else
+        echo -e "  ${GREEN}✓${NC} Certificates already exist"
+    fi
+else
+    echo -e "  ${YELLOW}!${NC} mkcert not found"
+    echo -e "    Install it: ${BLUE}brew install mkcert${NC}"
+    echo -e "    Then run: ${BLUE}mkcert -install${NC}"
+fi
+
+echo ""
 echo -e "${GREEN}════════════════════════════════════════════════════════════${NC}"
 echo ""
 echo -e "${GREEN}Setup complete!${NC}"
@@ -187,10 +230,14 @@ echo "Start the stack:"
 echo -e "   ${BLUE}docker compose up --build${NC}"
 echo ""
 echo "Access:"
-echo "   • Dashboard: https://localhost"
-echo "   • API:       https://localhost/api"
+echo "   • Landing:   https://keyway.local"
+echo "   • Dashboard: https://app.keyway.local"
+echo "   • API:       https://api.keyway.local"
 echo ""
 echo "Use local CLI with local API:"
-echo -e "   ${BLUE}NODE_TLS_REJECT_UNAUTHORIZED=0 KEYWAY_API_URL=https://localhost/api pnpm --dir cli dev <command>${NC}"
+echo -e "   ${BLUE}KEYWAY_API_URL=https://api.keyway.local pnpm --dir cli dev <command>${NC}"
+echo ""
+echo -e "${YELLOW}GitHub App Configuration:${NC}"
+echo "   Callback URL: https://api.keyway.local/v1/auth/callback"
 echo ""
 echo -e "${GREEN}════════════════════════════════════════════════════════════${NC}"

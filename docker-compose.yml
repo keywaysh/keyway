@@ -42,24 +42,35 @@ services:
       - GITHUB_APP_PRIVATE_KEY=${GITHUB_APP_PRIVATE_KEY}
       - GITHUB_APP_WEBHOOK_SECRET=${GITHUB_APP_WEBHOOK_SECRET}
       - GITHUB_APP_NAME=${GITHUB_APP_NAME:-keyway-local-dev}
-      - FRONTEND_URL=${FRONTEND_URL:-https://localhost}
-      - ALLOWED_ORIGINS=https://localhost
+      # Frontend URLs
+      - FRONTEND_URL=https://keyway.local
+      - DASHBOARD_URL=https://app.keyway.local
+      - ALLOWED_ORIGINS=https://keyway.local,https://app.keyway.local,https://api.keyway.local
     depends_on:
       db:
         condition: service_healthy
       crypto:
         condition: service_healthy
 
-  site:
+  dashboard:
     build:
-      context: ./keyway-site
+      context: ./keyway-dashboard
       args:
-        - NEXT_PUBLIC_KEYWAY_API_URL=https://localhost/api
+        - NEXT_PUBLIC_KEYWAY_API_URL=https://api.keyway.local
         - NEXT_PUBLIC_SENTRY_DSN=${NEXT_PUBLIC_SENTRY_DSN:-}
         - NEXT_PUBLIC_CRISP_WEBSITE_ID=${NEXT_PUBLIC_CRISP_WEBSITE_ID:-}
         - NEXT_PUBLIC_DISABLE_IMAGE_OPTIMIZATION=true
     depends_on:
       - backend
+
+  landing:
+    build:
+      context: ./keyway-landing
+      args:
+        - NEXT_PUBLIC_DASHBOARD_URL=https://app.keyway.local
+        - NEXT_PUBLIC_SENTRY_DSN=${NEXT_PUBLIC_SENTRY_DSN:-}
+        - NEXT_PUBLIC_CRISP_WEBSITE_ID=${NEXT_PUBLIC_CRISP_WEBSITE_ID:-}
+        - NEXT_PUBLIC_DISABLE_IMAGE_OPTIMIZATION=true
 
   caddy:
     image: caddy:2-alpine
@@ -68,10 +79,12 @@ services:
       - "443:443"
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./certs:/etc/certs:ro
       - caddy_data:/data
       - caddy_config:/config
     depends_on:
-      - site
+      - landing
+      - dashboard
       - backend
 
 volumes:

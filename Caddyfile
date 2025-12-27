@@ -1,18 +1,26 @@
-{
-	local_certs
+# Landing page (marketing)
+keyway.local {
+	tls /etc/certs/local.pem /etc/certs/local-key.pem
+
+	handle {
+		reverse_proxy landing:3000
+	}
 }
 
-localhost {
+# Dashboard app (authenticated)
+app.keyway.local {
+	tls /etc/certs/local.pem /etc/certs/local-key.pem
+
 	handle {
-		reverse_proxy site:3000
+		reverse_proxy dashboard:3000
 	}
+}
 
-	handle /api/* {
-		uri strip_prefix /api
-		reverse_proxy backend:8080
-	}
+# API
+api.keyway.local {
+	tls /etc/certs/local.pem /etc/certs/local-key.pem
 
-	handle /v1/* {
+	handle {
 		reverse_proxy backend:8080
 	}
 }
