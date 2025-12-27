@@ -1,0 +1,17 @@
+.next
+node_modules
+.env
+.env.local
+.env.production
+.env.development
+*.log
+out
+dist
+/.vercel
+/.idea
+/.DS_Store
+.claude
+tsconfig.tsbuildinfo
+
+# Sentry Config File
+.env.sentry-build-plugin
