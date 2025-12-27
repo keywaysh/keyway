@@ -670,27 +670,10 @@ export async function organizationsRoutes(fastify: FastifyInstance) {
       throw new NotFoundError('Organization not found');
     }
 
-    // Check if user can start a trial
-    // First try Keyway DB (org owner)
-    const membership = await getOrganizationMembership(org.id, user.id);
-    let canStartTrial = membership?.orgRole === 'owner';
-
-    // If not owner in DB, check if GitHub App is installed for this org
-    // Having the app installed implies admin access was granted
-    if (!canStartTrial) {
-      const installation = await db.query.vcsAppInstallations.findFirst({
-        where: and(
-          eq(vcsAppInstallations.accountLogin, orgLogin),
-          eq(vcsAppInstallations.status, 'active')
-        ),
-      });
-
-      // If app is installed, user likely has admin access (they installed it or have org access)
-      canStartTrial = !!installation;
-    }
-
-    if (!canStartTrial) {
-      throw new ForbiddenError('GitHub App must be installed for this organization');
+    // Only organization owners can start a trial
+    const isOwner = await isOrganizationOwner(org.id, user.id);
+    if (!isOwner) {
+      throw new ForbiddenError('Only organization owners can start a trial');
     }
 
     // Start the trial
