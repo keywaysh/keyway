@@ -161,8 +161,9 @@ export async function authRoutes(fastify: FastifyInstance) {
 
     // Handle GitHub App installation callback (no state, has installation_id)
     // This happens when user installs the app directly from GitHub
-    if (query.setup_action === 'install' && query.installation_id) {
-      fastify.log.info({ installationId: query.installation_id }, 'GitHub App installation callback');
+    // setup_action can be 'install' (new installation) or 'update' (permission update)
+    if ((query.setup_action === 'install' || query.setup_action === 'update') && query.installation_id) {
+      fastify.log.info({ installationId: query.installation_id, setupAction: query.setup_action }, 'GitHub App installation callback');
 
       // If there's a code, exchange it for a user token and process the installation
       if (query.code) {
@@ -584,7 +585,54 @@ export async function authRoutes(fastify: FastifyInstance) {
 
     if (deviceCodeRecord.status === 'oauth_complete') {
       // OAuth done, waiting for GitHub App installation
-      // Return 'pending' so CLI keeps polling
+      // Check if installation is now available (handles case where GitHub doesn't redirect back)
+      if (deviceCodeRecord.suggestedRepository && deviceCodeRecord.userId) {
+        const [owner, repo] = deviceCodeRecord.suggestedRepository.split('/');
+        if (owner && repo) {
+          try {
+            const installStatus = await checkInstallationStatus(owner, repo);
+            if (installStatus.installed) {
+              // Installation now available, approve the device code
+              await db
+                .update(deviceCodes)
+                .set({ status: 'approved' })
+                .where(eq(deviceCodes.id, deviceCodeRecord.id));
+
+              // Load user and return token
+              const user = await db.query.users.findFirst({
+                where: eq(users.id, deviceCodeRecord.userId),
+              });
+
+              if (user) {
+                fastify.log.info({
+                  deviceCodeId: deviceCodeRecord.id,
+                  userId: user.id,
+                  repository: deviceCodeRecord.suggestedRepository,
+                }, 'Device code approved after detecting GitHub App installation via poll');
+
+                const keywayToken = generateKeywayToken({
+                  userId: user.id,
+                  forgeType: user.forgeType,
+                  forgeUserId: user.forgeUserId,
+                  username: user.username,
+                });
+
+                const expiresAt = getTokenExpiresAt(keywayToken);
+
+                return {
+                  status: 'approved',
+                  keywayToken,
+                  githubLogin: user.username,
+                  expiresAt: expiresAt.toISOString(),
+                };
+              }
+            }
+          } catch (err) {
+            fastify.log.warn({ error: err }, 'Failed to check installation status during poll');
+          }
+        }
+      }
+      // Installation not yet available, keep polling
       return { status: 'pending' };
     }
 
