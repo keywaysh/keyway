@@ -213,6 +213,104 @@ describe('GitHub App Installation Flow (End-to-End)', () => {
       expect(body).toHaveProperty('githubLogin');
       expect(body.githubLogin).toBe('testuser');
     });
+
+    it('should auto-approve oauth_complete device code when installation is detected via poll', async () => {
+      const { db } = await import('../../src/db');
+      const { checkInstallationStatus } = await import('../../src/services/github-app.service');
+
+      // Mock oauth_complete device code (OAuth done, waiting for GitHub App)
+      (db.query.deviceCodes.findFirst as any).mockResolvedValue({
+        ...mockDeviceCode,
+        id: 'oauth-complete-device-code',
+        status: 'oauth_complete',
+        userId: mockUser.id,
+        suggestedRepository: 'testuser/test-repo',
+      });
+
+      // Mock user lookup
+      (db.query.users.findFirst as any).mockResolvedValue(mockUser);
+
+      // Mock installation now available (user completed GitHub App install)
+      (checkInstallationStatus as any).mockResolvedValue({
+        installed: true,
+        installationId: 12345678,
+        installUrl: 'https://github.com/apps/keyway-test/installations/new',
+      });
+
+      const response = await app.inject({
+        method: 'POST',
+        url: '/v1/auth/device/poll',
+        payload: {
+          deviceCode: 'DEVICE123456',
+        },
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.body);
+      expect(body.status).toBe('approved');
+      expect(body).toHaveProperty('keywayToken');
+      expect(body).toHaveProperty('githubLogin');
+      expect(body.githubLogin).toBe('testuser');
+
+      // Verify device code was updated to approved
+      expect(db.update).toHaveBeenCalled();
+    });
+
+    it('should return pending for oauth_complete when installation not yet available', async () => {
+      const { db } = await import('../../src/db');
+      const { checkInstallationStatus } = await import('../../src/services/github-app.service');
+
+      // Mock oauth_complete device code
+      (db.query.deviceCodes.findFirst as any).mockResolvedValue({
+        ...mockDeviceCode,
+        status: 'oauth_complete',
+        userId: mockUser.id,
+        suggestedRepository: 'testuser/test-repo',
+      });
+
+      // Mock installation NOT yet available
+      (checkInstallationStatus as any).mockResolvedValue({
+        installed: false,
+        installUrl: 'https://github.com/apps/keyway-test/installations/new',
+      });
+
+      const response = await app.inject({
+        method: 'POST',
+        url: '/v1/auth/device/poll',
+        payload: {
+          deviceCode: 'DEVICE123456',
+        },
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.body);
+      expect(body.status).toBe('pending');
+      expect(body).not.toHaveProperty('keywayToken');
+    });
+
+    it('should return pending for oauth_complete without suggestedRepository', async () => {
+      const { db } = await import('../../src/db');
+
+      // Mock oauth_complete device code without suggestedRepository
+      (db.query.deviceCodes.findFirst as any).mockResolvedValue({
+        ...mockDeviceCode,
+        status: 'oauth_complete',
+        userId: mockUser.id,
+        suggestedRepository: null, // No repository suggestion
+      });
+
+      const response = await app.inject({
+        method: 'POST',
+        url: '/v1/auth/device/poll',
+        payload: {
+          deviceCode: 'DEVICE123456',
+        },
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.body);
+      expect(body.status).toBe('pending');
+    });
   });
 });
 
