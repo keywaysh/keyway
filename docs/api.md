@@ -25,7 +25,7 @@ Authorization: Bearer <token>
 
 ## API Keys
 
-Create and manage API keys from the [Dashboard](https://keyway.sh/dashboard/api-keys).
+Create and manage API keys from the [Dashboard](https://app.keyway.sh/api-keys).
 
 ### Token Format
 

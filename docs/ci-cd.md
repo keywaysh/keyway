@@ -11,7 +11,7 @@ title: CI/CD
 
 Keyway API keys are the recommended authentication method for CI/CD:
 
-1. Create an API key in your [Dashboard](https://keyway.sh/dashboard/api-keys)
+1. Create an API key in your [Dashboard](https://app.keyway.sh/api-keys)
 2. Select `read:secrets` scope (least privilege for pulling)
 3. Set an expiration date (up to 1 year)
 4. Add as a CI secret named `KEYWAY_TOKEN`

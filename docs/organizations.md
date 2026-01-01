@@ -34,7 +34,7 @@ Install the Keyway GitHub App on your organization:
 
 Organization owners can start a 14-day Team plan trial:
 
-1. Go to your organization in the [dashboard](https://keyway.sh/dashboard)
+1. Go to your organization in the [dashboard](https://app.keyway.sh)
 2. Click **Start Trial**
 
 Or via API:
@@ -49,7 +49,7 @@ POST /v1/orgs/:org/trial/start
 
 ### Viewing Members
 
-View organization members in the [dashboard](https://keyway.sh/dashboard) or via API:
+View organization members in the [dashboard](https://app.keyway.sh) or via API:
 
 ```http
 GET /v1/orgs/:org/members
@@ -96,7 +96,7 @@ POST /v1/orgs/:org/members/sync
 
 ### Starting a Subscription
 
-1. Go to your organization in the [dashboard](https://keyway.sh/dashboard)
+1. Go to your organization in the [dashboard](https://app.keyway.sh)
 2. Click **Upgrade to Team**
 3. Complete Stripe checkout
 
