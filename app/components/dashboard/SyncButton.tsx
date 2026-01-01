@@ -137,9 +137,10 @@ export function SyncButton({ sync, owner, repo, providerLabel, onSyncComplete }:
         variant="ghost"
         size="sm"
         onClick={handleOpenModal}
+        disabled={state !== 'idle'}
         className="h-7 px-2 text-xs text-muted-foreground hover:text-foreground"
       >
-        <RefreshCw className="w-3 h-3 mr-1" />
+        <RefreshCw className={`w-3 h-3 mr-1 ${state !== 'idle' ? 'animate-spin' : ''}`} />
         Sync
       </Button>
 

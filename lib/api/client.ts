@@ -1,4 +1,4 @@
-const API_BASE = process.env.NEXT_PUBLIC_KEYWAY_API_URL || 'https://api.keyway.sh'
+import { API_BASE } from '@/lib/env'
 
 export class BaseApiClient {
   protected async request<T>(path: string, options?: RequestInit): Promise<T> {

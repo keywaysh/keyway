@@ -1,8 +1,8 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { X } from 'lucide-react'
 import type { Secret } from '@/lib/types'
+import { secretSchema, secretEditSchema } from '@/lib/validations'
 import {
   Dialog,
   DialogContent,
@@ -83,23 +83,25 @@ export function SecretModal({ isOpen, onClose, onSubmit, secret, environments = 
     e.preventDefault()
     setError(null)
 
-    if (!name.trim()) {
-      setError('Name is required')
-      return
+    const formData = {
+      name: name.trim(),
+      value: value.trim(),
+      environments: selectedEnvironments,
     }
 
-    if (!isEditing && !value.trim()) {
-      setError('Value is required')
-      return
-    }
+    // Use the appropriate schema based on editing mode
+    const schema = isEditing ? secretEditSchema : secretSchema
+    const result = schema.safeParse(formData)
 
-    if (!isEditing && selectedEnvironments.length === 0) {
-      setError('Select at least one environment')
+    if (!result.success) {
+      // Get the first error message
+      const firstError = result.error.issues[0]
+      setError(firstError.message)
       return
     }
 
     try {
-      await onSubmit({ name: name.trim(), value: value.trim(), environments: selectedEnvironments })
+      await onSubmit(result.data)
       onClose()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to save secret')

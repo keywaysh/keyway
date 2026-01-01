@@ -16,6 +16,7 @@ import {
 } from 'lucide-react'
 import { api } from '@/lib/api'
 import type { ApiKey, ApiKeyScope, CreateApiKeyResponse } from '@/lib/types'
+import { apiKeySchema } from '@/lib/validations'
 import {
   DashboardLayout,
   ErrorState,
@@ -219,12 +220,16 @@ function CreateApiKeyModal({
   }
 
   const handleCreate = async () => {
-    if (!name.trim()) {
-      setError('Name is required')
-      return
+    const formData = {
+      name: name.trim(),
+      scopes,
+      expiresInDays: expiration === 'never' ? undefined : parseInt(expiration),
     }
-    if (scopes.length === 0) {
-      setError('Select at least one scope')
+
+    const validation = apiKeySchema.safeParse(formData)
+    if (!validation.success) {
+      const firstError = validation.error.issues[0]
+      setError(firstError.message)
       return
     }
 
@@ -233,10 +238,8 @@ function CreateApiKeyModal({
 
     try {
       const result = await api.createApiKey({
-        name: name.trim(),
+        ...validation.data,
         environment: 'live',
-        scopes,
-        expiresInDays: expiration === 'never' ? undefined : parseInt(expiration),
       })
       onCreated(result)
       // Reset form
