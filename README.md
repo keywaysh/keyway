@@ -1,5 +1,7 @@
 # Keyway Documentation
 
+[![Keyway Secrets](https://www.keyway.sh/badge.svg?repo=keywaysh/keyway-docs)](https://www.keyway.sh/vaults/keywaysh/keyway-docs)
+
 Official documentation for [Keyway](https://keyway.sh) - GitHub-native secrets management for dev teams.
 
 **Live docs**: [docs.keyway.sh](https://docs.keyway.sh)
