@@ -89,6 +89,7 @@ class ApiClient {
       avatar_url: data.avatarUrl || '',
       github_username: data.username,
       plan: data.plan || 'free',
+      created_at: data.createdAt || null,
     }
   }
 

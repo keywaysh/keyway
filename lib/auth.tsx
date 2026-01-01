@@ -46,6 +46,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           email: userData.email,
           github_username: userData.github_username,
           name: userData.name,
+          plan: userData.plan,
+          created_at: userData.created_at,
+          is_paying: userData.plan !== 'free',
         })
       }
     } catch (err) {

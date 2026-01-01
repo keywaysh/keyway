@@ -62,7 +62,14 @@ export default function RootLayout({
               id="posthog-init"
               strategy="afterInteractive"
             >
-              {`window.posthog && window.posthog.init('${posthogKey}', { api_host: '${posthogHost}', capture_pageview: true, capture_pageleave: true })`}
+              {`window.posthog && window.posthog.init('${posthogKey}', {
+                api_host: '${posthogHost}',
+                capture_pageview: true,
+                capture_pageleave: true,
+                autocapture: true,
+                persistence: 'localStorage+cookie',
+                capture_performance: true
+              })`}
             </Script>
           </>
         ) : null}

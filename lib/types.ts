@@ -7,6 +7,7 @@ export interface User {
   avatar_url: string
   github_username: string
   plan: UserPlan
+  created_at: string | null
 }
 
 // Maps to GitHub repository roles
