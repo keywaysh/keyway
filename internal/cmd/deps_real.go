@@ -29,10 +29,14 @@ import (
 // realGitClient wraps the git package
 type realGitClient struct{}
 
-func (r *realGitClient) DetectRepo() (string, error)  { return git.DetectRepo() }
-func (r *realGitClient) CheckEnvGitignore() bool      { return git.CheckEnvGitignore() }
-func (r *realGitClient) AddEnvToGitignore() error     { return git.AddEnvToGitignore() }
-func (r *realGitClient) IsGitRepository() bool        { return git.IsGitRepository() }
+func (r *realGitClient) DetectRepo() (string, error) { return git.DetectRepo() }
+func (r *realGitClient) CheckEnvGitignore() bool     { return git.CheckEnvGitignore() }
+func (r *realGitClient) AddEnvToGitignore() error    { return git.AddEnvToGitignore() }
+func (r *realGitClient) IsGitRepository() bool       { return git.IsGitRepository() }
+func (r *realGitClient) DetectMonorepo() MonorepoInfo {
+	info := git.DetectMonorepo()
+	return MonorepoInfo{IsMonorepo: info.IsMonorepo, Tool: info.Tool}
+}
 
 // realAuthProvider wraps the auth package
 type realAuthProvider struct{}

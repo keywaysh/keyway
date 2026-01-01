@@ -14,6 +14,7 @@ type MockGitClient struct {
 	EnvInGitignore   bool
 	AddGitignoreErr  error
 	IsGitRepo        bool
+	Monorepo         MonorepoInfo
 }
 
 func (m *MockGitClient) DetectRepo() (string, error) {
@@ -30,6 +31,10 @@ func (m *MockGitClient) AddEnvToGitignore() error {
 
 func (m *MockGitClient) IsGitRepository() bool {
 	return m.IsGitRepo
+}
+
+func (m *MockGitClient) DetectMonorepo() MonorepoInfo {
+	return m.Monorepo
 }
 
 // MockAuthProvider is a mock implementation of AuthProvider

@@ -118,3 +118,48 @@ func AddEnvToGitignore() error {
 
 	return os.WriteFile(gitignorePath, []byte(newContent), 0644)
 }
+
+// MonorepoInfo contains information about detected monorepo setup
+type MonorepoInfo struct {
+	IsMonorepo bool
+	Tool       string // "turborepo", "nx", "pnpm", "lerna", "rush", "yarn", "npm"
+}
+
+// DetectMonorepo checks if the repository is a monorepo
+// by looking for common monorepo tool configuration files
+func DetectMonorepo() MonorepoInfo {
+	gitRoot, err := GetGitRoot()
+	if err != nil {
+		return MonorepoInfo{IsMonorepo: false}
+	}
+
+	// Check for monorepo tool config files (in order of popularity)
+	monorepoIndicators := []struct {
+		file string
+		tool string
+	}{
+		{"turbo.json", "Turborepo"},
+		{"nx.json", "Nx"},
+		{"pnpm-workspace.yaml", "pnpm workspaces"},
+		{"lerna.json", "Lerna"},
+		{"rush.json", "Rush"},
+	}
+
+	for _, indicator := range monorepoIndicators {
+		if _, err := os.Stat(filepath.Join(gitRoot, indicator.file)); err == nil {
+			return MonorepoInfo{IsMonorepo: true, Tool: indicator.tool}
+		}
+	}
+
+	// Check package.json for workspaces field (npm/yarn workspaces)
+	packageJSONPath := filepath.Join(gitRoot, "package.json")
+	if content, err := os.ReadFile(packageJSONPath); err == nil {
+		contentStr := string(content)
+		// Simple check for "workspaces" field in package.json
+		if strings.Contains(contentStr, `"workspaces"`) {
+			return MonorepoInfo{IsMonorepo: true, Tool: "npm/yarn workspaces"}
+		}
+	}
+
+	return MonorepoInfo{IsMonorepo: false}
+}

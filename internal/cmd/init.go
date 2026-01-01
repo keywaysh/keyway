@@ -56,6 +56,20 @@ func runInitWithDeps(opts InitOptions, deps *Dependencies) error {
 	}
 	deps.UI.Step(fmt.Sprintf("Repository: %s", deps.UI.Value(repo)))
 
+	// Check for monorepo setup and warn user
+	monorepoInfo := deps.Git.DetectMonorepo()
+	if monorepoInfo.IsMonorepo {
+		analytics.Track(analytics.EventMonorepoDetected, map[string]interface{}{
+			"repo": repo,
+			"tool": monorepoInfo.Tool,
+		})
+		deps.UI.Warn(fmt.Sprintf("Monorepo detected (%s)", monorepoInfo.Tool))
+		deps.UI.Message(deps.UI.Dim("Keyway doesn't fully support monorepos yet — secrets are shared across the entire repository."))
+		deps.UI.Message(deps.UI.Dim("If per-package secrets management is important to you, let us know:"))
+		deps.UI.Message(deps.UI.Dim(fmt.Sprintf("  → %s", deps.UI.Link("https://github.com/keywaysh/feedback/issues"))))
+		deps.UI.Message("")
+	}
+
 	// Ensure login and GitHub App
 	token, err := ensureLoginAndGitHubAppWithDeps(repo, deps)
 	if err != nil {
@@ -83,6 +97,18 @@ func runInitWithDeps(opts InitOptions, deps *Dependencies) error {
 	}
 	if err == nil && exists {
 		deps.UI.Success("Already initialized!")
+
+		// Still try to add badge if not present
+		badgeAdded, _ := AddBadgeToReadme(true)
+		if badgeAdded {
+			analytics.Track(analytics.EventReadmeBadge, map[string]interface{}{
+				"repo":        repo,
+				"badge_added": true,
+				"source":      "init-existing",
+			})
+			deps.UI.Success("Added Keyway badge to README")
+		}
+
 		deps.UI.Message(deps.UI.Dim(fmt.Sprintf("Run %s to sync your secrets", deps.UI.Command("keyway push"))))
 		deps.UI.Outro(fmt.Sprintf("Dashboard: %s", deps.UI.Link(dashboardURL+"/"+repo)))
 		return nil
@@ -128,6 +154,18 @@ func runInitWithDeps(opts InitOptions, deps *Dependencies) error {
 			// Already exists (409 Conflict)
 			if apiErr.StatusCode == 409 {
 				deps.UI.Success("Already initialized!")
+
+				// Still try to add badge if not present
+				badgeAdded, _ := AddBadgeToReadme(true)
+				if badgeAdded {
+					analytics.Track(analytics.EventReadmeBadge, map[string]interface{}{
+						"repo":        repo,
+						"badge_added": true,
+						"source":      "init-conflict",
+					})
+					deps.UI.Success("Added Keyway badge to README")
+				}
+
 				deps.UI.Message(deps.UI.Dim(fmt.Sprintf("Run %s to sync your secrets", deps.UI.Command("keyway push"))))
 				deps.UI.Outro(fmt.Sprintf("Dashboard: %s", deps.UI.Link(dashboardURL+"/"+repo)))
 				return nil

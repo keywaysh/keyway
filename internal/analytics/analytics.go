@@ -33,6 +33,9 @@ const (
 	EventReadmeBadge   = "cli_readme_badge"
 	EventUpgradePrompt = "cli_upgrade_prompt"
 
+	// Feature requests & usage patterns
+	EventMonorepoDetected = "cli_monorepo_detected"
+
 	// Errors & performance
 	EventError          = "cli_error"
 	EventCommandLatency = "cli_command_latency"

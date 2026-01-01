@@ -8,12 +8,19 @@ import (
 	"github.com/keywaysh/cli/internal/api"
 )
 
+// MonorepoInfo contains information about detected monorepo setup
+type MonorepoInfo struct {
+	IsMonorepo bool
+	Tool       string
+}
+
 // GitClient abstracts git operations for testing
 type GitClient interface {
 	DetectRepo() (string, error)
 	CheckEnvGitignore() bool
 	AddEnvToGitignore() error
 	IsGitRepository() bool
+	DetectMonorepo() MonorepoInfo
 }
 
 // AuthProvider abstracts authentication for testing
