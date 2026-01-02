@@ -679,35 +679,30 @@ export default function VaultDetailPage() {
               </div>
             )}
 
-            {/* Environments section - stats cards */}
+            {/* Environments tab filter */}
             {vault && allEnvironments.length > 0 && (
               <div className="mb-6">
-                <div className="flex items-center justify-between mb-3">
-                  <h3 className="text-sm font-medium text-muted-foreground">Environments</h3>
-                  {vault.permission === 'admin' && (
-                    <Button variant="outline" size="sm" asChild>
-                      <Link href={`/vaults/${owner}/${repo}/environments`}>
-                        <Settings className="w-4 h-4 mr-1.5" />
-                        Manage
-                      </Link>
-                    </Button>
-                  )}
-                </div>
-                <div className="flex flex-wrap gap-2">
+                <div className="flex items-center gap-2 border-b border-border">
                   <button
                     onClick={() => handleEnvironmentFilter('all')}
                     className={`
-                      px-3 py-1.5 sm:px-4 sm:py-2 rounded-lg border text-left transition-all
+                      flex items-center gap-2 px-3 py-2 text-sm font-medium transition-colors border-b-2 -mb-px
                       ${selectedEnvironment === 'all'
-                        ? 'border-primary bg-primary/10 text-foreground'
-                        : 'border-border bg-card hover:border-muted-foreground/50'
+                        ? 'border-foreground text-foreground'
+                        : 'border-transparent text-muted-foreground hover:text-foreground'
                       }
                     `}
                   >
-                    <div className="text-sm font-medium">All</div>
-                    <div className="text-xs text-muted-foreground">
-                      {secrets.length} secret{secrets.length !== 1 ? 's' : ''}
-                    </div>
+                    All
+                    <span className={`
+                      text-xs px-1.5 py-0.5 rounded
+                      ${selectedEnvironment === 'all'
+                        ? 'bg-muted text-foreground'
+                        : 'bg-muted/50 text-muted-foreground'
+                      }
+                    `}>
+                      {secrets.length}
+                    </span>
                   </button>
                   {allEnvironments.map((env) => {
                     const colors = getEnvironmentColor(env)
@@ -717,22 +712,24 @@ export default function VaultDetailPage() {
                         key={env}
                         onClick={() => handleEnvironmentFilter(env)}
                         className={`
-                          group relative px-3 py-1.5 sm:px-4 sm:py-2 rounded-lg border text-left transition-all
-                          ${colors.border} ${colors.bg}
-                          ${isSelected ? 'ring-2 ring-current/30' : 'opacity-60 hover:opacity-100'}
-                          ${secretsByEnv[env] === 0 && !isSelected ? 'opacity-40' : ''}
+                          px-3 py-2 text-sm font-medium transition-colors border-b-2 -mb-px
+                          ${isSelected
+                            ? `border-current ${colors.text}`
+                            : 'border-transparent text-muted-foreground hover:text-foreground'
+                          }
                         `}
                       >
-                        {isSelected && (
-                          <X className="absolute -top-1.5 -right-1.5 w-4 h-4 p-0.5 rounded-full bg-muted-foreground text-background opacity-0 group-hover:opacity-100 transition-opacity" />
-                        )}
-                        <div className={`text-sm font-medium ${colors.text}`}>{env}</div>
-                        <div className="text-xs text-muted-foreground">
-                          {secretsByEnv[env]} secret{secretsByEnv[env] !== 1 ? 's' : ''}
-                        </div>
+                        {env}
                       </button>
                     )
                   })}
+                  {vault.permission === 'admin' && (
+                    <Button variant="ghost" size="icon" className="-mb-px h-8 w-8" asChild>
+                      <Link href={`/vaults/${owner}/${repo}/environments`}>
+                        <Settings className="w-4 h-4" />
+                      </Link>
+                    </Button>
+                  )}
                 </div>
               </div>
             )}
