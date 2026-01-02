@@ -107,7 +107,7 @@ const decrypted = decrypt(encrypted, ENCRYPTION_KEY);
 
 ### Database (Drizzle ORM)
 
-Tables: `users`, `vaults`, `secrets`, `device_codes`, `activity_logs`, `provider_connections`, `sync_jobs`
+Tables: `users`, `vaults`, `secrets`, `device_codes`, `activity_logs`, `provider_connections`, `sync_jobs`, `vault_environments`
 
 ```typescript
 // Query example
@@ -116,6 +116,21 @@ const vault = await db.query.vaults.findFirst({
   with: { secrets: true }
 });
 ```
+
+**Creating Migrations**:
+When creating a new SQL migration file in `drizzle/`:
+1. Create the migration file: `drizzle/00XX_migration_name.sql`
+2. **IMPORTANT**: Update `drizzle/meta/_journal.json` to add the new entry:
+```json
+{
+  "idx": XX,
+  "version": "5",
+  "when": <timestamp>,
+  "tag": "00XX_migration_name",
+  "breakpoints": true
+}
+```
+3. Run `pnpm run db:migrate` to apply
 
 ## Testing
 
