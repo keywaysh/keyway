@@ -281,6 +281,13 @@
       "when": 1767282000000,
       "tag": "0039_add_pull_events_source",
       "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "5",
+      "when": 1767400000000,
+      "tag": "0040_add_vault_environments_table",
+      "breakpoints": true
     }
   ]
 }
