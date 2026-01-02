@@ -1,5 +1,5 @@
-import { config } from '../config';
-import { logger } from './sharedLogger';
+import { config } from "../config";
+import { logger } from "./sharedLogger";
 
 /**
  * Default encryption version for backward compatibility
@@ -32,9 +32,9 @@ let encryptionService: IEncryptionService | null = null;
  */
 export async function getEncryptionService(): Promise<IEncryptionService> {
   if (!encryptionService) {
-    const { RemoteEncryptionService } = await import('./remoteEncryption.js');
+    const { RemoteEncryptionService } = await import("./remoteEncryption.js");
     encryptionService = new RemoteEncryptionService(config.crypto.serviceUrl);
-    logger.info({ serviceUrl: config.crypto.serviceUrl }, 'Using remote encryption service');
+    logger.info({ serviceUrl: config.crypto.serviceUrl }, "Using remote encryption service");
   }
   return encryptionService;
 }
@@ -43,7 +43,7 @@ export async function getEncryptionService(): Promise<IEncryptionService> {
  * Sanitizes content for logging - NEVER log actual secret values
  */
 export function sanitizeForLogging(content: string): string {
-  const lines = content.split('\n').length;
+  const lines = content.split("\n").length;
   const chars = content.length;
   return `[REDACTED: ${lines} lines, ${chars} characters]`;
 }

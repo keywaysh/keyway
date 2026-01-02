@@ -1,9 +1,15 @@
-import { db } from '../db';
-import { organizations, organizationMembers, users, vaults } from '../db/schema';
-import { eq, and, desc } from 'drizzle-orm';
-import type { Organization, OrganizationMember, OrgRole, UserPlan, ForgeType } from '../db/schema';
-import { getEffectivePlanWithTrial, getTrialInfo, hasHadTrial, TRIAL_DURATION_DAYS, type TrialInfo } from './trial.service';
-import { getGitHubOrgInfoWithToken } from '../utils/github';
+import { db } from "../db";
+import { organizations, organizationMembers, users, vaults } from "../db/schema";
+import { eq, and, desc } from "drizzle-orm";
+import type { Organization, OrganizationMember, OrgRole, UserPlan, ForgeType } from "../db/schema";
+import {
+  getEffectivePlanWithTrial,
+  getTrialInfo,
+  hasHadTrial,
+  TRIAL_DURATION_DAYS,
+  type TrialInfo,
+} from "./trial.service";
+import { getGitHubOrgInfoWithToken } from "../utils/github";
 
 // ============================================================================
 // Types
@@ -11,7 +17,7 @@ import { getGitHubOrgInfoWithToken } from '../utils/github';
 
 export interface OrganizationInfo {
   id: string;
-  forgeType: 'github' | 'gitlab' | 'bitbucket';
+  forgeType: "github" | "gitlab" | "bitbucket";
   forgeOrgId: string;
   login: string;
   displayName: string | null;
@@ -57,10 +63,7 @@ export async function getOrCreateOrganization(
 ): Promise<Organization> {
   // Try to find existing org
   const existingOrg = await db.query.organizations.findFirst({
-    where: and(
-      eq(organizations.forgeType, forgeType),
-      eq(organizations.forgeOrgId, forgeOrgId)
-    ),
+    where: and(eq(organizations.forgeType, forgeType), eq(organizations.forgeOrgId, forgeOrgId)),
   });
 
   if (existingOrg) {
@@ -137,7 +140,9 @@ export async function getOrganizationDetails(orgId: string): Promise<Organizatio
     },
   });
 
-  if (!org) return null;
+  if (!org) {
+    return null;
+  }
 
   return {
     id: org.id,
@@ -149,7 +154,7 @@ export async function getOrganizationDetails(orgId: string): Promise<Organizatio
     plan: org.plan,
     memberCount: org.members.length,
     vaultCount: org.vaults.length,
-    members: org.members.map(m => ({
+    members: org.members.map((m) => ({
       id: m.id,
       userId: m.userId,
       username: m.user.username,
@@ -184,7 +189,7 @@ export async function getOrganizationsForUser(userId: string): Promise<Organizat
     orderBy: [desc(organizationMembers.createdAt)],
   });
 
-  return memberships.map(m => ({
+  return memberships.map((m) => ({
     id: m.organization.id,
     forgeType: m.organization.forgeType,
     forgeOrgId: m.organization.forgeOrgId,
@@ -254,14 +259,11 @@ export async function upsertOrganizationMember(
   orgId: string,
   userId: string,
   orgRole: OrgRole,
-  membershipState: string = 'active'
+  membershipState: string = "active"
 ): Promise<OrganizationMember> {
   // Check if membership exists
   const existing = await db.query.organizationMembers.findFirst({
-    where: and(
-      eq(organizationMembers.orgId, orgId),
-      eq(organizationMembers.userId, userId)
-    ),
+    where: and(eq(organizationMembers.orgId, orgId), eq(organizationMembers.userId, userId)),
   });
 
   if (existing) {
@@ -298,12 +300,7 @@ export async function upsertOrganizationMember(
 export async function removeOrganizationMember(orgId: string, userId: string): Promise<void> {
   await db
     .delete(organizationMembers)
-    .where(
-      and(
-        eq(organizationMembers.orgId, orgId),
-        eq(organizationMembers.userId, userId)
-      )
-    );
+    .where(and(eq(organizationMembers.orgId, orgId), eq(organizationMembers.userId, userId)));
 }
 
 /**
@@ -314,10 +311,7 @@ export async function getOrganizationMembership(
   userId: string
 ): Promise<OrganizationMember | null> {
   const membership = await db.query.organizationMembers.findFirst({
-    where: and(
-      eq(organizationMembers.orgId, orgId),
-      eq(organizationMembers.userId, userId)
-    ),
+    where: and(eq(organizationMembers.orgId, orgId), eq(organizationMembers.userId, userId)),
   });
   return membership ?? null;
 }
@@ -327,7 +321,7 @@ export async function getOrganizationMembership(
  */
 export async function isOrganizationOwner(orgId: string, userId: string): Promise<boolean> {
   const membership = await getOrganizationMembership(orgId, userId);
-  return membership?.orgRole === 'owner';
+  return membership?.orgRole === "owner";
 }
 
 /**
@@ -342,7 +336,7 @@ export async function getOrganizationMembers(orgId: string): Promise<Organizatio
     orderBy: [desc(organizationMembers.createdAt)],
   });
 
-  return members.map(m => ({
+  return members.map((m) => ({
     id: m.id,
     userId: m.userId,
     username: m.user.username,
@@ -362,10 +356,7 @@ export async function getOrganizationMembers(orgId: string): Promise<Organizatio
  * Associate a vault with an organization
  */
 export async function associateVaultWithOrg(vaultId: string, orgId: string): Promise<void> {
-  await db
-    .update(vaults)
-    .set({ orgId, updatedAt: new Date() })
-    .where(eq(vaults.id, vaultId));
+  await db.update(vaults).set({ orgId, updatedAt: new Date() }).where(eq(vaults.id, vaultId));
 }
 
 /**
@@ -386,10 +377,10 @@ export async function getOrganizationVaults(orgId: string) {
 // ============================================================================
 
 export interface VcsOrgMember {
-  id: string;  // forgeUserId as string
+  id: string; // forgeUserId as string
   login: string;
   avatar_url: string;
-  role: 'admin' | 'member';
+  role: "admin" | "member";
 }
 
 /**
@@ -409,8 +400,8 @@ export async function syncOrganizationMembers(
     with: { user: true },
   });
 
-  const currentMemberUserIds = new Set(currentMembers.map(m => m.user.forgeUserId));
-  const vcsMemberIds = new Set(vcsMembers.map(m => m.id));
+  const _currentMemberUserIds = new Set(currentMembers.map((m) => m.user.forgeUserId));
+  const vcsMemberIds = new Set(vcsMembers.map((m) => m.id));
 
   let added = 0;
   let updated = 0;
@@ -420,10 +411,7 @@ export async function syncOrganizationMembers(
   for (const vcsMember of vcsMembers) {
     // Find corresponding Keyway user by forge type and user ID
     const keywayUser = await db.query.users.findFirst({
-      where: and(
-        eq(users.forgeType, forgeType),
-        eq(users.forgeUserId, vcsMember.id)
-      ),
+      where: and(eq(users.forgeType, forgeType), eq(users.forgeUserId, vcsMember.id)),
     });
 
     if (!keywayUser) {
@@ -431,8 +419,8 @@ export async function syncOrganizationMembers(
       continue;
     }
 
-    const orgRole: OrgRole = vcsMember.role === 'admin' ? 'owner' : 'member';
-    const existingMember = currentMembers.find(m => m.user.forgeUserId === vcsMember.id);
+    const orgRole: OrgRole = vcsMember.role === "admin" ? "owner" : "member";
+    const existingMember = currentMembers.find((m) => m.user.forgeUserId === vcsMember.id);
 
     if (existingMember) {
       // Update if role changed
@@ -472,7 +460,7 @@ export async function getEffectivePlanForVault(vaultId: string): Promise<UserPla
   });
 
   if (!vault) {
-    return 'free';
+    return "free";
   }
 
   // If vault belongs to an org, use org's effective plan (considering trial)
@@ -521,7 +509,7 @@ export async function ensureOrganizationExists(
       const membership = await getOrganizationMembership(existingOrg.id, currentUserId);
       if (!membership) {
         // Add user as member (not owner - we don't know their GitHub role)
-        await upsertOrganizationMember(existingOrg.id, currentUserId, 'member');
+        await upsertOrganizationMember(existingOrg.id, currentUserId, "member");
       }
     }
     return existingOrg;
@@ -536,7 +524,7 @@ export async function ensureOrganizationExists(
 
   // Create the organization in DB
   const org = await getOrCreateOrganization(
-    'github',
+    "github",
     String(githubOrg.id),
     githubOrg.login,
     githubOrg.name ?? undefined,
@@ -545,7 +533,7 @@ export async function ensureOrganizationExists(
 
   // Add the current user as owner (they're creating the org entry)
   if (currentUserId && org) {
-    await upsertOrganizationMember(org.id, currentUserId, 'owner');
+    await upsertOrganizationMember(org.id, currentUserId, "owner");
   }
 
   return org;
@@ -562,18 +550,18 @@ export function getTrialEligibility(org: Organization): TrialEligibility {
   const trialInfo = getTrialInfo(org);
 
   // Already on paid plan
-  if (org.stripeCustomerId && org.plan === 'team') {
+  if (org.stripeCustomerId && org.plan === "team") {
     return {
       eligible: false,
       daysAvailable: 0,
       orgLogin: org.login,
-      reason: 'Organization already has a paid Team plan',
+      reason: "Organization already has a paid Team plan",
     };
   }
 
   // Already had a trial
   if (hasHadTrial(org)) {
-    if (trialInfo.status === 'active') {
+    if (trialInfo.status === "active") {
       return {
         eligible: false,
         daysAvailable: 0,
@@ -585,7 +573,7 @@ export function getTrialEligibility(org: Organization): TrialEligibility {
       eligible: false,
       daysAvailable: 0,
       orgLogin: org.login,
-      reason: 'Organization has already used their trial',
+      reason: "Organization has already used their trial",
     };
   }
 

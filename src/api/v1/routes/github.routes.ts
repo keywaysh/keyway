@@ -1,8 +1,8 @@
-import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
-import * as crypto from 'crypto';
-import { z } from 'zod';
-import { config } from '../../../config';
-import { authenticateGitHub } from '../../../middleware/auth';
+import { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
+import * as crypto from "crypto";
+import { z } from "zod";
+import { config } from "../../../config";
+import { authenticateGitHub } from "../../../middleware/auth";
 import {
   checkInstallationStatus,
   createInstallation,
@@ -13,15 +13,19 @@ import {
   getInstallationByGitHubId,
   logActivity,
   getInstallationToken,
-} from '../../../services';
-import { db, users, vcsAppInstallations } from '../../../db';
-import { eq, and } from 'drizzle-orm';
-import { sendData, sendNoContent } from '../../../lib/response';
-import { BadRequestError, ForbiddenError } from '../../../lib/errors';
-import type { InstallationAccountType } from '../../../db/schema';
-import { getOrCreateOrganization, syncOrganizationMembers, getOrganizationByLogin } from '../../../services/organization.service';
-import { listOrgMembersWithApp, listUserOrganizations } from '../../../utils/github';
-import { decryptAccessToken } from '../../../utils/tokenEncryption';
+} from "../../../services";
+import { db, users, vcsAppInstallations } from "../../../db";
+import { eq, and } from "drizzle-orm";
+import { sendData } from "../../../lib/response";
+import { BadRequestError, ForbiddenError } from "../../../lib/errors";
+import type { InstallationAccountType } from "../../../db/schema";
+import {
+  getOrCreateOrganization,
+  syncOrganizationMembers,
+  getOrganizationByLogin,
+} from "../../../services/organization.service";
+import { listOrgMembersWithApp, listUserOrganizations } from "../../../utils/github";
+import { decryptAccessToken } from "../../../utils/tokenEncryption";
 
 // Schemas
 const CheckInstallationSchema = z.object({
@@ -35,9 +39,9 @@ interface GitHubWebhookInstallation {
   account: {
     id: number;
     login: string;
-    type: 'User' | 'Organization';
+    type: "User" | "Organization";
   };
-  repository_selection: 'all' | 'selected';
+  repository_selection: "all" | "selected";
   permissions: Record<string, string>;
   sender?: {
     id: number;
@@ -74,139 +78,161 @@ export async function githubRoutes(fastify: FastifyInstance) {
    * POST /check-installation
    * Check if GitHub App is installed for a specific repository
    */
-  fastify.post('/check-installation', {
-    preHandler: [authenticateGitHub],
-  }, async (request: FastifyRequest, reply: FastifyReply) => {
-    const body = CheckInstallationSchema.parse(request.body);
+  fastify.post(
+    "/check-installation",
+    {
+      preHandler: [authenticateGitHub],
+    },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const body = CheckInstallationSchema.parse(request.body);
 
-    const status = await checkInstallationStatus(body.repoOwner, body.repoName);
+      const status = await checkInstallationStatus(body.repoOwner, body.repoName);
 
-    return sendData(reply, status, { requestId: request.id });
-  });
+      return sendData(reply, status, { requestId: request.id });
+    }
+  );
 
   /**
    * GET /installations
    * List all GitHub App installations for the authenticated user
    */
-  fastify.get('/installations', {
-    preHandler: [authenticateGitHub],
-  }, async (request: FastifyRequest, reply: FastifyReply) => {
-    const vcsUser = request.vcsUser || request.githubUser;
-    const user = await db.query.users.findFirst({
-      where: and(
-        eq(users.forgeType, vcsUser!.forgeType),
-        eq(users.forgeUserId, vcsUser!.forgeUserId)
-      ),
-    });
+  fastify.get(
+    "/installations",
+    {
+      preHandler: [authenticateGitHub],
+    },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const vcsUser = request.vcsUser || request.githubUser;
+      const user = await db.query.users.findFirst({
+        where: and(
+          eq(users.forgeType, vcsUser!.forgeType),
+          eq(users.forgeUserId, vcsUser!.forgeUserId)
+        ),
+      });
 
-    if (!user) {
-      return sendData(reply, { installations: [] }, { requestId: request.id });
+      if (!user) {
+        return sendData(reply, { installations: [] }, { requestId: request.id });
+      }
+
+      const installations = await getInstallationsForUser(user.id);
+
+      return sendData(
+        reply,
+        {
+          installations: installations.map((inst) => ({
+            id: inst.id,
+            installationId: inst.installationId,
+            accountLogin: inst.accountLogin,
+            accountType: inst.accountType,
+            repositorySelection: inst.repositorySelection,
+            repositoryCount: (inst as any).repos?.length ?? 0,
+            installedAt: inst.installedAt.toISOString(),
+          })),
+          installUrl: config.githubApp.installUrl,
+        },
+        { requestId: request.id }
+      );
     }
-
-    const installations = await getInstallationsForUser(user.id);
-
-    return sendData(reply, {
-      installations: installations.map((inst) => ({
-        id: inst.id,
-        installationId: inst.installationId,
-        accountLogin: inst.accountLogin,
-        accountType: inst.accountType,
-        repositorySelection: inst.repositorySelection,
-        repositoryCount: (inst as any).repos?.length ?? 0,
-        installedAt: inst.installedAt.toISOString(),
-      })),
-      installUrl: config.githubApp.installUrl,
-    }, { requestId: request.id });
-  });
+  );
 
   /**
    * GET /available-orgs
    * List GitHub organizations where the user is a member, with their status
    * Status can be: 'ready' (app installed), 'needs_install' (user is admin), 'contact_admin' (user is member)
    */
-  fastify.get('/available-orgs', {
-    preHandler: [authenticateGitHub],
-  }, async (request: FastifyRequest, reply: FastifyReply) => {
-    const vcsUser = request.vcsUser || request.githubUser;
+  fastify.get(
+    "/available-orgs",
+    {
+      preHandler: [authenticateGitHub],
+    },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const vcsUser = request.vcsUser || request.githubUser;
 
-    // Get the user from database to get their encrypted token
-    const user = await db.query.users.findFirst({
-      where: and(
-        eq(users.forgeType, vcsUser!.forgeType),
-        eq(users.forgeUserId, vcsUser!.forgeUserId)
-      ),
-    });
+      // Get the user from database to get their encrypted token
+      const user = await db.query.users.findFirst({
+        where: and(
+          eq(users.forgeType, vcsUser!.forgeType),
+          eq(users.forgeUserId, vcsUser!.forgeUserId)
+        ),
+      });
 
-    if (!user) {
-      return sendData(reply, { organizations: [] }, { requestId: request.id });
+      if (!user) {
+        return sendData(reply, { organizations: [] }, { requestId: request.id });
+      }
+
+      // Decrypt the user's GitHub token to list their orgs
+      const accessToken = await decryptAccessToken({
+        encryptedAccessToken: user.encryptedAccessToken,
+        accessTokenIv: user.accessTokenIv,
+        accessTokenAuthTag: user.accessTokenAuthTag,
+        tokenEncryptionVersion: user.tokenEncryptionVersion,
+      });
+      if (!accessToken) {
+        return sendData(reply, { organizations: [] }, { requestId: request.id });
+      }
+
+      // List orgs where the GitHub App is installed and user has access
+      // Note: This uses /user/installations, so all returned orgs have the app installed
+      const githubOrgs = await listUserOrganizations(accessToken);
+
+      // Check which orgs are already connected to Keyway
+      const orgLoginLookups = await Promise.all(
+        githubOrgs.map(async (org) => {
+          const keywayOrg = await getOrganizationByLogin(org.login);
+          return { login: org.login, connected: !!keywayOrg };
+        })
+      );
+      const connectedOrgs = new Map(
+        orgLoginLookups.map((o) => [o.login.toLowerCase(), o.connected])
+      );
+
+      // Build the response - all orgs are "ready" since they come from /user/installations
+      const organizations = githubOrgs.map((org) => {
+        const isConnected = connectedOrgs.get(org.login.toLowerCase()) ?? false;
+
+        return {
+          login: org.login,
+          display_name: org.login,
+          avatar_url: org.avatar_url,
+          status: "ready" as const, // App is installed on all returned orgs
+          user_role: org.role,
+          already_connected: isConnected,
+        };
+      });
+
+      return sendData(
+        reply,
+        {
+          organizations,
+          install_url: config.githubApp.installUrl,
+        },
+        { requestId: request.id }
+      );
     }
-
-    // Decrypt the user's GitHub token to list their orgs
-    const accessToken = await decryptAccessToken({
-      encryptedAccessToken: user.encryptedAccessToken,
-      accessTokenIv: user.accessTokenIv,
-      accessTokenAuthTag: user.accessTokenAuthTag,
-      tokenEncryptionVersion: user.tokenEncryptionVersion,
-    });
-    if (!accessToken) {
-      return sendData(reply, { organizations: [] }, { requestId: request.id });
-    }
-
-    // List orgs where the GitHub App is installed and user has access
-    // Note: This uses /user/installations, so all returned orgs have the app installed
-    const githubOrgs = await listUserOrganizations(accessToken);
-
-    // Check which orgs are already connected to Keyway
-    const orgLoginLookups = await Promise.all(
-      githubOrgs.map(async (org) => {
-        const keywayOrg = await getOrganizationByLogin(org.login);
-        return { login: org.login, connected: !!keywayOrg };
-      })
-    );
-    const connectedOrgs = new Map(orgLoginLookups.map(o => [o.login.toLowerCase(), o.connected]));
-
-    // Build the response - all orgs are "ready" since they come from /user/installations
-    const organizations = githubOrgs.map((org) => {
-      const isConnected = connectedOrgs.get(org.login.toLowerCase()) ?? false;
-
-      return {
-        login: org.login,
-        display_name: org.login,
-        avatar_url: org.avatar_url,
-        status: 'ready' as const, // App is installed on all returned orgs
-        user_role: org.role,
-        already_connected: isConnected,
-      };
-    });
-
-    return sendData(reply, {
-      organizations,
-      install_url: config.githubApp.installUrl,
-    }, { requestId: request.id });
-  });
+  );
 
   /**
    * GET /repo-ids
    * Get GitHub repository IDs for deep linking during GitHub App installation
    * Uses existing "all repos" installation token if available
    */
-  fastify.get('/repo-ids', async (request: FastifyRequest, reply: FastifyReply) => {
+  fastify.get("/repo-ids", async (request: FastifyRequest, reply: FastifyReply) => {
     const query = request.query as { repo?: string };
     if (!query.repo) {
-      throw new BadRequestError('repo parameter required');
+      throw new BadRequestError("repo parameter required");
     }
 
-    const [owner, repo] = query.repo.split('/');
+    const [owner, repo] = query.repo.split("/");
     if (!owner || !repo) {
-      throw new BadRequestError('Invalid repo format. Expected: owner/repo');
+      throw new BadRequestError("Invalid repo format. Expected: owner/repo");
     }
 
     // Chercher une installation "all repos" active pour cet owner
     const installation = await db.query.vcsAppInstallations.findFirst({
       where: and(
         eq(vcsAppInstallations.accountLogin, owner),
-        eq(vcsAppInstallations.repositorySelection, 'all'),
-        eq(vcsAppInstallations.status, 'active')
+        eq(vcsAppInstallations.repositorySelection, "all"),
+        eq(vcsAppInstallations.status, "active")
       ),
     });
 
@@ -221,8 +247,8 @@ export async function githubRoutes(fastify: FastifyInstance) {
       const response = await fetch(`https://api.github.com/repos/${owner}/${repo}`, {
         headers: {
           Authorization: `Bearer ${token}`,
-          Accept: 'application/vnd.github.v3+json',
-          'User-Agent': 'Keyway-Backend',
+          Accept: "application/vnd.github.v3+json",
+          "User-Agent": "Keyway-Backend",
         },
       });
 
@@ -232,12 +258,16 @@ export async function githubRoutes(fastify: FastifyInstance) {
       }
 
       const data = (await response.json()) as { id: number; owner: { id: number } };
-      return sendData(reply, {
-        ownerId: data.owner.id,
-        repoId: data.id,
-      }, { requestId: request.id });
+      return sendData(
+        reply,
+        {
+          ownerId: data.owner.id,
+          repoId: data.id,
+        },
+        { requestId: request.id }
+      );
     } catch (error) {
-      fastify.log.warn({ error, owner, repo }, 'Failed to fetch repo IDs');
+      fastify.log.warn({ error, owner, repo }, "Failed to fetch repo IDs");
       return sendData(reply, { ownerId: null, repoId: null }, { requestId: request.id });
     }
   });
@@ -250,75 +280,80 @@ export async function githubRoutes(fastify: FastifyInstance) {
     // SECURITY: Webhook secret is required to validate incoming webhooks
     // This prevents attackers from forging webhook events
     if (!config.githubApp.webhookSecret) {
-      fastify.log.error('GitHub App webhook received but webhook secret not configured - rejecting for security');
+      fastify.log.error(
+        "GitHub App webhook received but webhook secret not configured - rejecting for security"
+      );
       return reply.status(503).send({
-        type: 'https://keyway.sh/errors/service-unavailable',
-        title: 'Service Unavailable',
+        type: "https://keyway.sh/errors/service-unavailable",
+        title: "Service Unavailable",
         status: 503,
-        detail: 'Webhook endpoint is not properly configured',
+        detail: "Webhook endpoint is not properly configured",
       });
     }
 
     // Get headers
-    const signature = request.headers['x-hub-signature-256'] as string;
-    const event = request.headers['x-github-event'] as string;
-    const deliveryId = request.headers['x-github-delivery'] as string;
+    const signature = request.headers["x-hub-signature-256"] as string;
+    const event = request.headers["x-github-event"] as string;
+    const deliveryId = request.headers["x-github-delivery"] as string;
 
     if (!signature || !event) {
-      throw new BadRequestError('Missing required GitHub webhook headers');
+      throw new BadRequestError("Missing required GitHub webhook headers");
     }
 
     // Get raw body for signature verification
     const rawBody = (request as any).rawBody as Buffer;
     if (!rawBody) {
-      throw new BadRequestError('Missing raw request body');
+      throw new BadRequestError("Missing raw request body");
     }
 
     // Verify signature
     const expectedSignature = `sha256=${crypto
-      .createHmac('sha256', config.githubApp.webhookSecret!)
+      .createHmac("sha256", config.githubApp.webhookSecret!)
       .update(rawBody)
-      .digest('hex')}`;
+      .digest("hex")}`;
 
     if (!crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expectedSignature))) {
-      fastify.log.warn({ deliveryId }, 'Invalid GitHub webhook signature');
-      throw new ForbiddenError('Invalid webhook signature');
+      fastify.log.warn({ deliveryId }, "Invalid GitHub webhook signature");
+      throw new ForbiddenError("Invalid webhook signature");
     }
 
     // Parse payload
     const payload = request.body as GitHubWebhookPayload;
 
-    fastify.log.info({
-      event,
-      action: payload.action,
-      deliveryId,
-      installationId: payload.installation?.id,
-    }, 'GitHub App webhook received');
+    fastify.log.info(
+      {
+        event,
+        action: payload.action,
+        deliveryId,
+        installationId: payload.installation?.id,
+      },
+      "GitHub App webhook received"
+    );
 
     // Handle different events
     try {
       switch (event) {
-        case 'installation':
+        case "installation":
           await handleInstallationEvent(payload, fastify);
           break;
 
-        case 'installation_repositories':
+        case "installation_repositories":
           await handleInstallationRepositoriesEvent(payload, fastify);
           break;
 
-        case 'organization':
+        case "organization":
           await handleOrganizationEvent(payload, fastify);
           break;
 
-        case 'membership':
+        case "membership":
           await handleMembershipEvent(payload, fastify);
           break;
 
         default:
-          fastify.log.debug({ event }, 'Unhandled GitHub webhook event');
+          fastify.log.debug({ event }, "Unhandled GitHub webhook event");
       }
     } catch (error) {
-      fastify.log.error({ error, event, deliveryId }, 'Error processing GitHub webhook');
+      fastify.log.error({ error, event, deliveryId }, "Error processing GitHub webhook");
       // Don't throw - return 200 to prevent GitHub from retrying
     }
 
@@ -332,7 +367,7 @@ export async function githubRoutes(fastify: FastifyInstance) {
   };
 
   // Register /webhook endpoint for GitHub App webhooks
-  fastify.post('/webhook', webhookRouteConfig, webhookHandler);
+  fastify.post("/webhook", webhookRouteConfig, webhookHandler);
 }
 
 /**
@@ -348,21 +383,21 @@ async function handleInstallationEvent(
   let installedByUserId: string | undefined;
   if (sender?.id) {
     const user = await db.query.users.findFirst({
-      where: and(
-        eq(users.forgeType, 'github'),
-        eq(users.forgeUserId, String(sender.id))
-      ),
+      where: and(eq(users.forgeType, "github"), eq(users.forgeUserId, String(sender.id))),
     });
     installedByUserId = user?.id;
   }
 
   switch (action) {
-    case 'created':
-      fastify.log.info({
-        installationId: installation.id,
-        account: installation.account.login,
-        repoCount: repositories?.length,
-      }, 'GitHub App installed');
+    case "created":
+      fastify.log.info(
+        {
+          installationId: installation.id,
+          account: installation.account.login,
+          repoCount: repositories?.length,
+        },
+        "GitHub App installed"
+      );
 
       await createInstallation({
         installationId: installation.id,
@@ -376,18 +411,21 @@ async function handleInstallationEvent(
       });
 
       // If installed on an organization, create/update org and sync members
-      if (installation.account.type === 'Organization') {
+      if (installation.account.type === "Organization") {
         try {
           const org = await getOrCreateOrganization(
-            'github',
+            "github",
             String(installation.account.id),
             installation.account.login
           );
 
-          fastify.log.info({
-            orgId: org.id,
-            orgLogin: org.login,
-          }, 'Created/updated organization from GitHub App installation');
+          fastify.log.info(
+            {
+              orgId: org.id,
+              orgLogin: org.login,
+            },
+            "Created/updated organization from GitHub App installation"
+          );
 
           // Sync organization members
           const githubMembers = await listOrgMembersWithApp(
@@ -397,26 +435,32 @@ async function handleInstallationEvent(
 
           if (githubMembers.length > 0) {
             // Convert GitHub members to VCS format (id as string)
-            const vcsMembers = githubMembers.map(m => ({
+            const vcsMembers = githubMembers.map((m) => ({
               id: String(m.id),
               login: m.login,
               avatar_url: m.avatar_url,
               role: m.role,
             }));
-            const result = await syncOrganizationMembers(org.id, 'github', vcsMembers);
-            fastify.log.info({
-              orgId: org.id,
-              added: result.added,
-              updated: result.updated,
-              removed: result.removed,
-            }, 'Synced organization members');
+            const result = await syncOrganizationMembers(org.id, "github", vcsMembers);
+            fastify.log.info(
+              {
+                orgId: org.id,
+                added: result.added,
+                updated: result.updated,
+                removed: result.removed,
+              },
+              "Synced organization members"
+            );
           }
         } catch (error) {
           // Log but don't fail the webhook
-          fastify.log.error({
-            error: error instanceof Error ? error.message : 'Unknown',
-            installationId: installation.id,
-          }, 'Failed to create organization from installation');
+          fastify.log.error(
+            {
+              error: error instanceof Error ? error.message : "Unknown",
+              installationId: installation.id,
+            },
+            "Failed to create organization from installation"
+          );
         }
       }
 
@@ -424,8 +468,8 @@ async function handleInstallationEvent(
       if (installedByUserId) {
         await logActivity({
           userId: installedByUserId,
-          action: 'vcs_app_installed',
-          platform: 'web',
+          action: "vcs_app_installed",
+          platform: "web",
           metadata: {
             installationId: installation.id,
             accountLogin: installation.account.login,
@@ -437,18 +481,21 @@ async function handleInstallationEvent(
       }
       break;
 
-    case 'deleted':
-      fastify.log.info({
-        installationId: installation.id,
-        account: installation.account.login,
-      }, 'GitHub App uninstalled');
+    case "deleted":
+      fastify.log.info(
+        {
+          installationId: installation.id,
+          account: installation.account.login,
+        },
+        "GitHub App uninstalled"
+      );
 
       // Log activity before deletion if we know who triggered it
       if (installedByUserId) {
         await logActivity({
           userId: installedByUserId,
-          action: 'vcs_app_uninstalled',
-          platform: 'web',
+          action: "vcs_app_uninstalled",
+          platform: "web",
           metadata: {
             installationId: installation.id,
             accountLogin: installation.account.login,
@@ -460,29 +507,38 @@ async function handleInstallationEvent(
       await deleteInstallation(installation.id);
       break;
 
-    case 'suspend':
-      fastify.log.info({
-        installationId: installation.id,
-        account: installation.account.login,
-      }, 'GitHub App suspended');
+    case "suspend":
+      fastify.log.info(
+        {
+          installationId: installation.id,
+          account: installation.account.login,
+        },
+        "GitHub App suspended"
+      );
 
-      await updateInstallationStatus(installation.id, 'suspended');
+      await updateInstallationStatus(installation.id, "suspended");
       break;
 
-    case 'unsuspend':
-      fastify.log.info({
-        installationId: installation.id,
-        account: installation.account.login,
-      }, 'GitHub App unsuspended');
+    case "unsuspend":
+      fastify.log.info(
+        {
+          installationId: installation.id,
+          account: installation.account.login,
+        },
+        "GitHub App unsuspended"
+      );
 
-      await updateInstallationStatus(installation.id, 'active');
+      await updateInstallationStatus(installation.id, "active");
       break;
 
-    case 'new_permissions_accepted':
-      fastify.log.info({
-        installationId: installation.id,
-        permissions: installation.permissions,
-      }, 'GitHub App permissions updated');
+    case "new_permissions_accepted": {
+      fastify.log.info(
+        {
+          installationId: installation.id,
+          permissions: installation.permissions,
+        },
+        "GitHub App permissions updated"
+      );
 
       // Update permissions in database
       const existingInstallation = await getInstallationByGitHubId(installation.id);
@@ -497,9 +553,10 @@ async function handleInstallationEvent(
         });
       }
       break;
+    }
 
     default:
-      fastify.log.debug({ action }, 'Unhandled installation action');
+      fastify.log.debug({ action }, "Unhandled installation action");
   }
 }
 
@@ -513,24 +570,26 @@ async function handleInstallationRepositoriesEvent(
   const { action, installation, repositories_added, repositories_removed } = payload;
 
   switch (action) {
-    case 'added':
-      fastify.log.info({
-        installationId: installation.id,
-        added: repositories_added?.map((r) => r.full_name),
-      }, 'Repositories added to GitHub App installation');
-
-      await updateInstallationRepos(
-        installation.id,
-        repositories_added || [],
-        []
+    case "added":
+      fastify.log.info(
+        {
+          installationId: installation.id,
+          added: repositories_added?.map((r) => r.full_name),
+        },
+        "Repositories added to GitHub App installation"
       );
+
+      await updateInstallationRepos(installation.id, repositories_added || [], []);
       break;
 
-    case 'removed':
-      fastify.log.info({
-        installationId: installation.id,
-        removed: repositories_removed?.map((r) => r.full_name),
-      }, 'Repositories removed from GitHub App installation');
+    case "removed":
+      fastify.log.info(
+        {
+          installationId: installation.id,
+          removed: repositories_removed?.map((r) => r.full_name),
+        },
+        "Repositories removed from GitHub App installation"
+      );
 
       await updateInstallationRepos(
         installation.id,
@@ -540,20 +599,20 @@ async function handleInstallationRepositoriesEvent(
       break;
 
     default:
-      fastify.log.debug({ action }, 'Unhandled installation_repositories action');
+      fastify.log.debug({ action }, "Unhandled installation_repositories action");
   }
 }
 
 // Payload types for organization events
 interface GitHubOrganizationPayload {
-  action: 'member_added' | 'member_removed' | 'member_invited';
+  action: "member_added" | "member_removed" | "member_invited";
   membership?: {
     user: {
       id: number;
       login: string;
     };
-    role: 'admin' | 'member';
-    state: 'active' | 'pending';
+    role: "admin" | "member";
+    state: "active" | "pending";
   };
   organization: {
     id: number;
@@ -564,7 +623,7 @@ interface GitHubOrganizationPayload {
 }
 
 interface GitHubMembershipPayload {
-  action: 'added' | 'removed';
+  action: "added" | "removed";
   member: {
     id: number;
     login: string;
@@ -583,10 +642,7 @@ interface GitHubMembershipPayload {
 /**
  * Handle organization.* events (member_added, member_removed)
  */
-async function handleOrganizationEvent(
-  payload: unknown,
-  fastify: FastifyInstance
-): Promise<void> {
+async function handleOrganizationEvent(payload: unknown, fastify: FastifyInstance): Promise<void> {
   const orgPayload = payload as GitHubOrganizationPayload;
   const { action, membership, organization, installation } = orgPayload;
 
@@ -595,77 +651,82 @@ async function handleOrganizationEvent(
   }
 
   // Find our org by GitHub org ID
-  const { getOrganizationByLogin } = await import('../../../services/organization.service');
+  const { getOrganizationByLogin } = await import("../../../services/organization.service");
   const org = await getOrganizationByLogin(organization.login);
 
   if (!org) {
-    fastify.log.debug({ orgLogin: organization.login }, 'Organization not found in Keyway');
+    fastify.log.debug({ orgLogin: organization.login }, "Organization not found in Keyway");
     return;
   }
 
   switch (action) {
-    case 'member_added':
+    case "member_added":
       if (membership) {
-        fastify.log.info({
-          orgLogin: organization.login,
-          member: membership.user.login,
-          role: membership.role,
-        }, 'Organization member added');
+        fastify.log.info(
+          {
+            orgLogin: organization.login,
+            member: membership.user.login,
+            role: membership.role,
+          },
+          "Organization member added"
+        );
 
         // Find the Keyway user by GitHub ID
         const newMember = await db.query.users.findFirst({
           where: and(
-            eq(users.forgeType, 'github'),
+            eq(users.forgeType, "github"),
             eq(users.forgeUserId, String(membership.user.id))
           ),
         });
 
         if (newMember) {
-          const { upsertOrganizationMember } = await import('../../../services/organization.service');
+          const { upsertOrganizationMember } =
+            await import("../../../services/organization.service");
           await upsertOrganizationMember(
             org.id,
             newMember.id,
-            membership.role === 'admin' ? 'owner' : 'member',
+            membership.role === "admin" ? "owner" : "member",
             membership.state
           );
         }
       }
       break;
 
-    case 'member_removed':
+    case "member_removed":
       if (membership) {
-        fastify.log.info({
-          orgLogin: organization.login,
-          member: membership.user.login,
-        }, 'Organization member removed');
+        fastify.log.info(
+          {
+            orgLogin: organization.login,
+            member: membership.user.login,
+          },
+          "Organization member removed"
+        );
 
         // Find the Keyway user by GitHub ID
         const removedMember = await db.query.users.findFirst({
           where: and(
-            eq(users.forgeType, 'github'),
+            eq(users.forgeType, "github"),
             eq(users.forgeUserId, String(membership.user.id))
           ),
         });
 
         if (removedMember) {
-          const { removeOrganizationMember } = await import('../../../services/organization.service');
+          const { removeOrganizationMember } =
+            await import("../../../services/organization.service");
           await removeOrganizationMember(org.id, removedMember.id);
         }
       }
       break;
 
     default:
-      fastify.log.debug({ action }, 'Unhandled organization action');
+      fastify.log.debug({ action }, "Unhandled organization action");
   }
 }
 
 /**
  * Handle membership.* events (role changes)
  */
-async function handleMembershipEvent(
-  payload: unknown,
-  fastify: FastifyInstance
-): Promise<void> {
+async function handleMembershipEvent(payload: unknown, fastify: FastifyInstance): Promise<void> {
   const membershipPayload = payload as GitHubMembershipPayload;
   const { action, member, organization, installation } = membershipPayload;
 
@@ -678,7 +739,7 @@ async function handleMembershipEvent(
     return;
   }
 
-  const { getOrganizationByLogin } = await import('../../../services/organization.service');
+  const { getOrganizationByLogin } = await import("../../../services/organization.service");
   const org = await getOrganizationByLogin(organization.login);
 
   if (!org) {
@@ -688,30 +749,36 @@ async function handleMembershipEvent(
   // For role changes, we need to re-sync the member
   // The membership event doesn't include the new role directly,
   // so we fetch from GitHub API
-  if (action === 'added' || action === 'removed') {
-    fastify.log.info({
-      orgLogin: organization.login,
-      member: member.login,
-      action,
-    }, 'Membership change detected, syncing members');
+  if (action === "added" || action === "removed") {
+    fastify.log.info(
+      {
+        orgLogin: organization.login,
+        member: member.login,
+        action,
+      },
+      "Membership change detected, syncing members"
+    );
 
     // Re-sync all members to get latest roles
     const githubMembers = await listOrgMembersWithApp(installation.id, organization.login);
     if (githubMembers.length > 0) {
       // Convert GitHub members to VCS format (id as string)
-      const vcsMembers = githubMembers.map(m => ({
+      const vcsMembers = githubMembers.map((m) => ({
         id: String(m.id),
         login: m.login,
         avatar_url: m.avatar_url,
         role: m.role,
       }));
-      const result = await syncOrganizationMembers(org.id, 'github', vcsMembers);
-      fastify.log.info({
-        orgId: org.id,
-        added: result.added,
-        updated: result.updated,
-        removed: result.removed,
-      }, 'Re-synced organization members after membership change');
+      const result = await syncOrganizationMembers(org.id, "github", vcsMembers);
+      fastify.log.info(
+        {
+          orgId: org.id,
+          added: result.added,
+          updated: result.updated,
+          removed: result.removed,
+        },
+        "Re-synced organization members after membership change"
+      );
     }
   }
 }

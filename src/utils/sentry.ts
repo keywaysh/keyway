@@ -1,5 +1,5 @@
-import * as Sentry from '@sentry/node';
-import { config } from '../config';
+import * as Sentry from "@sentry/node";
+import { config } from "../config";
 
 let isInitialized = false;
 
@@ -25,7 +25,7 @@ export function initSentry(): void {
       const error = hint.originalException;
 
       // Skip 4xx client errors - we only want server errors
-      if (error && typeof error === 'object' && 'status' in error) {
+      if (error && typeof error === "object" && "status" in error) {
         const status = (error as { status: number }).status;
         if (status >= 400 && status < 500) {
           return null;
@@ -33,7 +33,7 @@ export function initSentry(): void {
       }
 
       // Also check statusCode (Fastify pattern)
-      if (error && typeof error === 'object' && 'statusCode' in error) {
+      if (error && typeof error === "object" && "statusCode" in error) {
         const statusCode = (error as { statusCode: number }).statusCode;
         if (statusCode >= 400 && statusCode < 500) {
           return null;
@@ -48,8 +48,8 @@ export function initSentry(): void {
       // Remove authorization headers from transaction data
       if (event.request?.headers) {
         const sanitizedHeaders = { ...event.request.headers };
-        delete sanitizedHeaders['authorization'];
-        delete sanitizedHeaders['cookie'];
+        delete sanitizedHeaders["authorization"];
+        delete sanitizedHeaders["cookie"];
         event.request.headers = sanitizedHeaders;
       }
       return event;
@@ -89,7 +89,7 @@ export function captureError(
 
     // Set request context
     if (context?.requestId || context?.url || context?.method) {
-      scope.setContext('request', {
+      scope.setContext("request", {
         requestId: context.requestId,
         url: context.url,
         method: context.method,
@@ -97,7 +97,7 @@ export function captureError(
     }
 
     // Set tags for filtering
-    scope.setTag('errorType', error.constructor.name);
+    scope.setTag("errorType", error.constructor.name);
 
     // Set extra data
     if (context?.extra) {
@@ -120,7 +120,7 @@ export function setSentryRequestContext(
     return;
   }
 
-  Sentry.setContext('request', {
+  Sentry.setContext("request", {
     requestId: request.id,
     url: request.url,
     method: request.method,

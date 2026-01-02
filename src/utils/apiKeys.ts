@@ -1,4 +1,4 @@
-import crypto from 'crypto';
+import crypto from "crypto";
 
 /**
  * API Key utilities for Keyway
@@ -11,21 +11,21 @@ import crypto from 'crypto';
  * Example: kw_live_a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P6q7R8s9T0
  */
 
-const BASE62 = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz';
+const BASE62 = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
 const RANDOM_LENGTH = 40;
 const PREFIX_DISPLAY_LENGTH = 8; // How much of the random part to show in prefix
 
 // Available scopes for API keys
 export const API_KEY_SCOPES = [
-  'read:secrets',
-  'write:secrets',
-  'delete:secrets',
-  'admin:api-keys',
+  "read:secrets",
+  "write:secrets",
+  "delete:secrets",
+  "admin:api-keys",
 ] as const;
 
 export type ApiKeyScope = (typeof API_KEY_SCOPES)[number];
 
-export type ApiKeyEnvironment = 'live' | 'test';
+export type ApiKeyEnvironment = "live" | "test";
 
 export interface GeneratedApiKey {
   /** The full token (shown ONCE at creation, never stored) */
@@ -48,7 +48,7 @@ export function generateApiKey(environment: ApiKeyEnvironment): GeneratedApiKey 
   const bytes = crypto.randomBytes(RANDOM_LENGTH);
 
   // Convert to base62
-  let random = '';
+  let random = "";
   for (const byte of bytes) {
     random += BASE62[byte % 62];
   }
@@ -61,7 +61,7 @@ export function generateApiKey(environment: ApiKeyEnvironment): GeneratedApiKey 
   const prefix = `kw_${environment}_${random.slice(0, PREFIX_DISPLAY_LENGTH)}`;
 
   // Hash for storage (never store the token itself)
-  const hash = crypto.createHash('sha256').update(token).digest('hex');
+  const hash = crypto.createHash("sha256").update(token).digest("hex");
 
   return { token, prefix, hash };
 }
@@ -73,7 +73,7 @@ export function generateApiKey(environment: ApiKeyEnvironment): GeneratedApiKey 
  * @returns SHA-256 hash
  */
 export function hashApiKey(token: string): string {
-  return crypto.createHash('sha256').update(token).digest('hex');
+  return crypto.createHash("sha256").update(token).digest("hex");
 }
 
 /**
@@ -106,7 +106,7 @@ export function extractEnvironment(token: string): ApiKeyEnvironment | null {
  * @returns true if it starts with 'kw_'
  */
 export function isKeywayApiKey(token: string): boolean {
-  return token.startsWith('kw_');
+  return token.startsWith("kw_");
 }
 
 /**
@@ -138,10 +138,12 @@ export function hasRequiredScopes(userScopes: string[], requiredScopes: string[]
  */
 export function maskApiKey(token: string): string {
   if (!validateApiKeyFormat(token)) {
-    return '***invalid***';
+    return "***invalid***";
   }
   // Show prefix + first 4 chars of random, mask the rest
-  const parts = token.split('_');
-  if (parts.length !== 3) return '***invalid***';
-  return `kw_${parts[1]}_${parts[2].slice(0, 4)}${'*'.repeat(36)}`;
+  const parts = token.split("_");
+  if (parts.length !== 3) {
+    return "***invalid***";
+  }
+  return `kw_${parts[1]}_${parts[2].slice(0, 4)}${"*".repeat(36)}`;
 }

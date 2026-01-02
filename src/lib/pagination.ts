@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import { z } from "zod";
 
 /**
  * Default pagination values
@@ -19,11 +19,7 @@ export const PaginationQuerySchema = z.object({
     .min(1)
     .max(PAGINATION_DEFAULTS.maxLimit)
     .default(PAGINATION_DEFAULTS.limit),
-  offset: z.coerce
-    .number()
-    .int()
-    .min(0)
-    .default(PAGINATION_DEFAULTS.offset),
+  offset: z.coerce.number().int().min(0).default(PAGINATION_DEFAULTS.offset),
 });
 
 export type PaginationQuery = z.infer<typeof PaginationQuerySchema>;
@@ -60,4 +56,3 @@ export function buildPaginationMeta(
     hasMore: query.offset + returnedCount < total,
   };
 }
-

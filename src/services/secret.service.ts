@@ -1,7 +1,7 @@
-import { db, secrets } from '../db';
-import { eq, and, desc, count, isNull, isNotNull, lt, inArray } from 'drizzle-orm';
-import { getEncryptionService } from '../utils/encryption';
-import { saveSecretVersion } from './secretVersion.service';
+import { db, secrets } from "../db";
+import { eq, and, desc, count, isNull, isNotNull, lt, inArray } from "drizzle-orm";
+import { getEncryptionService } from "../utils/encryption";
+import { saveSecretVersion } from "./secretVersion.service";
 
 // Trash retention period in days
 const TRASH_RETENTION_DAYS = 30;
@@ -69,7 +69,7 @@ export async function getSecretsForVault(
  */
 export async function upsertSecret(
   input: CreateSecretInput
-): Promise<{ id: string; status: 'created' | 'updated' }> {
+): Promise<{ id: string; status: "created" | "updated" }> {
   const encryptionService = await getEncryptionService();
   const encryptedData = await encryptionService.encrypt(input.value);
 
@@ -107,7 +107,7 @@ export async function upsertSecret(
       })
       .where(eq(secrets.id, existingSecret.id));
 
-    return { id: existingSecret.id, status: 'updated' };
+    return { id: existingSecret.id, status: "updated" };
   }
 
   const [newSecret] = await db
@@ -124,7 +124,7 @@ export async function upsertSecret(
     })
     .returning();
 
-  return { id: newSecret.id, status: 'created' };
+  return { id: newSecret.id, status: "created" };
 }
 
 /**
@@ -192,7 +192,9 @@ export async function updateSecret(
     },
   });
 
-  if (!updatedSecret) return null;
+  if (!updatedSecret) {
+    return null;
+  }
 
   return {
     id: updatedSecret.id,
@@ -229,10 +231,7 @@ export async function trashSecret(
   const deletedAt = new Date();
   const expiresAt = new Date(deletedAt.getTime() + TRASH_RETENTION_DAYS * 24 * 60 * 60 * 1000);
 
-  await db
-    .update(secrets)
-    .set({ deletedAt })
-    .where(eq(secrets.id, secretId));
+  await db.update(secrets).set({ deletedAt }).where(eq(secrets.id, secretId));
 
   return { key: secret.key, environment: secret.environment, deletedAt, expiresAt };
 }
@@ -242,12 +241,11 @@ export async function trashSecret(
  * Used by push operation when secrets are removed from .env file
  */
 export async function trashSecretsByIds(secretIds: string[]): Promise<void> {
-  if (secretIds.length === 0) return;
+  if (secretIds.length === 0) {
+    return;
+  }
 
-  await db
-    .update(secrets)
-    .set({ deletedAt: new Date() })
-    .where(inArray(secrets.id, secretIds));
+  await db.update(secrets).set({ deletedAt: new Date() }).where(inArray(secrets.id, secretIds));
 }
 
 /**
@@ -260,7 +258,11 @@ export async function permanentlyDeleteSecret(
 ): Promise<{ key: string; environment: string } | null> {
   // Get trashed secret
   const secret = await db.query.secrets.findFirst({
-    where: and(eq(secrets.id, secretId), eq(secrets.vaultId, vaultId), isNotNull(secrets.deletedAt)),
+    where: and(
+      eq(secrets.id, secretId),
+      eq(secrets.vaultId, vaultId),
+      isNotNull(secrets.deletedAt)
+    ),
   });
 
   if (!secret) {
@@ -286,7 +288,9 @@ export async function getSecretById(
     },
   });
 
-  if (!secret) return null;
+  if (!secret) {
+    return null;
+  }
 
   return {
     id: secret.id,
@@ -339,8 +343,12 @@ export async function secretExists(
  * Never reveals the full value - for security display purposes
  */
 export function generatePreview(value: string): string {
-  if (value.length <= 8) return '••••••••';
-  if (value.length <= 12) return `${value.slice(0, 2)}••••${value.slice(-2)}`;
+  if (value.length <= 8) {
+    return "••••••••";
+  }
+  if (value.length <= 12) {
+    return `${value.slice(0, 2)}••••${value.slice(-2)}`;
+  }
   return `${value.slice(0, 4)}••••${value.slice(-4)}`;
 }
 
@@ -356,7 +364,9 @@ export async function getSecretValue(
     where: and(eq(secrets.id, secretId), eq(secrets.vaultId, vaultId), isNull(secrets.deletedAt)),
   });
 
-  if (!secret) return null;
+  if (!secret) {
+    return null;
+  }
 
   const encryptionService = await getEncryptionService();
   const decryptedValue = await encryptionService.decrypt({
@@ -411,7 +421,10 @@ export async function getTrashedSecrets(
   return trashedSecrets.map((secret) => {
     const deletedAt = secret.deletedAt!;
     const expiresAt = new Date(deletedAt.getTime() + TRASH_RETENTION_DAYS * 24 * 60 * 60 * 1000);
-    const daysRemaining = Math.max(0, Math.ceil((expiresAt.getTime() - Date.now()) / (24 * 60 * 60 * 1000)));
+    const daysRemaining = Math.max(
+      0,
+      Math.ceil((expiresAt.getTime() - Date.now()) / (24 * 60 * 60 * 1000))
+    );
 
     return {
       id: secret.id,
@@ -445,7 +458,11 @@ export async function getTrashedSecretById(
   vaultId: string
 ): Promise<{ id: string; key: string; environment: string } | null> {
   const secret = await db.query.secrets.findFirst({
-    where: and(eq(secrets.id, secretId), eq(secrets.vaultId, vaultId), isNotNull(secrets.deletedAt)),
+    where: and(
+      eq(secrets.id, secretId),
+      eq(secrets.vaultId, vaultId),
+      isNotNull(secrets.deletedAt)
+    ),
   });
 
   if (!secret) {
@@ -470,7 +487,11 @@ export async function restoreSecret(
 ): Promise<{ id: string; key: string; environment: string } | null> {
   // Get trashed secret
   const secret = await db.query.secrets.findFirst({
-    where: and(eq(secrets.id, secretId), eq(secrets.vaultId, vaultId), isNotNull(secrets.deletedAt)),
+    where: and(
+      eq(secrets.id, secretId),
+      eq(secrets.vaultId, vaultId),
+      isNotNull(secrets.deletedAt)
+    ),
   });
 
   if (!secret) {
@@ -513,9 +534,7 @@ export async function emptyTrash(vaultId: string): Promise<{ deleted: number; ke
     return { deleted: 0, keys: [] };
   }
 
-  await db
-    .delete(secrets)
-    .where(and(eq(secrets.vaultId, vaultId), isNotNull(secrets.deletedAt)));
+  await db.delete(secrets).where(and(eq(secrets.vaultId, vaultId), isNotNull(secrets.deletedAt)));
 
   return {
     deleted: trashed.length,

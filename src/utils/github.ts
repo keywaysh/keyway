@@ -1,20 +1,16 @@
-import { z } from 'zod';
-import { config } from '../config';
-import { ForbiddenError, UnauthorizedError } from '../lib';
-import type { CollaboratorRole } from '../db/schema';
-import {
-  findInstallationForRepo,
-  getInstallationToken,
-} from '../services/github-app.service';
-import { logger } from './sharedLogger';
-import { maskToken } from './logger';
+import { config } from "../config";
+import { ForbiddenError, UnauthorizedError } from "../lib";
+import type { CollaboratorRole } from "../db/schema";
+import { findInstallationForRepo, getInstallationToken } from "../services/github-app.service";
+import { logger } from "./sharedLogger";
+import { maskToken } from "./logger";
 
 const GITHUB_API_BASE = config.github.apiBaseUrl;
 
 /**
  * Token source type - always 'app' since we only use GitHub App tokens
  */
-export type TokenSource = 'app';
+export type TokenSource = "app";
 
 /**
  * Get the GitHub App installation token for accessing a repository.
@@ -25,10 +21,7 @@ export type TokenSource = 'app';
  * @returns Installation token
  * @throws ForbiddenError if GitHub App is not installed for this repo
  */
-export async function getTokenForRepo(
-  repoOwner: string,
-  repoName: string
-): Promise<string> {
+export async function getTokenForRepo(repoOwner: string, repoName: string): Promise<string> {
   const installation = await findInstallationForRepo(repoOwner, repoName);
 
   if (!installation) {
@@ -58,7 +51,7 @@ interface GitHubRepo {
   private?: boolean;
   owner?: {
     login: string;
-    type?: 'User' | 'Organization';
+    type?: "User" | "Organization";
   };
   permissions?: {
     pull?: boolean;
@@ -69,8 +62,8 @@ interface GitHubRepo {
   };
 }
 
-interface GitHubCollaborator {
-  role_name: 'pull' | 'triage' | 'push' | 'maintain' | 'admin';
+interface _GitHubCollaborator {
+  role_name: "pull" | "triage" | "push" | "maintain" | "admin";
   permissions: {
     pull: boolean;
     push: boolean;
@@ -88,11 +81,11 @@ interface GitHubTokenErrorResponse {
  * Exchange GitHub OAuth code for access token
  */
 export async function exchangeCodeForToken(code: string): Promise<string> {
-  const response = await fetch('https://github.com/login/oauth/access_token', {
-    method: 'POST',
+  const response = await fetch("https://github.com/login/oauth/access_token", {
+    method: "POST",
     headers: {
-      'Content-Type': 'application/json',
-      Accept: 'application/json',
+      "Content-Type": "application/json",
+      Accept: "application/json",
     },
     body: JSON.stringify({
       client_id: config.github.clientId,
@@ -114,7 +107,7 @@ export async function exchangeCodeForToken(code: string): Promise<string> {
   }
 
   if (!data.access_token) {
-    throw new Error('No access token received from GitHub (unexpected empty response)');
+    throw new Error("No access token received from GitHub (unexpected empty response)");
   }
 
   return data.access_token;
@@ -127,7 +120,7 @@ export async function getGitHubUser(accessToken: string): Promise<GitHubUser> {
   const response = await fetch(`${GITHUB_API_BASE}/user`, {
     headers: {
       Authorization: `Bearer ${accessToken}`,
-      Accept: 'application/vnd.github.v3+json',
+      Accept: "application/vnd.github.v3+json",
     },
   });
 
@@ -143,10 +136,7 @@ export async function getGitHubUser(accessToken: string): Promise<GitHubUser> {
 /**
  * Check if user has access to a repository (is collaborator or admin)
  */
-export async function hasRepoAccess(
-  accessToken: string,
-  repoFullName: string
-): Promise<boolean> {
+export async function hasRepoAccess(accessToken: string, repoFullName: string): Promise<boolean> {
   const result = await getRepoAccessAndPermission(accessToken, repoFullName);
   return result.hasAccess;
 }
@@ -159,25 +149,28 @@ export async function getRepoAccessAndPermission(
   accessToken: string,
   repoFullName: string
 ): Promise<{ hasAccess: boolean; permission: CollaboratorRole | null }> {
-  const [owner, repo] = repoFullName.split('/');
+  const [owner, repo] = repoFullName.split("/");
 
   try {
     const repoResponse = await fetch(`${GITHUB_API_BASE}/repos/${owner}/${repo}`, {
       headers: {
         Authorization: `Bearer ${accessToken}`,
-        Accept: 'application/vnd.github.v3+json',
+        Accept: "application/vnd.github.v3+json",
       },
     });
 
     if (!repoResponse.ok) {
       const errorBody = await repoResponse.text();
-      logger.error({
-        status: repoResponse.status,
-        statusText: repoResponse.statusText,
-        repoFullName,
-        token: maskToken(accessToken),
-        errorBody: errorBody.substring(0, 500),
-      }, 'GitHub API error in getRepoAccessAndPermission');
+      logger.error(
+        {
+          status: repoResponse.status,
+          statusText: repoResponse.statusText,
+          repoFullName,
+          token: maskToken(accessToken),
+          errorBody: errorBody.substring(0, 500),
+        },
+        "GitHub API error in getRepoAccessAndPermission"
+      );
       return { hasAccess: false, permission: null };
     }
 
@@ -190,11 +183,17 @@ export async function getRepoAccessAndPermission(
 
     // Determine highest permission level
     let permission: CollaboratorRole | null = null;
-    if (perms.admin) permission = 'admin';
-    else if (perms.maintain) permission = 'maintain';
-    else if (perms.push) permission = 'write';
-    else if (perms.triage) permission = 'triage';
-    else if (perms.pull) permission = 'read';
+    if (perms.admin) {
+      permission = "admin";
+    } else if (perms.maintain) {
+      permission = "maintain";
+    } else if (perms.push) {
+      permission = "write";
+    } else if (perms.triage) {
+      permission = "triage";
+    } else if (perms.pull) {
+      permission = "read";
+    }
 
     // Check if user has push access (collaborator or admin)
     const hasAccess = perms.push === true || perms.admin === true;
@@ -208,16 +207,13 @@ export async function getRepoAccessAndPermission(
 /**
  * Check if user has admin access to a repository
  */
-export async function hasAdminAccess(
-  accessToken: string,
-  repoFullName: string
-): Promise<boolean> {
-  const [owner, repo] = repoFullName.split('/');
+export async function hasAdminAccess(accessToken: string, repoFullName: string): Promise<boolean> {
+  const [owner, repo] = repoFullName.split("/");
 
   const repoResponse = await fetch(`${GITHUB_API_BASE}/repos/${owner}/${repo}`, {
     headers: {
       Authorization: `Bearer ${accessToken}`,
-      Accept: 'application/vnd.github.v3+json',
+      Accept: "application/vnd.github.v3+json",
     },
   });
 
@@ -225,7 +221,7 @@ export async function hasAdminAccess(
     return false;
   }
 
-  const repoData = await repoResponse.json() as GitHubRepo;
+  const repoData = (await repoResponse.json()) as GitHubRepo;
 
   // Only admin can initialize vaults
   return repoData.permissions?.admin === true;
@@ -239,13 +235,13 @@ export async function getRepoPermission(
   accessToken: string,
   repoFullName: string
 ): Promise<CollaboratorRole | null> {
-  const [owner, repo] = repoFullName.split('/');
+  const [owner, repo] = repoFullName.split("/");
 
   try {
     const repoResponse = await fetch(`${GITHUB_API_BASE}/repos/${owner}/${repo}`, {
       headers: {
         Authorization: `Bearer ${accessToken}`,
-        Accept: 'application/vnd.github.v3+json',
+        Accept: "application/vnd.github.v3+json",
       },
     });
 
@@ -261,11 +257,21 @@ export async function getRepoPermission(
     }
 
     // Return highest permission level
-    if (perms.admin) return 'admin';
-    if (perms.maintain) return 'maintain';
-    if (perms.push) return 'write';
-    if (perms.triage) return 'triage';
-    if (perms.pull) return 'read';
+    if (perms.admin) {
+      return "admin";
+    }
+    if (perms.maintain) {
+      return "maintain";
+    }
+    if (perms.push) {
+      return "write";
+    }
+    if (perms.triage) {
+      return "triage";
+    }
+    if (perms.pull) {
+      return "read";
+    }
 
     return null;
   } catch {
@@ -282,77 +288,104 @@ export async function getUserRole(
   repoFullName: string,
   username: string
 ): Promise<CollaboratorRole | null> {
-  const [owner, repo] = repoFullName.split('/');
-  logger.debug({ username, repoFullName }, 'Getting GitHub user role');
+  const [owner, repo] = repoFullName.split("/");
+  logger.debug({ username, repoFullName }, "Getting GitHub user role");
 
   try {
     // First, get basic repo info and permissions
-    const repoResponse = await fetch(
-      `${GITHUB_API_BASE}/repos/${owner}/${repo}`,
-      {
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          Accept: 'application/vnd.github.v3+json',
-        },
-      }
-    );
+    const repoResponse = await fetch(`${GITHUB_API_BASE}/repos/${owner}/${repo}`, {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        Accept: "application/vnd.github.v3+json",
+      },
+    });
 
     if (!repoResponse.ok) {
       const errorBody = await repoResponse.text();
-      logger.error({ status: repoResponse.status, errorBody: errorBody.substring(0, 200), username, repoFullName }, 'Failed to get repo info');
+      logger.error(
+        {
+          status: repoResponse.status,
+          errorBody: errorBody.substring(0, 200),
+          username,
+          repoFullName,
+        },
+        "Failed to get repo info"
+      );
       return null;
     }
 
     const repoData = (await repoResponse.json()) as GitHubRepo;
-    logger.debug({ owner: repoData.owner?.login, type: repoData.owner?.type, permissions: repoData.permissions }, 'GitHub repo data');
+    logger.debug(
+      {
+        owner: repoData.owner?.login,
+        type: repoData.owner?.type,
+        permissions: repoData.permissions,
+      },
+      "GitHub repo data"
+    );
 
     // Check if user is the repository owner (for personal repos)
     // Owners have admin access but don't appear in the collaborators list
     if (repoData.owner?.login === username) {
-      logger.debug({ username, reason: 'repo_owner' }, 'User is repo owner, role=admin');
-      return 'admin';
+      logger.debug({ username, reason: "repo_owner" }, "User is repo owner, role=admin");
+      return "admin";
     }
 
     // Also check if the repo owner (from URL) matches the username
     // This handles the case where installation tokens don't return full owner info
     if (owner === username) {
-      logger.debug({ username, reason: 'url_owner_match' }, 'User matches owner from URL, role=admin');
-      return 'admin';
+      logger.debug(
+        { username, reason: "url_owner_match" },
+        "User matches owner from URL, role=admin"
+      );
+      return "admin";
     }
 
     // If they have admin permission via the basic permissions check
     if (repoData.permissions?.admin === true) {
-      logger.debug({ username, reason: 'repo_api_admin' }, 'User has admin permission from repo API, role=admin');
-      return 'admin';
+      logger.debug(
+        { username, reason: "repo_api_admin" },
+        "User has admin permission from repo API, role=admin"
+      );
+      return "admin";
     }
 
     // For organization repos, check if user is an org owner/admin
-    if (repoData.owner?.type === 'Organization') {
+    if (repoData.owner?.type === "Organization") {
       try {
         const orgMembershipResponse = await fetch(
           `${GITHUB_API_BASE}/orgs/${owner}/memberships/${username}`,
           {
             headers: {
               Authorization: `Bearer ${accessToken}`,
-              Accept: 'application/vnd.github.v3+json',
+              Accept: "application/vnd.github.v3+json",
             },
           }
         );
 
         if (orgMembershipResponse.ok) {
-          const membership = (await orgMembershipResponse.json()) as { role: string; state: string };
-          logger.debug({ username, org: owner, role: membership.role, state: membership.state }, 'Org membership check');
+          const membership = (await orgMembershipResponse.json()) as {
+            role: string;
+            state: string;
+          };
+          logger.debug(
+            { username, org: owner, role: membership.role, state: membership.state },
+            "Org membership check"
+          );
 
           // Org owners have admin access to all repos in the org
-          if (membership.role === 'admin' && membership.state === 'active') {
-            logger.debug({ username, reason: 'org_owner' }, 'User is org owner, role=admin');
-            return 'admin';
+          if (membership.role === "admin" && membership.state === "active") {
+            logger.debug({ username, reason: "org_owner" }, "User is org owner, role=admin");
+            return "admin";
           }
         } else {
-          logger.debug({ status: orgMembershipResponse.status }, 'Org membership check failed');
+          logger.debug({ status: orgMembershipResponse.status }, "Org membership check failed");
         }
       } catch (error) {
-        logger.debug({ error: error instanceof Error ? error.message : 'Unknown' }, 'Org membership check error');
+        logger.debug(
+          { error: error instanceof Error ? error.message : "Unknown" },
+          "Org membership check error"
+        );
       }
     }
 
@@ -363,7 +396,7 @@ export async function getUserRole(
       {
         headers: {
           Authorization: `Bearer ${accessToken}`,
-          Accept: 'application/vnd.github.v3+json',
+          Accept: "application/vnd.github.v3+json",
         },
       }
     );
@@ -373,40 +406,49 @@ export async function getUserRole(
 
       // Map GitHub's role_name to our CollaboratorRole type
       const roleMap: Record<string, CollaboratorRole> = {
-        pull: 'read',
-        read: 'read', // GitHub /permission endpoint can return 'read' directly
-        triage: 'triage',
-        push: 'write',
-        write: 'write', // GitHub /permission endpoint can return 'write' directly
-        maintain: 'maintain',
-        admin: 'admin',
+        pull: "read",
+        read: "read", // GitHub /permission endpoint can return 'read' directly
+        triage: "triage",
+        push: "write",
+        write: "write", // GitHub /permission endpoint can return 'write' directly
+        maintain: "maintain",
+        admin: "admin",
       };
 
       // Use role_name for more accurate role, fallback to permission
       const role = roleMap[data.role_name] || roleMap[data.permission] || null;
-      logger.debug({ roleName: data.role_name, permission: data.permission, role }, 'Got role from collaborator permission API');
+      logger.debug(
+        { roleName: data.role_name, permission: data.permission, role },
+        "Got role from collaborator permission API"
+      );
       return role;
     } else {
       const errorBody = await collabResponse.text();
-      logger.debug({ status: collabResponse.status, body: errorBody.substring(0, 200) }, 'Collaborator permission API failed');
+      logger.debug(
+        { status: collabResponse.status, body: errorBody.substring(0, 200) },
+        "Collaborator permission API failed"
+      );
     }
 
     // Fall back to basic permissions if collaborator API doesn't work
     if (repoData.permissions?.push === true) {
-      logger.debug({ username, reason: 'push_permission' }, 'User has push permission, role=write');
-      return 'write';
+      logger.debug({ username, reason: "push_permission" }, "User has push permission, role=write");
+      return "write";
     }
     if (repoData.permissions?.pull === true) {
-      logger.debug({ username, reason: 'pull_permission' }, 'User has pull permission, role=read');
-      return 'read';
+      logger.debug({ username, reason: "pull_permission" }, "User has pull permission, role=read");
+      return "read";
     }
 
-    logger.warn({ username, repoFullName }, 'No role found for user');
+    logger.warn({ username, repoFullName }, "No role found for user");
     return null;
   } catch (error) {
     // If API call fails or JSON parsing fails, return null
     // Caller handles null case appropriately
-    logger.error({ error: error instanceof Error ? error.message : 'Unknown error', username, repoFullName }, 'Error getting user role');
+    logger.error(
+      { error: error instanceof Error ? error.message : "Unknown error", username, repoFullName },
+      "Error getting user role"
+    );
     return null;
   }
 }
@@ -425,7 +467,7 @@ export async function getUserFromToken(accessToken: string) {
         const emailsResponse = await fetch(`${GITHUB_API_BASE}/user/emails`, {
           headers: {
             Authorization: `Bearer ${accessToken}`,
-            Accept: 'application/vnd.github.v3+json',
+            Accept: "application/vnd.github.v3+json",
           },
         });
         if (emailsResponse.ok) {
@@ -435,8 +477,8 @@ export async function getUserFromToken(accessToken: string) {
             verified: boolean;
           }>;
           // Get primary verified email, or first verified, or first email
-          const primaryEmail = emails.find(e => e.primary && e.verified);
-          const verifiedEmail = emails.find(e => e.verified);
+          const primaryEmail = emails.find((e) => e.primary && e.verified);
+          const verifiedEmail = emails.find((e) => e.verified);
           email = primaryEmail?.email || verifiedEmail?.email || emails[0]?.email || null;
         }
       } catch {
@@ -450,8 +492,8 @@ export async function getUserFromToken(accessToken: string) {
       email,
       avatarUrl: user.avatar_url,
     };
-  } catch (error) {
-    throw new UnauthorizedError('Invalid or expired GitHub access token');
+  } catch (_error) {
+    throw new UnauthorizedError("Invalid or expired GitHub access token");
   }
 }
 
@@ -463,32 +505,35 @@ export async function getRepoInfo(
   accessToken: string,
   repoFullName: string
 ): Promise<{ isPrivate: boolean; isOrganization: boolean } | null> {
-  const [owner, repo] = repoFullName.split('/');
+  const [owner, repo] = repoFullName.split("/");
 
   try {
     const response = await fetch(`${GITHUB_API_BASE}/repos/${owner}/${repo}`, {
       headers: {
         Authorization: `Bearer ${accessToken}`,
-        Accept: 'application/vnd.github.v3+json',
+        Accept: "application/vnd.github.v3+json",
       },
     });
 
     if (!response.ok) {
       const errorBody = await response.text();
-      logger.error({
-        status: response.status,
-        statusText: response.statusText,
-        repoFullName,
-        token: maskToken(accessToken),
-        errorBody: errorBody.substring(0, 500),
-      }, 'GitHub API error in getRepoInfo');
+      logger.error(
+        {
+          status: response.status,
+          statusText: response.statusText,
+          repoFullName,
+          token: maskToken(accessToken),
+          errorBody: errorBody.substring(0, 500),
+        },
+        "GitHub API error in getRepoInfo"
+      );
       return null;
     }
 
     const data = (await response.json()) as GitHubRepo;
     return {
       isPrivate: data.private === true,
-      isOrganization: data.owner?.type === 'Organization',
+      isOrganization: data.owner?.type === "Organization",
     };
   } catch {
     return null;
@@ -512,7 +557,7 @@ interface GitHubCollaboratorListItem {
   login: string;
   avatar_url: string;
   html_url: string;
-  role_name: 'pull' | 'triage' | 'push' | 'maintain' | 'admin';
+  role_name: "pull" | "triage" | "push" | "maintain" | "admin";
 }
 
 /**
@@ -530,13 +575,13 @@ export async function getRepoCollaborators(
 
   // Map GitHub's role_name to our CollaboratorRole type
   const roleMap: Record<string, CollaboratorRole> = {
-    pull: 'read',
-    read: 'read', // GitHub can return 'read' directly
-    triage: 'triage',
-    push: 'write',
-    write: 'write', // GitHub can return 'write' directly
-    maintain: 'maintain',
-    admin: 'admin',
+    pull: "read",
+    read: "read", // GitHub can return 'read' directly
+    triage: "triage",
+    push: "write",
+    write: "write", // GitHub can return 'write' directly
+    maintain: "maintain",
+    admin: "admin",
   };
 
   while (true) {
@@ -545,14 +590,14 @@ export async function getRepoCollaborators(
       {
         headers: {
           Authorization: `Bearer ${accessToken}`,
-          Accept: 'application/vnd.github.v3+json',
+          Accept: "application/vnd.github.v3+json",
         },
       }
     );
 
     if (!response.ok) {
       if (response.status === 403) {
-        throw new Error('Admin access required to view collaborators');
+        throw new Error("Admin access required to view collaborators");
       }
       throw new Error(`Failed to fetch collaborators: ${response.statusText}`);
     }
@@ -564,7 +609,7 @@ export async function getRepoCollaborators(
         login: collab.login,
         avatarUrl: collab.avatar_url,
         htmlUrl: collab.html_url,
-        permission: roleMap[collab.role_name] || 'read',
+        permission: roleMap[collab.role_name] || "read",
       });
     }
 
@@ -591,7 +636,7 @@ export async function getRepoCollaborators(
 export async function getRepoInfoWithApp(
   repoFullName: string
 ): Promise<{ isPrivate: boolean; isOrganization: boolean } | null> {
-  const [owner, repo] = repoFullName.split('/');
+  const [owner, repo] = repoFullName.split("/");
   const token = await getTokenForRepo(owner, repo);
 
   return getRepoInfo(token, repoFullName);
@@ -613,10 +658,8 @@ export async function getRepoCollaboratorsWithApp(
  * Check admin access using GitHub App installation token
  * @throws ForbiddenError if GitHub App is not installed
  */
-export async function hasAdminAccessWithApp(
-  repoFullName: string
-): Promise<boolean> {
-  const [owner, repo] = repoFullName.split('/');
+export async function hasAdminAccessWithApp(repoFullName: string): Promise<boolean> {
+  const [owner, repo] = repoFullName.split("/");
   const token = await getTokenForRepo(owner, repo);
   return hasAdminAccess(token, repoFullName);
 }
@@ -628,7 +671,7 @@ export async function hasAdminAccessWithApp(
 export async function getRepoAccessAndPermissionWithApp(
   repoFullName: string
 ): Promise<{ hasAccess: boolean; permission: CollaboratorRole | null }> {
-  const [owner, repo] = repoFullName.split('/');
+  const [owner, repo] = repoFullName.split("/");
   const token = await getTokenForRepo(owner, repo);
   return getRepoAccessAndPermission(token, repoFullName);
 }
@@ -641,16 +684,19 @@ export async function getUserRoleWithApp(
   repoFullName: string,
   username: string
 ): Promise<CollaboratorRole | null> {
-  logger.debug({ username, repoFullName }, 'getUserRoleWithApp called');
-  const [owner, repo] = repoFullName.split('/');
+  logger.debug({ username, repoFullName }, "getUserRoleWithApp called");
+  const [owner, repo] = repoFullName.split("/");
   try {
     const token = await getTokenForRepo(owner, repo);
-    logger.debug({ repoFullName }, 'Got installation token, checking user role');
+    logger.debug({ repoFullName }, "Got installation token, checking user role");
     const role = await getUserRole(token, repoFullName, username);
-    logger.debug({ username, repoFullName, role }, 'getUserRoleWithApp result');
+    logger.debug({ username, repoFullName, role }, "getUserRoleWithApp result");
     return role;
   } catch (error) {
-    logger.error({ error: error instanceof Error ? error.message : 'Unknown error', username, repoFullName }, 'getUserRoleWithApp failed');
+    logger.error(
+      { error: error instanceof Error ? error.message : "Unknown error", username, repoFullName },
+      "getUserRoleWithApp failed"
+    );
     throw error;
   }
 }
@@ -660,8 +706,8 @@ export async function getUserRoleWithApp(
 // ============================================================================
 
 export interface GitHubOrgMembershipInfo {
-  state: 'active' | 'pending';
-  role: 'admin' | 'member';
+  state: "active" | "pending";
+  role: "admin" | "member";
   organization: {
     id: number;
     login: string;
@@ -673,7 +719,7 @@ export interface GitHubOrgMember {
   id: number;
   login: string;
   avatar_url: string;
-  role: 'admin' | 'member';
+  role: "admin" | "member";
 }
 
 /**
@@ -686,31 +732,25 @@ export async function getOrgMembership(
   username: string
 ): Promise<GitHubOrgMembershipInfo | null> {
   try {
-    const response = await fetch(
-      `${GITHUB_API_BASE}/orgs/${org}/memberships/${username}`,
-      {
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          Accept: 'application/vnd.github+json',
-          'X-GitHub-Api-Version': '2022-11-28',
-        },
-      }
-    );
+    const response = await fetch(`${GITHUB_API_BASE}/orgs/${org}/memberships/${username}`, {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        Accept: "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+      },
+    });
 
     if (!response.ok) {
       if (response.status === 404) {
         return null;
       }
-      logger.warn(
-        { org, username, status: response.status },
-        'Failed to get org membership'
-      );
+      logger.warn({ org, username, status: response.status }, "Failed to get org membership");
       return null;
     }
 
-    const data = await response.json() as {
-      state: 'active' | 'pending';
-      role: 'admin' | 'member';
+    const data = (await response.json()) as {
+      state: "active" | "pending";
+      role: "admin" | "member";
       organization: { id: number; login: string; avatar_url: string };
     };
     return {
@@ -724,8 +764,8 @@ export async function getOrgMembership(
     };
   } catch (error) {
     logger.error(
-      { error: error instanceof Error ? error.message : 'Unknown error', org, username },
-      'Error getting org membership'
+      { error: error instanceof Error ? error.message : "Unknown error", org, username },
+      "Error getting org membership"
     );
     return null;
   }
@@ -738,7 +778,7 @@ export async function getOrgMembership(
 async function listOrgMembersByRole(
   accessToken: string,
   org: string,
-  role: 'admin' | 'member'
+  role: "admin" | "member"
 ): Promise<Array<{ id: number; login: string; avatar_url: string }>> {
   const members: Array<{ id: number; login: string; avatar_url: string }> = [];
   let page = 1;
@@ -751,8 +791,8 @@ async function listOrgMembersByRole(
         {
           headers: {
             Authorization: `Bearer ${accessToken}`,
-            Accept: 'application/vnd.github+json',
-            'X-GitHub-Api-Version': '2022-11-28',
+            Accept: "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2022-11-28",
           },
         }
       );
@@ -761,12 +801,12 @@ async function listOrgMembersByRole(
         const errorBody = await response.text();
         logger.warn(
           { org, role, status: response.status, error: errorBody.substring(0, 500) },
-          'Failed to list org members by role'
+          "Failed to list org members by role"
         );
         break;
       }
 
-      const data = await response.json() as Array<{
+      const data = (await response.json()) as Array<{
         id: number;
         login: string;
         avatar_url: string;
@@ -784,8 +824,8 @@ async function listOrgMembersByRole(
     }
   } catch (error) {
     logger.error(
-      { error: error instanceof Error ? error.message : 'Unknown error', org, role },
-      'Error listing org members by role'
+      { error: error instanceof Error ? error.message : "Unknown error", org, role },
+      "Error listing org members by role"
     );
   }
 
@@ -796,14 +836,11 @@ async function listOrgMembersByRole(
  * List all members of a GitHub organization
  * Fetches admins and members separately using the role filter
  */
-export async function listOrgMembers(
-  accessToken: string,
-  org: string
-): Promise<GitHubOrgMember[]> {
+export async function listOrgMembers(accessToken: string, org: string): Promise<GitHubOrgMember[]> {
   // Fetch admins and members in parallel
   const [admins, regularMembers] = await Promise.all([
-    listOrgMembersByRole(accessToken, org, 'admin'),
-    listOrgMembersByRole(accessToken, org, 'member'),
+    listOrgMembersByRole(accessToken, org, "admin"),
+    listOrgMembersByRole(accessToken, org, "member"),
   ]);
 
   const members: GitHubOrgMember[] = [];
@@ -814,7 +851,7 @@ export async function listOrgMembers(
       id: admin.id,
       login: admin.login,
       avatar_url: admin.avatar_url,
-      role: 'admin',
+      role: "admin",
     });
   }
 
@@ -824,13 +861,13 @@ export async function listOrgMembers(
       id: member.id,
       login: member.login,
       avatar_url: member.avatar_url,
-      role: 'member',
+      role: "member",
     });
   }
 
   logger.info(
     { org, adminCount: admins.length, memberCount: regularMembers.length },
-    'Listed org members'
+    "Listed org members"
   );
 
   return members;
@@ -849,8 +886,8 @@ export async function listOrgMembersWithApp(
     return listOrgMembers(token, org);
   } catch (error) {
     logger.error(
-      { error: error instanceof Error ? error.message : 'Unknown error', org, installationId },
-      'Error listing org members with app'
+      { error: error instanceof Error ? error.message : "Unknown error", org, installationId },
+      "Error listing org members with app"
     );
     return [];
   }
@@ -865,7 +902,7 @@ export interface GitHubOrgInfo {
   login: string;
   name: string | null;
   avatar_url: string;
-  type: 'Organization';
+  type: "Organization";
 }
 
 export interface GitHubUserOrg {
@@ -873,7 +910,7 @@ export interface GitHubUserOrg {
   login: string;
   avatar_url: string;
   description: string | null;
-  role: 'admin' | 'member';
+  role: "admin" | "member";
 }
 
 /**
@@ -883,9 +920,7 @@ export interface GitHubUserOrg {
  * Note: This only returns orgs where the app is installed, not ALL orgs the user belongs to.
  * This is a limitation of GitHub Apps vs OAuth Apps.
  */
-export async function listUserOrganizations(
-  accessToken: string
-): Promise<GitHubUserOrg[]> {
+export async function listUserOrganizations(accessToken: string): Promise<GitHubUserOrg[]> {
   const orgs: GitHubUserOrg[] = [];
   let page = 1;
   const perPage = 100;
@@ -897,8 +932,8 @@ export async function listUserOrganizations(
         {
           headers: {
             Authorization: `Bearer ${accessToken}`,
-            Accept: 'application/vnd.github+json',
-            'X-GitHub-Api-Version': '2022-11-28',
+            Accept: "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2022-11-28",
           },
         }
       );
@@ -907,12 +942,12 @@ export async function listUserOrganizations(
         const errorBody = await response.text();
         logger.warn(
           { status: response.status, body: errorBody, tokenPreview: maskToken(accessToken) },
-          'Failed to list user installations'
+          "Failed to list user installations"
         );
         break;
       }
 
-      const data = await response.json() as {
+      const data = (await response.json()) as {
         total_count: number;
         installations: Array<{
           id: number;
@@ -920,15 +955,15 @@ export async function listUserOrganizations(
             id: number;
             login: string;
             avatar_url: string;
-            type: 'User' | 'Organization';
+            type: "User" | "Organization";
           };
-          repository_selection: 'all' | 'selected';
+          repository_selection: "all" | "selected";
         }>;
       };
 
       logger.info(
         { installationCount: data.installations?.length ?? 0, totalCount: data.total_count, page },
-        'Fetched user installations from GitHub'
+        "Fetched user installations from GitHub"
       );
 
       if (!data.installations || data.installations.length === 0) {
@@ -937,12 +972,14 @@ export async function listUserOrganizations(
 
       // Filter to only organizations (not user accounts)
       const orgInstallations = data.installations.filter(
-        inst => inst.account.type === 'Organization'
+        (inst) => inst.account.type === "Organization"
       );
 
       // Get user's role in each org - fetch all memberships in parallel
       const memberships = await Promise.all(
-        orgInstallations.map(inst => getOrgMembershipForCurrentUser(accessToken, inst.account.login))
+        orgInstallations.map((inst) =>
+          getOrgMembershipForCurrentUser(accessToken, inst.account.login)
+        )
       );
 
       for (let i = 0; i < orgInstallations.length; i++) {
@@ -953,7 +990,7 @@ export async function listUserOrganizations(
           login: inst.account.login,
           avatar_url: inst.account.avatar_url,
           description: null, // installations endpoint doesn't include description
-          role: membership?.role ?? 'member',
+          role: membership?.role ?? "member",
         });
       }
 
@@ -964,8 +1001,8 @@ export async function listUserOrganizations(
     }
   } catch (error) {
     logger.error(
-      { error: error instanceof Error ? error.message : 'Unknown error' },
-      'Error listing user installations'
+      { error: error instanceof Error ? error.message : "Unknown error" },
+      "Error listing user installations"
     );
   }
 
@@ -979,26 +1016,23 @@ export async function listUserOrganizations(
 export async function getOrgMembershipForCurrentUser(
   accessToken: string,
   org: string
-): Promise<{ role: 'admin' | 'member'; state: 'active' | 'pending' } | null> {
+): Promise<{ role: "admin" | "member"; state: "active" | "pending" } | null> {
   try {
-    const response = await fetch(
-      `${GITHUB_API_BASE}/user/memberships/orgs/${org}`,
-      {
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          Accept: 'application/vnd.github+json',
-          'X-GitHub-Api-Version': '2022-11-28',
-        },
-      }
-    );
+    const response = await fetch(`${GITHUB_API_BASE}/user/memberships/orgs/${org}`, {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        Accept: "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+      },
+    });
 
     if (!response.ok) {
       return null;
     }
 
-    const data = await response.json() as {
-      role: 'admin' | 'member';
-      state: 'active' | 'pending';
+    const data = (await response.json()) as {
+      role: "admin" | "member";
+      state: "active" | "pending";
     };
 
     return { role: data.role, state: data.state };
@@ -1011,54 +1045,46 @@ export async function getOrgMembershipForCurrentUser(
  * Get organization info from GitHub API using installation token
  * Returns null if org doesn't exist or is not accessible
  */
-export async function getGitHubOrgInfo(
-  orgLogin: string
-): Promise<GitHubOrgInfo | null> {
+export async function getGitHubOrgInfo(orgLogin: string): Promise<GitHubOrgInfo | null> {
   try {
     // We need to find an installation that has access to this org
     // Use the org's own installation if available
-    const installation = await findInstallationForRepo(orgLogin, '');
+    const installation = await findInstallationForRepo(orgLogin, "");
     if (!installation) {
-      logger.debug({ orgLogin }, 'No installation found for org');
+      logger.debug({ orgLogin }, "No installation found for org");
       return null;
     }
 
     const token = await getInstallationToken(installation.installationId);
 
-    const response = await fetch(
-      `${GITHUB_API_BASE}/orgs/${orgLogin}`,
-      {
-        headers: {
-          Authorization: `Bearer ${token}`,
-          Accept: 'application/vnd.github+json',
-          'X-GitHub-Api-Version': '2022-11-28',
-        },
-      }
-    );
+    const response = await fetch(`${GITHUB_API_BASE}/orgs/${orgLogin}`, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+      },
+    });
 
     if (!response.ok) {
       if (response.status === 404) {
-        logger.debug({ orgLogin }, 'GitHub org not found');
+        logger.debug({ orgLogin }, "GitHub org not found");
         return null;
       }
-      logger.warn(
-        { orgLogin, status: response.status },
-        'Failed to get org info from GitHub'
-      );
+      logger.warn({ orgLogin, status: response.status }, "Failed to get org info from GitHub");
       return null;
     }
 
-    const data = await response.json() as {
+    const data = (await response.json()) as {
       id: number;
       login: string;
       name: string | null;
       avatar_url: string;
-      type: 'Organization' | 'User';
+      type: "Organization" | "User";
     };
 
     // Verify it's actually an organization
-    if (data.type !== 'Organization') {
-      logger.debug({ orgLogin, type: data.type }, 'Not an organization');
+    if (data.type !== "Organization") {
+      logger.debug({ orgLogin, type: data.type }, "Not an organization");
       return null;
     }
 
@@ -1067,12 +1093,12 @@ export async function getGitHubOrgInfo(
       login: data.login,
       name: data.name,
       avatar_url: data.avatar_url,
-      type: 'Organization',
+      type: "Organization",
     };
   } catch (error) {
     logger.error(
-      { error: error instanceof Error ? error.message : 'Unknown error', orgLogin },
-      'Error getting GitHub org info'
+      { error: error instanceof Error ? error.message : "Unknown error", orgLogin },
+      "Error getting GitHub org info"
     );
     return null;
   }
@@ -1087,37 +1113,31 @@ export async function getGitHubOrgInfoWithToken(
   orgLogin: string
 ): Promise<GitHubOrgInfo | null> {
   try {
-    const response = await fetch(
-      `${GITHUB_API_BASE}/orgs/${orgLogin}`,
-      {
-        headers: {
-          Authorization: `Bearer ${token}`,
-          Accept: 'application/vnd.github+json',
-          'X-GitHub-Api-Version': '2022-11-28',
-        },
-      }
-    );
+    const response = await fetch(`${GITHUB_API_BASE}/orgs/${orgLogin}`, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+      },
+    });
 
     if (!response.ok) {
       if (response.status === 404) {
         return null;
       }
-      logger.warn(
-        { orgLogin, status: response.status },
-        'Failed to get org info from GitHub'
-      );
+      logger.warn({ orgLogin, status: response.status }, "Failed to get org info from GitHub");
       return null;
     }
 
-    const data = await response.json() as {
+    const data = (await response.json()) as {
       id: number;
       login: string;
       name: string | null;
       avatar_url: string;
-      type: 'Organization' | 'User';
+      type: "Organization" | "User";
     };
 
-    if (data.type !== 'Organization') {
+    if (data.type !== "Organization") {
       return null;
     }
 
@@ -1126,12 +1146,12 @@ export async function getGitHubOrgInfoWithToken(
       login: data.login,
       name: data.name,
       avatar_url: data.avatar_url,
-      type: 'Organization',
+      type: "Organization",
     };
   } catch (error) {
     logger.error(
-      { error: error instanceof Error ? error.message : 'Unknown error', orgLogin },
-      'Error getting GitHub org info with token'
+      { error: error instanceof Error ? error.message : "Unknown error", orgLogin },
+      "Error getting GitHub org info with token"
     );
     return null;
   }

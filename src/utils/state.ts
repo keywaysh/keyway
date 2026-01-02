@@ -1,5 +1,5 @@
-import crypto from 'crypto';
-import { config } from '../config';
+import crypto from "crypto";
+import { config } from "../config";
 
 /**
  * Sign a state object using HMAC-SHA256
@@ -7,14 +7,16 @@ import { config } from '../config';
  * State expires after 10 minutes by default
  */
 export function signState(data: Record<string, unknown>, expiresInMs = 10 * 60 * 1000): string {
-  const payload = Buffer.from(JSON.stringify({
-    ...data,
-    exp: Date.now() + expiresInMs,
-  })).toString('base64url');
+  const payload = Buffer.from(
+    JSON.stringify({
+      ...data,
+      exp: Date.now() + expiresInMs,
+    })
+  ).toString("base64url");
   const signature = crypto
-    .createHmac('sha256', config.jwt.secret)
+    .createHmac("sha256", config.jwt.secret)
     .update(payload)
-    .digest('base64url');
+    .digest("base64url");
   return `${payload}.${signature}`;
 }
 
@@ -24,16 +26,20 @@ export function signState(data: Record<string, unknown>, expiresInMs = 10 * 60 *
  */
 export function verifyState(signed: string): Record<string, unknown> | null {
   try {
-    const parts = signed.split('.');
-    if (parts.length !== 2) return null;
+    const parts = signed.split(".");
+    if (parts.length !== 2) {
+      return null;
+    }
 
     const [payload, signature] = parts;
-    if (!payload || !signature) return null;
+    if (!payload || !signature) {
+      return null;
+    }
 
     const expectedSig = crypto
-      .createHmac('sha256', config.jwt.secret)
+      .createHmac("sha256", config.jwt.secret)
       .update(payload)
-      .digest('base64url');
+      .digest("base64url");
 
     // Use timing-safe comparison to prevent timing attacks
     if (
@@ -43,10 +49,10 @@ export function verifyState(signed: string): Record<string, unknown> | null {
       return null;
     }
 
-    const data = JSON.parse(Buffer.from(payload, 'base64url').toString());
+    const data = JSON.parse(Buffer.from(payload, "base64url").toString());
 
     // Check expiration
-    if (data.exp && typeof data.exp === 'number' && data.exp < Date.now()) {
+    if (data.exp && typeof data.exp === "number" && data.exp < Date.now()) {
       return null;
     }
 

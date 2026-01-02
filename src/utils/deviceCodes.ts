@@ -1,4 +1,4 @@
-import crypto from 'crypto';
+import crypto from "crypto";
 
 /**
  * Generate a secure random device code (opaque, for polling)
@@ -9,7 +9,7 @@ import crypto from 'crypto';
  * (HIGH-12: Device code entropy requirement met)
  */
 export function generateDeviceCode(): string {
-  return crypto.randomBytes(32).toString('hex');
+  return crypto.randomBytes(32).toString("hex");
 }
 
 /**
@@ -24,10 +24,10 @@ export function generateDeviceCode(): string {
  */
 export function generateUserCode(): string {
   // Use only uppercase letters and numbers, excluding confusing characters (0, O, 1, I, L)
-  const chars = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+  const chars = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
   const length = 10; // 10 characters for ~48 bits of entropy
 
-  let code = '';
+  let code = "";
   const randomValues = crypto.randomBytes(length);
   for (let i = 0; i < length; i++) {
     // Use modulo to map random byte to character index

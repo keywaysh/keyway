@@ -1,5 +1,5 @@
-import { PostHog } from 'posthog-node';
-import { config } from '../config';
+import { PostHog } from "posthog-node";
+import { config } from "../config";
 
 let posthog: PostHog | null = null;
 
@@ -20,12 +20,10 @@ export function initAnalytics() {
  * Track an API event
  * IMPORTANT: Never include secret names, values, or any sensitive data
  */
-export function trackEvent(
-  distinctId: string,
-  event: string,
-  properties?: Record<string, any>
-) {
-  if (!posthog) return;
+export function trackEvent(distinctId: string, event: string, properties?: Record<string, any>) {
+  if (!posthog) {
+    return;
+  }
 
   // Sanitize properties to ensure no sensitive data
   const sanitizedProperties = properties ? sanitizeProperties(properties) : {};
@@ -35,7 +33,7 @@ export function trackEvent(
     event,
     properties: {
       ...sanitizedProperties,
-      source: 'api',
+      source: "api",
     },
   });
 }
@@ -49,11 +47,11 @@ function sanitizeProperties(properties: Record<string, any>): Record<string, any
   for (const [key, value] of Object.entries(properties)) {
     // Never include these sensitive fields
     if (
-      key.toLowerCase().includes('secret') ||
-      key.toLowerCase().includes('token') ||
-      key.toLowerCase().includes('password') ||
-      key.toLowerCase().includes('content') ||
-      key.toLowerCase().includes('key')
+      key.toLowerCase().includes("secret") ||
+      key.toLowerCase().includes("token") ||
+      key.toLowerCase().includes("password") ||
+      key.toLowerCase().includes("content") ||
+      key.toLowerCase().includes("key")
     ) {
       continue;
     }
@@ -68,11 +66,10 @@ function sanitizeProperties(properties: Record<string, any>): Record<string, any
  * Identify a user in PostHog with their properties
  * Used for user property enrichment (signup source, timestamps, etc.)
  */
-export function identifyUser(
-  distinctId: string,
-  properties: Record<string, any>
-) {
-  if (!posthog) return;
+export function identifyUser(distinctId: string, properties: Record<string, any>) {
+  if (!posthog) {
+    return;
+  }
 
   // Sanitize properties
   const sanitizedProperties = sanitizeProperties(properties);
@@ -94,27 +91,29 @@ export async function shutdownAnalytics() {
 
 // Event names
 export const AnalyticsEvents = {
-  VAULT_INITIALIZED: 'api_vault_initialized',
-  SECRETS_PUSHED: 'api_secrets_pushed',
-  SECRETS_PULLED: 'api_secrets_pulled',
-  SECRET_VIEWED: 'api_secret_viewed',
-  AUTH_SUCCESS: 'api_auth_success',
-  AUTH_FAILURE: 'api_auth_failure',
-  USER_CREATED: 'api_user_created',
-  API_ERROR: 'api_error',
-  DEVICE_VERIFY_PAGE_VIEW: 'api_device_verify_page_view',
-  DEVICE_VERIFY_SUBMIT: 'api_device_verify_submit',
+  VAULT_INITIALIZED: "api_vault_initialized",
+  SECRETS_PUSHED: "api_secrets_pushed",
+  SECRETS_PULLED: "api_secrets_pulled",
+  SECRET_VIEWED: "api_secret_viewed",
+  AUTH_SUCCESS: "api_auth_success",
+  AUTH_FAILURE: "api_auth_failure",
+  USER_CREATED: "api_user_created",
+  API_ERROR: "api_error",
+  DEVICE_VERIFY_PAGE_VIEW: "api_device_verify_page_view",
+  DEVICE_VERIFY_SUBMIT: "api_device_verify_submit",
   // Billing events
-  BILLING_UPGRADE: 'billing_upgrade',
-  BILLING_DOWNGRADE: 'billing_downgrade',
-  BILLING_PAYMENT_FAILED: 'billing_payment_failed',
+  BILLING_UPGRADE: "billing_upgrade",
+  BILLING_DOWNGRADE: "billing_downgrade",
+  BILLING_PAYMENT_FAILED: "billing_payment_failed",
 } as const;
 
 /**
  * Determine signup source from referer header
  */
 export function getSignupSource(referer: string | undefined): string {
-  if (!referer) return 'direct';
+  if (!referer) {
+    return "direct";
+  }
 
   try {
     const url = new URL(referer);
@@ -122,27 +121,33 @@ export function getSignupSource(referer: string | undefined): string {
     const pathname = url.pathname.toLowerCase();
 
     // Badge embed from README
-    if (pathname.includes('badge')) return 'badge';
+    if (pathname.includes("badge")) {
+      return "badge";
+    }
 
     // GitHub README or docs
-    if (hostname.includes('github.com') || hostname.includes('githubusercontent.com')) {
-      return 'github';
+    if (hostname.includes("github.com") || hostname.includes("githubusercontent.com")) {
+      return "github";
     }
 
     // NPM page
-    if (hostname.includes('npmjs.com') || hostname.includes('npm.io')) {
-      return 'npm';
+    if (hostname.includes("npmjs.com") || hostname.includes("npm.io")) {
+      return "npm";
     }
 
     // Our own landing page
-    if (hostname.includes('keyway.sh')) {
-      if (pathname === '/' || pathname === '') return 'landing';
-      if (pathname.includes('login')) return 'login';
-      return 'site';
+    if (hostname.includes("keyway.sh")) {
+      if (pathname === "/" || pathname === "") {
+        return "landing";
+      }
+      if (pathname.includes("login")) {
+        return "login";
+      }
+      return "site";
     }
 
-    return 'referrer';
+    return "referrer";
   } catch {
-    return 'direct';
+    return "direct";
   }
 }

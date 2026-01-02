@@ -1,4 +1,4 @@
-import type { UserPlan } from '../db/schema';
+import type { UserPlan } from "../db/schema";
 
 /**
  * Plan configuration
@@ -66,10 +66,11 @@ export function canCreateRepo(
 ): { allowed: boolean; reason?: string } {
   // Block PRIVATE organization repos for free/pro plans
   // Public org repos are allowed for all plans
-  if (isOrganization && isPrivate && plan !== 'team') {
+  if (isOrganization && isPrivate && plan !== "team") {
     return {
       allowed: false,
-      reason: 'Private organization repositories require a Team plan. Upgrade to use private repos from GitHub organizations.',
+      reason:
+        "Private organization repositories require a Team plan. Upgrade to use private repos from GitHub organizations.",
     };
   }
 
@@ -79,7 +80,7 @@ export function canCreateRepo(
     if (currentPrivateCount >= limits.maxPrivateRepos) {
       return {
         allowed: false,
-        reason: `Your ${plan} plan allows ${limits.maxPrivateRepos} private repo${limits.maxPrivateRepos === 1 ? '' : 's'}. Upgrade to create more.`,
+        reason: `Your ${plan} plan allows ${limits.maxPrivateRepos} private repo${limits.maxPrivateRepos === 1 ? "" : "s"}. Upgrade to create more.`,
       };
     }
   } else {
@@ -99,7 +100,7 @@ export function canCreateRepo(
  * Returns "unlimited" string for Infinity, or the number
  */
 export function formatLimit(limit: number): string | number {
-  return limit === Infinity ? 'unlimited' : limit;
+  return limit === Infinity ? "unlimited" : limit;
 }
 
 /**
@@ -114,7 +115,7 @@ export function canConnectProvider(
   if (currentProviderCount >= limits.maxProviders) {
     return {
       allowed: false,
-      reason: `Your ${plan} plan allows ${limits.maxProviders} provider connection${limits.maxProviders === 1 ? '' : 's'}. Upgrade to connect more providers.`,
+      reason: `Your ${plan} plan allows ${limits.maxProviders} provider connection${limits.maxProviders === 1 ? "" : "s"}. Upgrade to connect more providers.`,
     };
   }
 
@@ -133,7 +134,7 @@ export function canCreateEnvironment(
   if (currentEnvironmentCount >= limits.maxEnvironmentsPerVault) {
     return {
       allowed: false,
-      reason: `Your ${plan} plan allows ${limits.maxEnvironmentsPerVault} environment${limits.maxEnvironmentsPerVault === 1 ? '' : 's'} per vault. Upgrade to create more.`,
+      reason: `Your ${plan} plan allows ${limits.maxEnvironmentsPerVault} environment${limits.maxEnvironmentsPerVault === 1 ? "" : "s"} per vault. Upgrade to create more.`,
     };
   }
 

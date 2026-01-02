@@ -6,7 +6,7 @@ export {
   touchVault,
   type VaultListItem,
   type VaultDetails,
-} from './vault.service';
+} from "./vault.service";
 
 // Secret service
 export {
@@ -32,7 +32,7 @@ export {
   type CreateSecretInput,
   type UpdateSecretInput,
   type TrashedSecretItem,
-} from './secret.service';
+} from "./secret.service";
 
 // Activity service
 export {
@@ -42,7 +42,7 @@ export {
   detectPlatform,
   type ActivityLogItem,
   type LogActivityInput,
-} from './activity.service';
+} from "./activity.service";
 
 // Usage service
 export {
@@ -55,7 +55,7 @@ export {
   type UserUsage,
   type UserUsageResponse,
   type PrivateVaultAccess,
-} from './usage.service';
+} from "./usage.service";
 
 // Billing service
 export {
@@ -68,7 +68,7 @@ export {
   constructWebhookEvent,
   handleWebhookEvent,
   getAvailablePrices,
-} from './billing.service';
+} from "./billing.service";
 
 // GitHub App service
 export {
@@ -83,7 +83,7 @@ export {
   updateInstallationRepos,
   getInstallationsForUser,
   getInstallationByGitHubId,
-} from './github-app.service';
+} from "./github-app.service";
 
 // Trial service
 export {
@@ -102,7 +102,7 @@ export {
   type StartTrialResult,
   type ConvertTrialInput,
   type ExpireTrialInput,
-} from './trial.service';
+} from "./trial.service";
 
 // Exposure service (secret access tracking for offboarding)
 export {
@@ -118,7 +118,7 @@ export {
   type ExposureVaultGroup,
   type ExposureUserReport,
   type ExposureOrgSummary,
-} from './exposure.service';
+} from "./exposure.service";
 
 // Signup service (new user onboarding)
 export {
@@ -126,4 +126,4 @@ export {
   type SignupSource,
   type SignupMethod,
   type NewUserSignupParams,
-} from './signup.service';
+} from "./signup.service";

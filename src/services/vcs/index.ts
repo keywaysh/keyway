@@ -5,9 +5,9 @@
  * Use getProvider(forgeType) to get the appropriate provider instance.
  */
 
-import type { ForgeType, VcsProviderInterface } from './types';
-import { VcsProvider } from './base.provider';
-import { GitHubProvider, gitHubProvider } from './github/github.provider';
+import type { ForgeType } from "./types";
+import { VcsProvider } from "./base.provider";
+import { gitHubProvider } from "./github/github.provider";
 
 // ============================================================================
 // Provider Registry
@@ -77,11 +77,11 @@ export type {
   VcsAppInstallation,
   RoleMapper,
   VcsProviderInterface,
-} from './types';
+} from "./types";
 
 // Base provider
-export { VcsProvider } from './base.provider';
+export { VcsProvider } from "./base.provider";
 
 // GitHub provider
-export { GitHubProvider, gitHubProvider, gitHubRoleMapper } from './github/github.provider';
-export { GitHubApiClient, githubApiClient } from './github/github.api-client';
+export { GitHubProvider, gitHubProvider, gitHubRoleMapper } from "./github/github.provider";
+export { GitHubApiClient, githubApiClient } from "./github/github.api-client";

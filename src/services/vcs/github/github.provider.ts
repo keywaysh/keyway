@@ -5,7 +5,7 @@
  * Handles OAuth, user/repo access, and organization management.
  */
 
-import { VcsProvider } from '../base.provider';
+import { VcsProvider } from "../base.provider";
 import type {
   ForgeType,
   VcsUser,
@@ -16,14 +16,10 @@ import type {
   TokenResponse,
   RoleMapper,
   NormalizedRole,
-} from '../types';
-import type { CollaboratorRole } from '../../../db/schema';
-import {
-  GitHubApiClient,
-  GITHUB_ROLE_MAP,
-  getCollaboratorRoleFromPermissions,
-} from './github.api-client';
-import { config } from '../../../config';
+} from "../types";
+import type { CollaboratorRole } from "../../../db/schema";
+import { GitHubApiClient, GITHUB_ROLE_MAP } from "./github.api-client";
+import { config } from "../../../config";
 
 // ============================================================================
 // GitHub Role Mapper
@@ -32,24 +28,30 @@ import { config } from '../../../config';
 /**
  * Role hierarchy (from lowest to highest)
  */
-const ROLE_HIERARCHY: CollaboratorRole[] = ['read', 'triage', 'write', 'maintain', 'admin'];
+const ROLE_HIERARCHY: CollaboratorRole[] = ["read", "triage", "write", "maintain", "admin"];
 
 /**
  * GitHub-specific role mapper
  */
 export const gitHubRoleMapper: RoleMapper = {
-  forgeType: 'github',
+  forgeType: "github",
 
   toCollaboratorRole(forgeRole: string): CollaboratorRole {
-    return GITHUB_ROLE_MAP[forgeRole.toLowerCase()] || 'read';
+    return GITHUB_ROLE_MAP[forgeRole.toLowerCase()] || "read";
   },
 
   toNormalizedRole(forgeRole: string): NormalizedRole {
     const role = GITHUB_ROLE_MAP[forgeRole.toLowerCase()];
-    if (!role) return 'none';
-    if (role === 'admin') return 'admin';
-    if (role === 'write' || role === 'maintain') return 'write';
-    return 'read';
+    if (!role) {
+      return "none";
+    }
+    if (role === "admin") {
+      return "admin";
+    }
+    if (role === "write" || role === "maintain") {
+      return "write";
+    }
+    return "read";
   },
 
   getRoleLevel(role: CollaboratorRole): number {
@@ -67,7 +69,7 @@ export const gitHubRoleMapper: RoleMapper = {
  * Implements all VcsProvider methods for GitHub.
  */
 export class GitHubProvider extends VcsProvider {
-  readonly forgeType: ForgeType = 'github';
+  readonly forgeType: ForgeType = "github";
   readonly roleMapper: RoleMapper = gitHubRoleMapper;
 
   private client: GitHubApiClient;
@@ -89,7 +91,7 @@ export class GitHubProvider extends VcsProvider {
     const params = new URLSearchParams({
       client_id: this.clientId,
       redirect_uri: redirectUri,
-      scope: 'read:user user:email read:org',
+      scope: "read:user user:email read:org",
       state,
     });
     return `https://github.com/login/oauth/authorize?${params.toString()}`;
@@ -108,8 +110,8 @@ export class GitHubProvider extends VcsProvider {
 
     return {
       accessToken,
-      tokenType: 'bearer',
-      scope: 'read:user,user:email,read:org',
+      tokenType: "bearer",
+      scope: "read:user,user:email,read:org",
     };
   }
 
@@ -120,7 +122,7 @@ export class GitHubProvider extends VcsProvider {
   async getUser(accessToken: string): Promise<VcsUser> {
     const user = await this.client.getUser(accessToken);
     if (!user) {
-      throw new Error('Failed to get GitHub user');
+      throw new Error("Failed to get GitHub user");
     }
 
     // Get email if not in profile
@@ -130,7 +132,7 @@ export class GitHubProvider extends VcsProvider {
     }
 
     return {
-      forgeType: 'github',
+      forgeType: "github",
       forgeUserId: String(user.id),
       username: user.login,
       email,
@@ -140,7 +142,7 @@ export class GitHubProvider extends VcsProvider {
 
   async getUserEmails(accessToken: string): Promise<string[]> {
     const emails = await this.client.getUserEmails(accessToken);
-    return emails.filter(e => e.verified).map(e => e.email);
+    return emails.filter((e) => e.verified).map((e) => e.email);
   }
 
   // ============================================================================
@@ -153,10 +155,12 @@ export class GitHubProvider extends VcsProvider {
     repo: string
   ): Promise<VcsRepository | null> {
     const repoData = await this.client.getRepository(accessToken, owner, repo);
-    if (!repoData) return null;
+    if (!repoData) {
+      return null;
+    }
 
     return {
-      forgeType: 'github',
+      forgeType: "github",
       owner: repoData.owner.login,
       name: repoData.name,
       fullName: repoData.full_name,
@@ -181,7 +185,7 @@ export class GitHubProvider extends VcsProvider {
   ): Promise<VcsCollaborator[]> {
     const collaborators = await this.client.listCollaborators(accessToken, owner, repo);
 
-    return collaborators.map(collab => ({
+    return collaborators.map((collab) => ({
       forgeUserId: String(collab.id),
       username: collab.login,
       avatarUrl: collab.avatar_url,
@@ -194,10 +198,7 @@ export class GitHubProvider extends VcsProvider {
   // Organization
   // ============================================================================
 
-  async getOrganization(
-    accessToken: string,
-    org: string
-  ): Promise<VcsOrganization | null> {
+  async getOrganization(accessToken: string, org: string): Promise<VcsOrganization | null> {
     // For GitHub, we use the org membership endpoint to get org info
     // since we need to verify the user has access
     const repoData = await this.client.getRepository(accessToken, org, org);
@@ -207,12 +208,12 @@ export class GitHubProvider extends VcsProvider {
       return null;
     }
 
-    if (repoData.owner.type !== 'Organization') {
+    if (repoData.owner.type !== "Organization") {
       return null;
     }
 
     return {
-      forgeType: 'github',
+      forgeType: "github",
       forgeOrgId: String(repoData.owner.login), // GitHub orgs use login as ID
       login: repoData.owner.login,
       displayName: null, // Would need another API call
@@ -231,8 +232,8 @@ export class GitHubProvider extends VcsProvider {
         forgeUserId: String(member.id),
         username: member.login,
         avatarUrl: member.avatar_url,
-        role: membership?.role === 'admin' ? 'owner' : 'member',
-        state: membership?.state || 'active',
+        role: membership?.role === "admin" ? "owner" : "member",
+        state: membership?.state || "active",
       });
     }
 
@@ -243,12 +244,14 @@ export class GitHubProvider extends VcsProvider {
     accessToken: string,
     org: string,
     username: string
-  ): Promise<{ role: 'owner' | 'member'; state: string } | null> {
+  ): Promise<{ role: "owner" | "member"; state: string } | null> {
     const membership = await this.client.getOrgMembership(accessToken, org, username);
-    if (!membership) return null;
+    if (!membership) {
+      return null;
+    }
 
     return {
-      role: membership.role === 'admin' ? 'owner' : 'member',
+      role: membership.role === "admin" ? "owner" : "member",
       state: membership.state,
     };
   }

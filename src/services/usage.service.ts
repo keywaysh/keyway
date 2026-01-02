@@ -1,8 +1,8 @@
-import { db, users, vaults, usageMetrics, secrets, providerConnections } from '../db';
-import { eq, and, sql, asc, count } from 'drizzle-orm';
-import type { UserPlan } from '../db/schema';
-import { getPlanLimits, formatLimit, canCreateRepo, PLANS } from '../config/plans';
-import { getEffectivePlanForVault } from './organization.service';
+import { db, vaults, usageMetrics, providerConnections } from "../db";
+import { eq, and, sql, asc, count } from "drizzle-orm";
+import type { UserPlan } from "../db/schema";
+import { getPlanLimits, formatLimit, canCreateRepo, PLANS } from "../config/plans";
+import { getEffectivePlanForVault } from "./organization.service";
 
 /**
  * Usage data for a user
@@ -113,7 +113,10 @@ async function getProviderCount(userId: string): Promise<number> {
 /**
  * Get full usage response for the /users/me/usage endpoint
  */
-export async function getUserUsageResponse(userId: string, plan: UserPlan): Promise<UserUsageResponse> {
+export async function getUserUsageResponse(
+  userId: string,
+  plan: UserPlan
+): Promise<UserUsageResponse> {
   const [usage, providerCount] = await Promise.all([
     getUserUsage(userId),
     getProviderCount(userId),
@@ -166,7 +169,10 @@ export interface PrivateVaultAccess {
  *
  * For Pro/Team plans (unlimited), returns empty sets (all vaults are allowed).
  */
-export async function getPrivateVaultAccess(userId: string, plan: UserPlan): Promise<PrivateVaultAccess> {
+export async function getPrivateVaultAccess(
+  userId: string,
+  plan: UserPlan
+): Promise<PrivateVaultAccess> {
   const limit = PLANS[plan].maxPrivateRepos;
 
   // If unlimited, all vaults are allowed - return empty sets as special case
@@ -181,8 +187,8 @@ export async function getPrivateVaultAccess(userId: string, plan: UserPlan): Pro
     .where(and(eq(vaults.ownerId, userId), eq(vaults.isPrivate, true)))
     .orderBy(asc(vaults.createdAt));
 
-  const allowedVaultIds = new Set(privateVaults.slice(0, limit).map(v => v.id));
-  const excessVaultIds = new Set(privateVaults.slice(limit).map(v => v.id));
+  const allowedVaultIds = new Set(privateVaults.slice(0, limit).map((v) => v.id));
+  const excessVaultIds = new Set(privateVaults.slice(limit).map((v) => v.id));
 
   return { allowedVaultIds, excessVaultIds };
 }
@@ -212,9 +218,10 @@ export async function canWriteToVault(
   const effectivePlan = await getEffectivePlanForVault(vaultId);
 
   // Use the better of user plan and effective plan
-  const plan = PLANS[effectivePlan].maxPrivateRepos >= PLANS[userPlan].maxPrivateRepos
-    ? effectivePlan
-    : userPlan;
+  const plan =
+    PLANS[effectivePlan].maxPrivateRepos >= PLANS[userPlan].maxPrivateRepos
+      ? effectivePlan
+      : userPlan;
 
   // Pro/Team plans: always allowed (unlimited private repos)
   if (PLANS[plan].maxPrivateRepos === Infinity) {
@@ -227,7 +234,7 @@ export async function canWriteToVault(
   if (excessVaultIds.has(vaultId)) {
     return {
       allowed: false,
-      reason: 'This private vault is read-only on the Free plan. Upgrade to Pro to unlock editing.',
+      reason: "This private vault is read-only on the Free plan. Upgrade to Pro to unlock editing.",
     };
   }
 

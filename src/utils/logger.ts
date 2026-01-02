@@ -8,8 +8,12 @@
  * @returns Masked token string (e.g., "***abc123")
  */
 export function maskToken(token: string | undefined | null): string {
-  if (!token) return '[none]';
-  if (token.length <= 4) return '***';
+  if (!token) {
+    return "[none]";
+  }
+  if (token.length <= 4) {
+    return "***";
+  }
   return `***${token.slice(-4)}`;
 }
 
@@ -23,17 +27,20 @@ export function sanitizeHeaders(headers: Record<string, any>): Record<string, an
 
   // Mask Authorization header
   if (sanitized.authorization) {
-    if (typeof sanitized.authorization === 'string' && sanitized.authorization.startsWith('Bearer ')) {
+    if (
+      typeof sanitized.authorization === "string" &&
+      sanitized.authorization.startsWith("Bearer ")
+    ) {
       const token = sanitized.authorization.substring(7);
       sanitized.authorization = `Bearer ${maskToken(token)}`;
     } else {
-      sanitized.authorization = '[REDACTED]';
+      sanitized.authorization = "[REDACTED]";
     }
   }
 
   // Mask cookie header (may contain session tokens)
   if (sanitized.cookie) {
-    sanitized.cookie = '[REDACTED]';
+    sanitized.cookie = "[REDACTED]";
   }
 
   return sanitized;
@@ -45,7 +52,9 @@ export function sanitizeHeaders(headers: Record<string, any>): Record<string, an
  * @returns Sanitized error data
  */
 export function sanitizeError(error: any): any {
-  if (!error) return error;
+  if (!error) {
+    return error;
+  }
 
   // Create a clean copy with all useful debugging info
   const sanitized: any = {

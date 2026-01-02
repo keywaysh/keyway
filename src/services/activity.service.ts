@@ -1,7 +1,7 @@
-import { db, activityLogs } from '../db';
-import { eq, desc, count } from 'drizzle-orm';
-import type { ActivityAction, ActivityPlatform } from '../db/schema';
-import type { PaginationQuery } from '../lib/pagination';
+import { db, activityLogs } from "../db";
+import { eq, desc, count } from "drizzle-orm";
+import type { ActivityAction, ActivityPlatform } from "../db/schema";
+import type { PaginationQuery } from "../lib/pagination";
 
 export interface ActivityLogItem {
   id: string;
@@ -76,15 +76,17 @@ export async function getActivityForUser(
       action: log.action,
       vaultId: log.vaultId,
       repoFullName: log.vault?.repoFullName || metadata?.repoFullName || null,
-      actor: log.user ? {
-        id: log.user.id,
-        username: log.user.username,
-        avatarUrl: log.user.avatarUrl,
-      } : {
-        id: log.userId || 'deleted',
-        username: metadata?.username || 'Deleted User',
-        avatarUrl: null,
-      },
+      actor: log.user
+        ? {
+            id: log.user.id,
+            username: log.user.username,
+            avatarUrl: log.user.avatarUrl,
+          }
+        : {
+            id: log.userId || "deleted",
+            username: metadata?.username || "Deleted User",
+            avatarUrl: null,
+          },
       platform: log.platform,
       metadata,
       timestamp: log.createdAt.toISOString(),
@@ -97,13 +99,13 @@ export async function getActivityForUser(
 /**
  * Helper to extract request info for logging
  */
-export function extractRequestInfo(request: {
-  ip?: string;
-  headers?: { 'user-agent'?: string };
-}): { ipAddress: string | null; userAgent: string | null } {
+export function extractRequestInfo(request: { ip?: string; headers?: { "user-agent"?: string } }): {
+  ipAddress: string | null;
+  userAgent: string | null;
+} {
   return {
     ipAddress: request?.ip || null,
-    userAgent: request?.headers?.['user-agent'] || null,
+    userAgent: request?.headers?.["user-agent"] || null,
   };
 }
 
@@ -113,33 +115,43 @@ export function extractRequestInfo(request: {
  * - Web: User-Agent is a browser (contains Mozilla, Chrome, Safari, etc.)
  * - API: Everything else (curl, scripts, etc.)
  */
-export function detectPlatform(userAgentOrRequest: string | null | undefined | {
-  headers?: { 'user-agent'?: string };
-}): ActivityPlatform {
+export function detectPlatform(
+  userAgentOrRequest:
+    | string
+    | null
+    | undefined
+    | {
+        headers?: { "user-agent"?: string };
+      }
+): ActivityPlatform {
   let userAgent: string;
 
-  if (typeof userAgentOrRequest === 'string') {
+  if (typeof userAgentOrRequest === "string") {
     userAgent = userAgentOrRequest;
-  } else if (userAgentOrRequest && typeof userAgentOrRequest === 'object') {
-    userAgent = userAgentOrRequest?.headers?.['user-agent'] || '';
+  } else if (userAgentOrRequest && typeof userAgentOrRequest === "object") {
+    userAgent = userAgentOrRequest?.headers?.["user-agent"] || "";
   } else {
-    userAgent = '';
+    userAgent = "";
   }
 
-  if (userAgent.toLowerCase().includes('keyway-cli')) {
-    return 'cli';
+  if (userAgent.toLowerCase().includes("keyway-cli")) {
+    return "cli";
   }
 
-  if (userAgent.toLowerCase().includes('keyway-mcp')) {
-    return 'mcp';
+  if (userAgent.toLowerCase().includes("keyway-mcp")) {
+    return "mcp";
   }
 
   // Common browser identifiers
-  if (userAgent.includes('Mozilla') || userAgent.includes('Chrome') ||
-      userAgent.includes('Safari') || userAgent.includes('Firefox') ||
-      userAgent.includes('Edge')) {
-    return 'web';
+  if (
+    userAgent.includes("Mozilla") ||
+    userAgent.includes("Chrome") ||
+    userAgent.includes("Safari") ||
+    userAgent.includes("Firefox") ||
+    userAgent.includes("Edge")
+  ) {
+    return "web";
   }
 
-  return 'api';
+  return "api";
 }

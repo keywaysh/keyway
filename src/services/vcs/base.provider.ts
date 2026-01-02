@@ -15,8 +15,8 @@ import type {
   VcsOrgMember,
   TokenResponse,
   RoleMapper,
-} from './types';
-import type { CollaboratorRole } from '../../db/schema';
+} from "./types";
+import type { CollaboratorRole } from "../../db/schema";
 
 /**
  * Abstract VCS Provider
@@ -100,18 +100,12 @@ export abstract class VcsProvider implements VcsProviderInterface {
   /**
    * Get organization information
    */
-  abstract getOrganization(
-    accessToken: string,
-    org: string
-  ): Promise<VcsOrganization | null>;
+  abstract getOrganization(accessToken: string, org: string): Promise<VcsOrganization | null>;
 
   /**
    * List all members of an organization
    */
-  abstract listOrgMembers(
-    accessToken: string,
-    org: string
-  ): Promise<VcsOrgMember[]>;
+  abstract listOrgMembers(accessToken: string, org: string): Promise<VcsOrgMember[]>;
 
   /**
    * Get a user's membership in an organization
@@ -120,7 +114,7 @@ export abstract class VcsProvider implements VcsProviderInterface {
     accessToken: string,
     org: string,
     username: string
-  ): Promise<{ role: 'owner' | 'member'; state: string } | null>;
+  ): Promise<{ role: "owner" | "member"; state: string } | null>;
 
   // ============================================================================
   // Utility Methods (Concrete - shared by all providers)
@@ -158,8 +152,10 @@ export abstract class VcsProvider implements VcsProviderInterface {
     username: string
   ): Promise<boolean> {
     const role = await this.getUserRole(accessToken, owner, repo, username);
-    if (!role) return false;
-    return this.hasRoleLevel(role, 'write');
+    if (!role) {
+      return false;
+    }
+    return this.hasRoleLevel(role, "write");
   }
 
   /**
@@ -172,21 +168,23 @@ export abstract class VcsProvider implements VcsProviderInterface {
     username: string
   ): Promise<boolean> {
     const role = await this.getUserRole(accessToken, owner, repo, username);
-    if (!role) return false;
-    return role === 'admin';
+    if (!role) {
+      return false;
+    }
+    return role === "admin";
   }
 
   /**
    * Parse a repository full name into owner and repo
    */
   parseRepoFullName(fullName: string): { owner: string; repo: string } {
-    const parts = fullName.split('/');
+    const parts = fullName.split("/");
     if (parts.length < 2) {
       throw new Error(`Invalid repository name: ${fullName}`);
     }
     // Handle GitLab-style paths like "group/subgroup/project"
     const repo = parts.pop()!;
-    const owner = parts.join('/');
+    const owner = parts.join("/");
     return { owner, repo };
   }
 }

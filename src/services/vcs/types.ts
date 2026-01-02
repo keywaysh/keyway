@@ -5,7 +5,7 @@
  * This abstraction allows Keyway to work with GitHub, GitLab, Bitbucket, etc.
  */
 
-import type { CollaboratorRole } from '../../db/schema';
+import type { CollaboratorRole } from "../../db/schema";
 
 // ============================================================================
 // Core Types
@@ -14,13 +14,13 @@ import type { CollaboratorRole } from '../../db/schema';
 /**
  * Supported forge types
  */
-export type ForgeType = 'github' | 'gitlab' | 'bitbucket';
+export type ForgeType = "github" | "gitlab" | "bitbucket";
 
 /**
  * Normalized role that all forges map to
  * Simplified to 4 levels for cross-forge compatibility
  */
-export type NormalizedRole = 'none' | 'read' | 'write' | 'admin';
+export type NormalizedRole = "none" | "read" | "write" | "admin";
 
 // ============================================================================
 // User Types
@@ -86,7 +86,7 @@ export interface VcsOrgMember {
   forgeUserId: string;
   username: string;
   avatarUrl: string | null;
-  role: 'owner' | 'member'; // Simplified to owner/member for all forges
+  role: "owner" | "member"; // Simplified to owner/member for all forges
   state: string; // Membership state (e.g., "active", "pending")
 }
 
@@ -128,9 +128,9 @@ export interface VcsAppInstallation {
   installationId: number;
   accountId: number;
   accountLogin: string;
-  accountType: 'user' | 'organization';
+  accountType: "user" | "organization";
   permissions: Record<string, string>;
-  repositorySelection: 'all' | 'selected';
+  repositorySelection: "all" | "selected";
 }
 
 // ============================================================================
@@ -186,32 +186,21 @@ export interface VcsProviderInterface {
   getUserEmails(accessToken: string): Promise<string[]>;
 
   // Repository
-  getRepository(
-    accessToken: string,
-    owner: string,
-    repo: string
-  ): Promise<VcsRepository | null>;
+  getRepository(accessToken: string, owner: string, repo: string): Promise<VcsRepository | null>;
   getUserRole(
     accessToken: string,
     owner: string,
     repo: string,
     username: string
   ): Promise<CollaboratorRole | null>;
-  listCollaborators(
-    accessToken: string,
-    owner: string,
-    repo: string
-  ): Promise<VcsCollaborator[]>;
+  listCollaborators(accessToken: string, owner: string, repo: string): Promise<VcsCollaborator[]>;
 
   // Organization
-  getOrganization(
-    accessToken: string,
-    org: string
-  ): Promise<VcsOrganization | null>;
+  getOrganization(accessToken: string, org: string): Promise<VcsOrganization | null>;
   listOrgMembers(accessToken: string, org: string): Promise<VcsOrgMember[]>;
   getOrgMembership(
     accessToken: string,
     org: string,
     username: string
-  ): Promise<{ role: 'owner' | 'member'; state: string } | null>;
+  ): Promise<{ role: "owner" | "member"; state: string } | null>;
 }

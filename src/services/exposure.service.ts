@@ -2,9 +2,9 @@
  * Exposure Service - Tracks which secrets each user has accessed
  * Enables offboarding: "Dev leaves? You know exactly what to rotate."
  */
-import { db, secretAccesses, users, vaults, secrets } from '../db';
-import { eq, and, desc, sql, count, gte, lte, inArray } from 'drizzle-orm';
-import type { ActivityPlatform, CollaboratorRole, Secret } from '../db/schema';
+import { db, secretAccesses, vaults } from "../db";
+import { eq, and, desc, sql, count, gte, lte, inArray } from "drizzle-orm";
+import type { ActivityPlatform, CollaboratorRole } from "../db/schema";
 
 // ============ TYPES ============
 
@@ -88,11 +88,12 @@ export async function recordSecretAccesses(
   ctx: RecordAccessContext,
   secretRecords: SecretAccessRecord[]
 ): Promise<void> {
-
-  if (secretRecords.length === 0) return;
+  if (secretRecords.length === 0) {
+    return;
+  }
 
   // Use raw SQL for efficient batch UPSERT with ON CONFLICT
-  const values = secretRecords.map(s => ({
+  const values = secretRecords.map((s) => ({
     userId: ctx.userId,
     username: ctx.username,
     userAvatarUrl: ctx.userAvatarUrl,
@@ -154,7 +155,7 @@ export async function getExposureForUser(
   const accesses = await db.query.secretAccesses.findMany({
     where: and(
       eq(secretAccesses.username, username),
-      sql`${secretAccesses.repoFullName} LIKE ${orgRepoPrefix + '%'}`
+      sql`${secretAccesses.repoFullName} LIKE ${orgRepoPrefix + "%"}`
     ),
     orderBy: [desc(secretAccesses.lastAccessedAt)],
   });
@@ -199,7 +200,7 @@ export async function getExposureForUser(
   const vaultGroups: ExposureVaultGroup[] = Array.from(vaultMap.entries()).map(
     ([repoFullName, secrets]) => {
       // Get vaultId from any access in this group
-      const vaultAccess = accesses.find(a => a.repoFullName === repoFullName);
+      const vaultAccess = accesses.find((a) => a.repoFullName === repoFullName);
       return {
         vaultId: vaultAccess?.vaultId || null,
         repoFullName,
@@ -238,9 +239,7 @@ export async function getExposureForOrg(
   }
 ): Promise<ExposureOrgSummary> {
   // Build where conditions
-  const conditions = [
-    sql`${secretAccesses.repoFullName} LIKE ${orgRepoPrefix + '%'}`,
-  ];
+  const conditions = [sql`${secretAccesses.repoFullName} LIKE ${orgRepoPrefix + "%"}`];
 
   if (options?.startDate) {
     conditions.push(gte(secretAccesses.lastAccessedAt, options.startDate));
@@ -261,15 +260,11 @@ export async function getExposureForOrg(
       userId: secretAccesses.userId,
       userAvatarUrl: secretAccesses.userAvatarUrl,
       secretCount: count(secretAccesses.id),
-      lastAccess: sql<Date>`MAX(${secretAccesses.lastAccessedAt})`.as('last_access'),
+      lastAccess: sql<Date>`MAX(${secretAccesses.lastAccessedAt})`.as("last_access"),
     })
     .from(secretAccesses)
     .where(whereClause)
-    .groupBy(
-      secretAccesses.username,
-      secretAccesses.userId,
-      secretAccesses.userAvatarUrl
-    )
+    .groupBy(secretAccesses.username, secretAccesses.userId, secretAccesses.userAvatarUrl)
     .orderBy(desc(sql`MAX(${secretAccesses.lastAccessedAt})`))
     .limit(options?.limit ?? 100)
     .offset(options?.offset ?? 0);
@@ -278,27 +273,25 @@ export async function getExposureForOrg(
   const userVaultCounts = await db
     .select({
       username: secretAccesses.username,
-      vaultCount: sql<number>`COUNT(DISTINCT ${secretAccesses.vaultId})`.as('vault_count'),
+      vaultCount: sql<number>`COUNT(DISTINCT ${secretAccesses.vaultId})`.as("vault_count"),
     })
     .from(secretAccesses)
     .where(whereClause)
     .groupBy(secretAccesses.username);
 
-  const vaultCountMap = new Map(
-    userVaultCounts.map(u => [u.username, Number(u.vaultCount)])
-  );
+  const vaultCountMap = new Map(userVaultCounts.map((u) => [u.username, Number(u.vaultCount)]));
 
   // Get total counts
   const [totals] = await db
     .select({
-      users: sql<number>`COUNT(DISTINCT ${secretAccesses.username})`.as('users'),
-      secrets: sql<number>`COUNT(DISTINCT ${secretAccesses.secretId})`.as('secrets'),
-      accesses: sql<number>`SUM(${secretAccesses.accessCount})`.as('accesses'),
+      users: sql<number>`COUNT(DISTINCT ${secretAccesses.username})`.as("users"),
+      secrets: sql<number>`COUNT(DISTINCT ${secretAccesses.secretId})`.as("secrets"),
+      accesses: sql<number>`SUM(${secretAccesses.accessCount})`.as("accesses"),
     })
     .from(secretAccesses)
     .where(whereClause);
 
-  const users: ExposureUserSummary[] = userStats.map(stat => ({
+  const users: ExposureUserSummary[] = userStats.map((stat) => ({
     user: {
       id: stat.userId,
       username: stat.username,
@@ -307,9 +300,10 @@ export async function getExposureForOrg(
     secretsAccessed: Number(stat.secretCount),
     vaultsAccessed: vaultCountMap.get(stat.username) ?? 0,
     // lastAccess comes as string from raw SQL, convert to ISO string
-    lastAccess: stat.lastAccess instanceof Date
-      ? stat.lastAccess.toISOString()
-      : new Date(stat.lastAccess).toISOString(),
+    lastAccess:
+      stat.lastAccess instanceof Date
+        ? stat.lastAccess.toISOString()
+        : new Date(stat.lastAccess).toISOString(),
   }));
 
   return {
@@ -355,7 +349,7 @@ export async function getSecretAccessHistory(
   });
 
   return {
-    accesses: accesses.map(a => ({
+    accesses: accesses.map((a) => ({
       user: {
         id: a.userId,
         username: a.username,
@@ -390,7 +384,7 @@ export async function getExposureForUserGlobal(
     where: eq(vaults.ownerId, ownerId),
     columns: { id: true },
   });
-  const vaultIds = userVaults.map(v => v.id);
+  const vaultIds = userVaults.map((v) => v.id);
 
   if (vaultIds.length === 0) {
     return {
@@ -418,15 +412,11 @@ export async function getExposureForUserGlobal(
       userId: secretAccesses.userId,
       userAvatarUrl: secretAccesses.userAvatarUrl,
       secretCount: count(secretAccesses.id),
-      lastAccess: sql<Date>`MAX(${secretAccesses.lastAccessedAt})`.as('last_access'),
+      lastAccess: sql<Date>`MAX(${secretAccesses.lastAccessedAt})`.as("last_access"),
     })
     .from(secretAccesses)
     .where(whereClause)
-    .groupBy(
-      secretAccesses.username,
-      secretAccesses.userId,
-      secretAccesses.userAvatarUrl
-    )
+    .groupBy(secretAccesses.username, secretAccesses.userId, secretAccesses.userAvatarUrl)
     .orderBy(desc(sql`MAX(${secretAccesses.lastAccessedAt})`))
     .limit(options?.limit ?? 100)
     .offset(options?.offset ?? 0);
@@ -435,27 +425,25 @@ export async function getExposureForUserGlobal(
   const userVaultCounts = await db
     .select({
       username: secretAccesses.username,
-      vaultCount: sql<number>`COUNT(DISTINCT ${secretAccesses.vaultId})`.as('vault_count'),
+      vaultCount: sql<number>`COUNT(DISTINCT ${secretAccesses.vaultId})`.as("vault_count"),
     })
     .from(secretAccesses)
     .where(whereClause)
     .groupBy(secretAccesses.username);
 
-  const vaultCountMap = new Map(
-    userVaultCounts.map(u => [u.username, Number(u.vaultCount)])
-  );
+  const vaultCountMap = new Map(userVaultCounts.map((u) => [u.username, Number(u.vaultCount)]));
 
   // Get total counts
   const [totals] = await db
     .select({
-      users: sql<number>`COUNT(DISTINCT ${secretAccesses.username})`.as('users'),
-      secrets: sql<number>`COUNT(DISTINCT ${secretAccesses.secretId})`.as('secrets'),
-      accesses: sql<number>`SUM(${secretAccesses.accessCount})`.as('accesses'),
+      users: sql<number>`COUNT(DISTINCT ${secretAccesses.username})`.as("users"),
+      secrets: sql<number>`COUNT(DISTINCT ${secretAccesses.secretId})`.as("secrets"),
+      accesses: sql<number>`SUM(${secretAccesses.accessCount})`.as("accesses"),
     })
     .from(secretAccesses)
     .where(whereClause);
 
-  const usersResult: ExposureUserSummary[] = userStats.map(stat => ({
+  const usersResult: ExposureUserSummary[] = userStats.map((stat) => ({
     user: {
       id: stat.userId,
       username: stat.username,
@@ -463,9 +451,10 @@ export async function getExposureForUserGlobal(
     },
     secretsAccessed: Number(stat.secretCount),
     vaultsAccessed: vaultCountMap.get(stat.username) ?? 0,
-    lastAccess: stat.lastAccess instanceof Date
-      ? stat.lastAccess.toISOString()
-      : new Date(stat.lastAccess).toISOString(),
+    lastAccess:
+      stat.lastAccess instanceof Date
+        ? stat.lastAccess.toISOString()
+        : new Date(stat.lastAccess).toISOString(),
   }));
 
   return {
@@ -490,7 +479,7 @@ export async function getExposureForUserByUsername(
     where: eq(vaults.ownerId, ownerId),
     columns: { id: true, repoFullName: true },
   });
-  const vaultIds = userVaults.map(v => v.id);
+  const vaultIds = userVaults.map((v) => v.id);
 
   if (vaultIds.length === 0) {
     return null;
@@ -544,7 +533,7 @@ export async function getExposureForUserByUsername(
 
   const vaultGroups: ExposureVaultGroup[] = Array.from(vaultMap.entries()).map(
     ([repoFullName, secrets]) => {
-      const vaultAccess = accesses.find(a => a.repoFullName === repoFullName);
+      const vaultAccess = accesses.find((a) => a.repoFullName === repoFullName);
       return {
         vaultId: vaultAccess?.vaultId || null,
         repoFullName,

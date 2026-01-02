@@ -6,10 +6,14 @@
  * or track signup events in new auth flows.
  */
 
-import { trackEvent, identifyUser, AnalyticsEvents } from '../utils/analytics';
+import { trackEvent, identifyUser, AnalyticsEvents } from "../utils/analytics";
 
-export type SignupSource = 'cli' | 'web' | 'github_app_install' | 'direct' | string;
-export type SignupMethod = 'device_flow' | 'device_flow_chained' | 'web_oauth' | 'github_app_install';
+export type SignupSource = "cli" | "web" | "github_app_install" | "direct" | string;
+export type SignupMethod =
+  | "device_flow"
+  | "device_flow_chained"
+  | "web_oauth"
+  | "github_app_install";
 
 export interface NewUserSignupParams {
   user: {
@@ -55,7 +59,7 @@ export async function handleNewUserSignup({
   // Send welcome email (fire and forget)
   // Dynamic import to avoid loading email config at module level
   if (user.email) {
-    const { sendWelcomeEmail } = await import('../utils/email');
+    const { sendWelcomeEmail } = await import("../utils/email");
     sendWelcomeEmail({ to: user.email, username: user.username });
   }
 }

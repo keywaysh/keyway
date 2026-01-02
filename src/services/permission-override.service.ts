@@ -1,11 +1,7 @@
-import { db } from '../db';
-import { permissionOverrides, vaults, users } from '../db/schema';
-import { eq, and, or, desc } from 'drizzle-orm';
-import type {
-  PermissionOverride,
-  CollaboratorRole,
-  OverrideTargetType,
-} from '../db/schema';
+import { db } from "../db";
+import { permissionOverrides } from "../db/schema";
+import { eq, and, or, desc } from "drizzle-orm";
+import type { PermissionOverride, CollaboratorRole, OverrideTargetType } from "../db/schema";
 
 // ============================================================================
 // Types
@@ -56,10 +52,10 @@ export interface UpdateOverrideInput {
  */
 export async function createOverride(input: CreateOverrideInput): Promise<PermissionOverride> {
   // Validate target
-  if (input.targetType === 'user' && !input.targetUserId) {
+  if (input.targetType === "user" && !input.targetUserId) {
     throw new Error('targetUserId is required when targetType is "user"');
   }
-  if (input.targetType === 'role' && !input.targetRole) {
+  if (input.targetType === "role" && !input.targetRole) {
     throw new Error('targetRole is required when targetType is "role"');
   }
 
@@ -70,8 +66,8 @@ export async function createOverride(input: CreateOverrideInput): Promise<Permis
         vaultId: input.vaultId,
         environment: input.environment,
         targetType: input.targetType,
-        targetUserId: input.targetType === 'user' ? input.targetUserId : null,
-        targetRole: input.targetType === 'role' ? input.targetRole : null,
+        targetUserId: input.targetType === "user" ? input.targetUserId : null,
+        targetRole: input.targetType === "role" ? input.targetRole : null,
         canRead: input.canRead,
         canWrite: input.canWrite,
         createdBy: input.createdBy,
@@ -81,8 +77,10 @@ export async function createOverride(input: CreateOverrideInput): Promise<Permis
     return override;
   } catch (error: unknown) {
     // Handle unique constraint violation
-    if (error instanceof Error && error.message.includes('permission_overrides_unique')) {
-      throw new Error('A permission override already exists for this vault, environment, and target');
+    if (error instanceof Error && error.message.includes("permission_overrides_unique")) {
+      throw new Error(
+        "A permission override already exists for this vault, environment, and target"
+      );
     }
     throw error;
   }
@@ -150,7 +148,9 @@ export async function getOverrideById(overrideId: string): Promise<OverrideInfo 
     },
   });
 
-  if (!override) return null;
+  if (!override) {
+    return null;
+  }
 
   return formatOverride(override);
 }
@@ -181,10 +181,7 @@ export async function getOverridesForEnvironment(
   const overrides = await db.query.permissionOverrides.findMany({
     where: and(
       eq(permissionOverrides.vaultId, vaultId),
-      or(
-        eq(permissionOverrides.environment, environment),
-        eq(permissionOverrides.environment, '*')
-      )
+      or(eq(permissionOverrides.environment, environment), eq(permissionOverrides.environment, "*"))
     ),
     with: {
       targetUser: true,
@@ -215,44 +212,52 @@ export async function findApplicableOverride(
     where: and(
       eq(permissionOverrides.vaultId, vaultId),
       eq(permissionOverrides.environment, environment),
-      eq(permissionOverrides.targetType, 'user'),
+      eq(permissionOverrides.targetType, "user"),
       eq(permissionOverrides.targetUserId, userId)
     ),
   });
-  if (userOverrideExact) return userOverrideExact;
+  if (userOverrideExact) {
+    return userOverrideExact;
+  }
 
   // 2. Check for user-specific override (wildcard environment)
   const userOverrideWildcard = await db.query.permissionOverrides.findFirst({
     where: and(
       eq(permissionOverrides.vaultId, vaultId),
-      eq(permissionOverrides.environment, '*'),
-      eq(permissionOverrides.targetType, 'user'),
+      eq(permissionOverrides.environment, "*"),
+      eq(permissionOverrides.targetType, "user"),
       eq(permissionOverrides.targetUserId, userId)
     ),
   });
-  if (userOverrideWildcard) return userOverrideWildcard;
+  if (userOverrideWildcard) {
+    return userOverrideWildcard;
+  }
 
   // 3. Check for role-specific override (exact environment)
   const roleOverrideExact = await db.query.permissionOverrides.findFirst({
     where: and(
       eq(permissionOverrides.vaultId, vaultId),
       eq(permissionOverrides.environment, environment),
-      eq(permissionOverrides.targetType, 'role'),
+      eq(permissionOverrides.targetType, "role"),
       eq(permissionOverrides.targetRole, userRole)
     ),
   });
-  if (roleOverrideExact) return roleOverrideExact;
+  if (roleOverrideExact) {
+    return roleOverrideExact;
+  }
 
   // 4. Check for role-specific override (wildcard environment)
   const roleOverrideWildcard = await db.query.permissionOverrides.findFirst({
     where: and(
       eq(permissionOverrides.vaultId, vaultId),
-      eq(permissionOverrides.environment, '*'),
-      eq(permissionOverrides.targetType, 'role'),
+      eq(permissionOverrides.environment, "*"),
+      eq(permissionOverrides.targetType, "role"),
       eq(permissionOverrides.targetRole, userRole)
     ),
   });
-  if (roleOverrideWildcard) return roleOverrideWildcard;
+  if (roleOverrideWildcard) {
+    return roleOverrideWildcard;
+  }
 
   return null;
 }

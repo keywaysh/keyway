@@ -1,7 +1,7 @@
-import { Resend } from 'resend';
-import { config } from '../config';
-import { logger } from './sharedLogger';
-import type { SecurityAlertType } from '../db/schema';
+import { Resend } from "resend";
+import { config } from "../config";
+import { logger } from "./sharedLogger";
+import type { SecurityAlertType } from "../db/schema";
 
 const resend = config.email.enabled ? new Resend(config.email.resendApiKey) : null;
 
@@ -12,7 +12,7 @@ interface WelcomeEmailParams {
 
 export async function sendWelcomeEmail({ to, username }: WelcomeEmailParams): Promise<void> {
   if (!resend) {
-    logger.debug({ to }, 'Skipping welcome email (Resend not configured)');
+    logger.debug({ to }, "Skipping welcome email (Resend not configured)");
     return;
   }
 
@@ -21,14 +21,17 @@ export async function sendWelcomeEmail({ to, username }: WelcomeEmailParams): Pr
       from: config.email.fromAddress,
       replyTo: config.email.replyToAddress,
       to,
-      subject: 'Welcome to Keyway!',
+      subject: "Welcome to Keyway!",
       html: getWelcomeEmailHtml(username),
       text: getWelcomeEmailText(username),
     });
-    logger.info({ to }, 'Welcome email sent');
+    logger.info({ to }, "Welcome email sent");
   } catch (error) {
     // Don't fail the signup if email fails
-    logger.error({ to, error: error instanceof Error ? error.message : 'Unknown error' }, 'Failed to send welcome email');
+    logger.error(
+      { to, error: error instanceof Error ? error.message : "Unknown error" },
+      "Failed to send welcome email"
+    );
   }
 }
 
@@ -128,17 +131,23 @@ interface SecurityAlertEmailParams {
   location: { country: string | null; city: string | null };
 }
 
-const ALERT_CONFIG: Record<SecurityAlertType, { emoji: string; title: string; severity: 'critical' | 'warning' }> = {
-  impossible_travel: { emoji: '🚨', title: 'Impossible Travel Detected', severity: 'critical' },
-  weird_user_agent: { emoji: '🚨', title: 'Suspicious Client Detected', severity: 'critical' },
-  rate_anomaly: { emoji: '🚨', title: 'Unusual Activity Detected', severity: 'critical' },
-  new_device: { emoji: '🔔', title: 'New Device Access', severity: 'warning' },
-  new_location: { emoji: '🔔', title: 'New Location Access', severity: 'warning' },
+const ALERT_CONFIG: Record<
+  SecurityAlertType,
+  { emoji: string; title: string; severity: "critical" | "warning" }
+> = {
+  impossible_travel: { emoji: "🚨", title: "Impossible Travel Detected", severity: "critical" },
+  weird_user_agent: { emoji: "🚨", title: "Suspicious Client Detected", severity: "critical" },
+  rate_anomaly: { emoji: "🚨", title: "Unusual Activity Detected", severity: "critical" },
+  new_device: { emoji: "🔔", title: "New Device Access", severity: "warning" },
+  new_location: { emoji: "🔔", title: "New Location Access", severity: "warning" },
 };
 
 export async function sendSecurityAlertEmail(params: SecurityAlertEmailParams): Promise<void> {
   if (!resend) {
-    logger.debug({ to: params.to, alertType: params.alertType }, 'Skipping security alert email (Resend not configured)');
+    logger.debug(
+      { to: params.to, alertType: params.alertType },
+      "Skipping security alert email (Resend not configured)"
+    );
     return;
   }
 
@@ -154,21 +163,28 @@ export async function sendSecurityAlertEmail(params: SecurityAlertEmailParams): 
       html: getSecurityAlertEmailHtml(params),
       text: getSecurityAlertEmailText(params),
     });
-    logger.info({ to: params.to, alertType: params.alertType, vault: params.vaultName }, 'Security alert email sent');
+    logger.info(
+      { to: params.to, alertType: params.alertType, vault: params.vaultName },
+      "Security alert email sent"
+    );
   } catch (error) {
-    logger.error({
-      to: params.to,
-      alertType: params.alertType,
-      error: error instanceof Error ? error.message : 'Unknown error'
-    }, 'Failed to send security alert email');
+    logger.error(
+      {
+        to: params.to,
+        alertType: params.alertType,
+        error: error instanceof Error ? error.message : "Unknown error",
+      },
+      "Failed to send security alert email"
+    );
   }
 }
 
 function getSecurityAlertEmailHtml(params: SecurityAlertEmailParams): string {
   const alertConfig = ALERT_CONFIG[params.alertType];
-  const locationStr = [params.location.city, params.location.country].filter(Boolean).join(', ') || 'Unknown';
-  const severityColor = alertConfig.severity === 'critical' ? '#e53e3e' : '#dd6b20';
-  const severityBg = alertConfig.severity === 'critical' ? '#fed7d7' : '#feebc8';
+  const locationStr =
+    [params.location.city, params.location.country].filter(Boolean).join(", ") || "Unknown";
+  const severityColor = alertConfig.severity === "critical" ? "#e53e3e" : "#dd6b20";
+  const severityBg = alertConfig.severity === "critical" ? "#fed7d7" : "#feebc8";
 
   return `
 <!DOCTYPE html>
@@ -240,7 +256,8 @@ function getSecurityAlertEmailHtml(params: SecurityAlertEmailParams): string {
 
 function getSecurityAlertEmailText(params: SecurityAlertEmailParams): string {
   const alertConfig = ALERT_CONFIG[params.alertType];
-  const locationStr = [params.location.city, params.location.country].filter(Boolean).join(', ') || 'Unknown';
+  const locationStr =
+    [params.location.city, params.location.country].filter(Boolean).join(", ") || "Unknown";
 
   return `
 ${alertConfig.emoji} ${alertConfig.title}
@@ -286,7 +303,10 @@ interface TrialStartedEmailParams {
 
 export async function sendTrialStartedEmail(params: TrialStartedEmailParams): Promise<void> {
   if (!resend) {
-    logger.debug({ to: params.to, org: params.orgName }, 'Skipping trial started email (Resend not configured)');
+    logger.debug(
+      { to: params.to, org: params.orgName },
+      "Skipping trial started email (Resend not configured)"
+    );
     return;
   }
 
@@ -301,21 +321,24 @@ export async function sendTrialStartedEmail(params: TrialStartedEmailParams): Pr
       html: getTrialStartedEmailHtml(params),
       text: getTrialStartedEmailText(params),
     });
-    logger.info({ to: params.to, org: params.orgName }, 'Trial started email sent');
+    logger.info({ to: params.to, org: params.orgName }, "Trial started email sent");
   } catch (error) {
-    logger.error({
-      to: params.to,
-      org: params.orgName,
-      error: error instanceof Error ? error.message : 'Unknown error'
-    }, 'Failed to send trial started email');
+    logger.error(
+      {
+        to: params.to,
+        org: params.orgName,
+        error: error instanceof Error ? error.message : "Unknown error",
+      },
+      "Failed to send trial started email"
+    );
   }
 }
 
 function getTrialStartedEmailHtml(params: TrialStartedEmailParams): string {
-  const formattedDate = params.trialEndsAt.toLocaleDateString('en-US', {
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
+  const formattedDate = params.trialEndsAt.toLocaleDateString("en-US", {
+    year: "numeric",
+    month: "long",
+    day: "numeric",
   });
 
   return `
@@ -372,10 +395,10 @@ function getTrialStartedEmailHtml(params: TrialStartedEmailParams): string {
 }
 
 function getTrialStartedEmailText(params: TrialStartedEmailParams): string {
-  const formattedDate = params.trialEndsAt.toLocaleDateString('en-US', {
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
+  const formattedDate = params.trialEndsAt.toLocaleDateString("en-US", {
+    year: "numeric",
+    month: "long",
+    day: "numeric",
   });
 
   return `

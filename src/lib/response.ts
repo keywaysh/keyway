@@ -1,5 +1,5 @@
-import type { FastifyReply } from 'fastify';
-import type { PaginationMeta } from './pagination';
+import type { FastifyReply } from "fastify";
+import type { PaginationMeta } from "./pagination";
 
 /**
  * Standard API response wrapper
@@ -69,7 +69,7 @@ export function sendCreated<T>(
   }
 ): FastifyReply {
   if (options?.location) {
-    reply.header('Location', options.location);
+    reply.header("Location", options.location);
   }
 
   const response: ApiResponse<T> = { data };
@@ -87,4 +87,3 @@ export function sendCreated<T>(
 export function sendNoContent(reply: FastifyReply): FastifyReply {
   return reply.status(204).send();
 }
-

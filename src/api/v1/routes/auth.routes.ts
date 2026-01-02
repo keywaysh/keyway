@@ -1,20 +1,27 @@
-import { FastifyInstance } from 'fastify';
-import { z } from 'zod';
-import { db, users, deviceCodes } from '../../../db';
-import { eq, and } from 'drizzle-orm';
-import { exchangeCodeForToken, getUserFromToken } from '../../../utils/github';
-import { trackEvent, AnalyticsEvents, getSignupSource } from '../../../utils/analytics';
-import { generateDeviceCode, generateUserCode, DEVICE_FLOW_CONFIG } from '../../../utils/deviceCodes';
-import { generateKeywayToken, getTokenExpiresAt } from '../../../utils/jwt';
-import { config } from '../../../config';
-import { NotFoundError, BadRequestError, ForbiddenError } from '../../../lib';
-import { authenticateGitHub } from '../../../middleware/auth';
-import { encryptAccessToken } from '../../../utils/tokenEncryption';
-import { signState, verifyState } from '../../../utils/state';
-import { handleNewUserSignup } from '../../../services/signup.service';
-import { sendData, sendNoContent } from '../../../lib/response';
-import { handleInstallationCreated, checkInstallationStatus } from '../../../services/github-app.service';
-import { logActivity, extractRequestInfo, detectPlatform } from '../../../services';
+import { FastifyInstance } from "fastify";
+import { z } from "zod";
+import { db, users, deviceCodes } from "../../../db";
+import { eq, and } from "drizzle-orm";
+import { exchangeCodeForToken, getUserFromToken } from "../../../utils/github";
+import { trackEvent, AnalyticsEvents, getSignupSource } from "../../../utils/analytics";
+import {
+  generateDeviceCode,
+  generateUserCode,
+  DEVICE_FLOW_CONFIG,
+} from "../../../utils/deviceCodes";
+import { generateKeywayToken, getTokenExpiresAt } from "../../../utils/jwt";
+import { config } from "../../../config";
+import { NotFoundError, BadRequestError } from "../../../lib";
+import { authenticateGitHub } from "../../../middleware/auth";
+import { encryptAccessToken } from "../../../utils/tokenEncryption";
+import { signState, verifyState } from "../../../utils/state";
+import { handleNewUserSignup } from "../../../services/signup.service";
+import { sendData, sendNoContent } from "../../../lib/response";
+import {
+  handleInstallationCreated,
+  checkInstallationStatus,
+} from "../../../services/github-app.service";
+import { logActivity, extractRequestInfo, detectPlatform } from "../../../services";
 
 // Schemas
 const DeviceFlowStartSchema = z.object({
@@ -28,26 +35,32 @@ const DeviceFlowPollSchema = z.object({
 });
 
 // Helper to build the unified callback URL
-function buildCallbackUrl(request: { headers: { 'x-forwarded-proto'?: string; host?: string }; hostname: string }): string {
-  const protocol = request.headers['x-forwarded-proto'] || (config.server.isDevelopment ? 'http' : 'https');
+function buildCallbackUrl(request: {
+  headers: { "x-forwarded-proto"?: string; host?: string };
+  hostname: string;
+}): string {
+  const protocol =
+    request.headers["x-forwarded-proto"] || (config.server.isDevelopment ? "http" : "https");
   const host = request.headers.host || request.hostname;
   return `${protocol}://${host}/v1/auth/callback`;
 }
 
 // Helper to create or update user from VCS data
 async function upsertUser(
-  vcsUser: { forgeUserId: string; username: string; email: string | null; avatarUrl: string | null },
+  vcsUser: {
+    forgeUserId: string;
+    username: string;
+    email: string | null;
+    avatarUrl: string | null;
+  },
   accessToken: string,
-  forgeType: 'github' | 'gitlab' | 'bitbucket' = 'github'
+  forgeType: "github" | "gitlab" | "bitbucket" = "github"
 ) {
   const encryptedToken = await encryptAccessToken(accessToken);
 
   // Check if user exists first (to determine isNewUser)
   const existingUser = await db.query.users.findFirst({
-    where: and(
-      eq(users.forgeType, forgeType),
-      eq(users.forgeUserId, vcsUser.forgeUserId)
-    ),
+    where: and(eq(users.forgeType, forgeType), eq(users.forgeUserId, vcsUser.forgeUserId)),
     columns: { id: true },
   });
 
@@ -87,43 +100,46 @@ function setSessionCookies(
   const isProduction = config.server.isProduction;
   const maxAge = 30 * 24 * 60 * 60; // 30 days
 
-  const host = (request.headers.host || '').split(':')[0];
-  const isLocalDev = host === 'localhost' || host === '127.0.0.1' ||
-                     host.endsWith('.localhost') || host.endsWith('.local');
+  const host = (request.headers.host || "").split(":")[0];
+  const isLocalDev =
+    host === "localhost" ||
+    host === "127.0.0.1" ||
+    host.endsWith(".localhost") ||
+    host.endsWith(".local");
   let domain: string | undefined;
 
   if (isLocalDev) {
     // For local development, set domain to share cookies across subdomains
     // e.g., keyway.local, app.keyway.local, api.keyway.local
-    if (host.endsWith('.local')) {
+    if (host.endsWith(".local")) {
       // Extract base domain (e.g., keyway.local from api.keyway.local)
-      const parts = host.split('.');
-      domain = parts.slice(-2).join('.');
+      const parts = host.split(".");
+      domain = parts.slice(-2).join(".");
     } else {
-      domain = 'localhost';
+      domain = "localhost";
     }
   } else if (isProduction) {
     // In production, set domain to parent domain (e.g., .keyway.sh)
-    const parts = host.split('.');
+    const parts = host.split(".");
     if (parts.length >= 2) {
-      domain = `.${parts.slice(-2).join('.')}`;
+      domain = `.${parts.slice(-2).join(".")}`;
     }
   }
 
-  reply.setCookie('keyway_session', keywayToken, {
-    path: '/',
+  reply.setCookie("keyway_session", keywayToken, {
+    path: "/",
     httpOnly: true,
     secure: isProduction,
-    sameSite: 'lax',
+    sameSite: "lax",
     maxAge,
     domain,
   });
 
-  reply.setCookie('keyway_logged_in', 'true', {
-    path: '/',
+  reply.setCookie("keyway_logged_in", "true", {
+    path: "/",
     httpOnly: false,
     secure: isProduction,
-    sameSite: 'lax',
+    sameSite: "lax",
     maxAge,
     domain,
   });
@@ -145,7 +161,7 @@ export async function authRoutes(fastify: FastifyInstance) {
    * Unified GitHub OAuth callback for both web and device flows
    * Also handles GitHub App installation callbacks (setup_action=install)
    */
-  fastify.get('/callback', async (request, reply) => {
+  fastify.get("/callback", async (request, reply) => {
     const query = request.query as {
       code?: string;
       state?: string;
@@ -155,15 +171,28 @@ export async function authRoutes(fastify: FastifyInstance) {
     };
 
     if (query.error) {
-      fastify.log.warn({ error: query.error }, 'GitHub OAuth error');
-      return reply.type('text/html').send(renderErrorPage('Authorization Denied', 'You denied the authorization request. You can close this window.'));
+      fastify.log.warn({ error: query.error }, "GitHub OAuth error");
+      return reply
+        .type("text/html")
+        .send(
+          renderErrorPage(
+            "Authorization Denied",
+            "You denied the authorization request. You can close this window."
+          )
+        );
     }
 
     // Handle GitHub App installation callback (no state, has installation_id)
     // This happens when user installs the app directly from GitHub
     // setup_action can be 'install' (new installation) or 'update' (permission update)
-    if ((query.setup_action === 'install' || query.setup_action === 'update') && query.installation_id) {
-      fastify.log.info({ installationId: query.installation_id, setupAction: query.setup_action }, 'GitHub App installation callback');
+    if (
+      (query.setup_action === "install" || query.setup_action === "update") &&
+      query.installation_id
+    ) {
+      fastify.log.info(
+        { installationId: query.installation_id, setupAction: query.setup_action },
+        "GitHub App installation callback"
+      );
 
       // If there's a code, exchange it for a user token and process the installation
       if (query.code) {
@@ -181,40 +210,46 @@ export async function authRoutes(fastify: FastifyInstance) {
           if (query.state) {
             try {
               const stateData = verifyState(query.state as string);
-              if (stateData?.deviceCodeId && stateData?.type === 'github_app_install') {
+              if (stateData?.deviceCodeId && stateData?.type === "github_app_install") {
                 // Check if this is a chained flow (oauth_complete) or direct
                 const deviceCodeRecord = await db.query.deviceCodes.findFirst({
                   where: eq(deviceCodes.id, stateData.deviceCodeId as string),
                 });
 
-                if (deviceCodeRecord?.status === 'oauth_complete') {
+                if (deviceCodeRecord?.status === "oauth_complete") {
                   // Chained flow: OAuth already done, userId already set, just approve
                   await db
                     .update(deviceCodes)
-                    .set({ status: 'approved' })
+                    .set({ status: "approved" })
                     .where(eq(deviceCodes.id, stateData.deviceCodeId as string));
 
-                  fastify.log.info({
-                    deviceCodeId: stateData.deviceCodeId,
-                    userId: deviceCodeRecord.userId,
-                  }, 'Device code approved after GitHub App installation (chained flow)');
+                  fastify.log.info(
+                    {
+                      deviceCodeId: stateData.deviceCodeId,
+                      userId: deviceCodeRecord.userId,
+                    },
+                    "Device code approved after GitHub App installation (chained flow)"
+                  );
                 } else {
                   // Direct flow: user did OAuth via the app installation
                   await db
                     .update(deviceCodes)
-                    .set({ status: 'approved', userId: user.id })
+                    .set({ status: "approved", userId: user.id })
                     .where(eq(deviceCodes.id, stateData.deviceCodeId as string));
 
-                  fastify.log.info({
-                    deviceCodeId: stateData.deviceCodeId,
-                    userId: user.id,
-                    username: user.username,
-                  }, 'Device code approved via state parameter');
+                  fastify.log.info(
+                    {
+                      deviceCodeId: stateData.deviceCodeId,
+                      userId: user.id,
+                      username: user.username,
+                    },
+                    "Device code approved via state parameter"
+                  );
                 }
                 isFromCli = true;
               }
             } catch (err) {
-              fastify.log.warn({ error: err }, 'Failed to verify state in GitHub App callback');
+              fastify.log.warn({ error: err }, "Failed to verify state in GitHub App callback");
             }
           }
 
@@ -222,12 +257,12 @@ export async function authRoutes(fastify: FastifyInstance) {
           const { ipAddress, userAgent } = extractRequestInfo(request);
           await logActivity({
             userId: user.id,
-            action: 'user_login',
-            platform: isFromCli ? 'cli' : detectPlatform(userAgent),
+            action: "user_login",
+            platform: isFromCli ? "cli" : detectPlatform(userAgent),
             ipAddress,
             userAgent,
             metadata: {
-              method: 'github_app_install',
+              method: "github_app_install",
               isNewUser,
               installationId,
             },
@@ -235,7 +270,7 @@ export async function authRoutes(fastify: FastifyInstance) {
 
           trackEvent(user.id, AnalyticsEvents.AUTH_SUCCESS, {
             username: githubUser.username,
-            method: 'github_app_install',
+            method: "github_app_install",
             isNewUser,
             installationId,
           });
@@ -243,14 +278,16 @@ export async function authRoutes(fastify: FastifyInstance) {
           if (isNewUser) {
             await handleNewUserSignup({
               user,
-              signupSource: 'github_app_install',
-              method: 'github_app_install',
+              signupSource: "github_app_install",
+              method: "github_app_install",
             });
           }
 
           // CLI flow: show "return to terminal" page
           if (isFromCli) {
-            return reply.type('text/html').send(renderInstallSuccessPage(query.installation_id, true));
+            return reply
+              .type("text/html")
+              .send(renderInstallSuccessPage(query.installation_id, true));
           }
 
           // Web flow (direct install from GitHub Marketplace): set cookies and redirect to dashboard
@@ -263,30 +300,40 @@ export async function authRoutes(fastify: FastifyInstance) {
           setSessionCookies(reply, request, keywayToken);
           return reply.redirect(config.app.dashboardUrl);
         } catch (error) {
-          fastify.log.error({ err: error, installationId: query.installation_id }, 'GitHub App installation error');
-          return reply.type('text/html').send(renderErrorPage('Installation Error', 'An error occurred while processing the GitHub App installation. Please try again.'));
+          fastify.log.error(
+            { err: error, installationId: query.installation_id },
+            "GitHub App installation error"
+          );
+          return reply
+            .type("text/html")
+            .send(
+              renderErrorPage(
+                "Installation Error",
+                "An error occurred while processing the GitHub App installation. Please try again."
+              )
+            );
         }
       }
 
       // No code - just installation ID, show success page (origin unknown, assume web)
-      return reply.type('text/html').send(renderInstallSuccessPage(query.installation_id, false));
+      return reply.type("text/html").send(renderInstallSuccessPage(query.installation_id, false));
     }
 
     if (!query.code || !query.state) {
-      throw new BadRequestError('Missing code or state parameter');
+      throw new BadRequestError("Missing code or state parameter");
     }
 
     try {
       // Verify signed state to prevent CSRF attacks (CRIT-2 fix)
       const stateData = verifyState(query.state);
       if (!stateData) {
-        throw new BadRequestError('Invalid or tampered state parameter');
+        throw new BadRequestError("Invalid or tampered state parameter");
       }
       const accessToken = await exchangeCodeForToken(query.code);
       const githubUser = await getUserFromToken(accessToken);
       const { user, isNewUser } = await upsertUser(githubUser, accessToken);
 
-      if (stateData.type === 'web') {
+      if (stateData.type === "web") {
         const keywayToken = generateKeywayToken({
           userId: user.id,
           forgeType: user.forgeType,
@@ -300,19 +347,19 @@ export async function authRoutes(fastify: FastifyInstance) {
         const { ipAddress, userAgent } = extractRequestInfo(request);
         await logActivity({
           userId: user.id,
-          action: 'user_login',
+          action: "user_login",
           platform: detectPlatform(userAgent),
           ipAddress,
           userAgent,
           metadata: {
-            method: 'web_oauth',
+            method: "web_oauth",
             isNewUser,
           },
         });
 
         trackEvent(user.id, AnalyticsEvents.AUTH_SUCCESS, {
           username: githubUser.username,
-          method: 'web_oauth',
+          method: "web_oauth",
           isNewUser,
           signupSource,
         });
@@ -320,8 +367,8 @@ export async function authRoutes(fastify: FastifyInstance) {
         if (isNewUser) {
           await handleNewUserSignup({
             user,
-            signupSource: signupSource || 'web',
-            method: 'web_oauth',
+            signupSource: signupSource || "web",
+            method: "web_oauth",
           });
         }
 
@@ -337,7 +384,7 @@ export async function authRoutes(fastify: FastifyInstance) {
 
         // Check if we should chain to GitHub App installation
         if (deviceCodeRecord?.suggestedRepository) {
-          const [owner, repo] = deviceCodeRecord.suggestedRepository.split('/');
+          const [owner, repo] = deviceCodeRecord.suggestedRepository.split("/");
 
           if (owner && repo) {
             try {
@@ -347,19 +394,20 @@ export async function authRoutes(fastify: FastifyInstance) {
                 // DON'T approve yet - mark as oauth_complete and redirect to app install
                 await db
                   .update(deviceCodes)
-                  .set({ status: 'oauth_complete', userId: user.id })
+                  .set({ status: "oauth_complete", userId: user.id })
                   .where(eq(deviceCodes.id, stateData.deviceCodeId as string));
 
                 // Build GitHub App install URL with state
                 const appInstallState = signState({
                   deviceCodeId: stateData.deviceCodeId,
-                  type: 'github_app_install',
+                  type: "github_app_install",
                 });
 
                 // Deep linking if we have the IDs (stored by /device/start)
                 let appInstallUrl: string;
                 if (deviceCodeRecord.suggestedOwnerId && deviceCodeRecord.suggestedRepoId) {
-                  appInstallUrl = `${config.githubApp.installUrl}/permissions?` +
+                  appInstallUrl =
+                    `${config.githubApp.installUrl}/permissions?` +
                     `suggested_target_id=${deviceCodeRecord.suggestedOwnerId}&` +
                     `repository_ids[]=${deviceCodeRecord.suggestedRepoId}&` +
                     `state=${encodeURIComponent(appInstallState)}`;
@@ -367,18 +415,21 @@ export async function authRoutes(fastify: FastifyInstance) {
                   appInstallUrl = `${config.githubApp.installUrl}?state=${encodeURIComponent(appInstallState)}`;
                 }
 
-                fastify.log.info({
-                  deviceCodeId: stateData.deviceCodeId,
-                  userId: user.id,
-                  suggestedRepository: deviceCodeRecord.suggestedRepository,
-                }, 'OAuth complete, chaining to GitHub App installation');
+                fastify.log.info(
+                  {
+                    deviceCodeId: stateData.deviceCodeId,
+                    userId: user.id,
+                    suggestedRepository: deviceCodeRecord.suggestedRepository,
+                  },
+                  "OAuth complete, chaining to GitHub App installation"
+                );
 
                 // Handle new user signup before redirect (chained flow)
                 if (isNewUser) {
                   await handleNewUserSignup({
                     user,
-                    signupSource: 'cli',
-                    method: 'device_flow_chained',
+                    signupSource: "cli",
+                    method: "device_flow_chained",
                   });
                 }
 
@@ -386,7 +437,10 @@ export async function authRoutes(fastify: FastifyInstance) {
               }
             } catch (err) {
               // If check fails, continue normally (fallback to approve immediately)
-              fastify.log.warn({ error: err }, 'Failed to check GitHub App installation, continuing with approval');
+              fastify.log.warn(
+                { error: err },
+                "Failed to check GitHub App installation, continuing with approval"
+              );
             }
           }
         }
@@ -395,7 +449,7 @@ export async function authRoutes(fastify: FastifyInstance) {
         await db
           .update(deviceCodes)
           .set({
-            status: 'approved',
+            status: "approved",
             userId: user.id,
           })
           .where(eq(deviceCodes.id, stateData.deviceCodeId as string));
@@ -404,45 +458,55 @@ export async function authRoutes(fastify: FastifyInstance) {
         const { ipAddress, userAgent } = extractRequestInfo(request);
         await logActivity({
           userId: user.id,
-          action: 'user_login',
-          platform: 'cli',
+          action: "user_login",
+          platform: "cli",
           ipAddress,
           userAgent,
           metadata: {
-            method: 'device_flow',
+            method: "device_flow",
             isNewUser,
           },
         });
 
         trackEvent(user.id, AnalyticsEvents.AUTH_SUCCESS, {
           username: githubUser.username,
-          method: 'device_flow',
+          method: "device_flow",
           isNewUser,
         });
 
         if (isNewUser) {
           await handleNewUserSignup({
             user,
-            signupSource: 'cli',
-            method: 'device_flow',
+            signupSource: "cli",
+            method: "device_flow",
           });
         }
 
-        return reply.type('text/html').send(renderSuccessPage(user.username));
+        return reply.type("text/html").send(renderSuccessPage(user.username));
       } else {
-        throw new BadRequestError('Invalid state parameter');
+        throw new BadRequestError("Invalid state parameter");
       }
     } catch (error) {
-      fastify.log.error({
-        err: error,
-        errorMessage: error instanceof Error ? error.message : 'Unknown error',
-        errorStack: error instanceof Error ? error.stack : undefined,
-        state: query.state?.substring(0, 50),
-      }, 'OAuth callback error');
-      trackEvent('anonymous', AnalyticsEvents.AUTH_FAILURE, {
-        error: error instanceof Error ? error.message : 'Unknown error',
+      fastify.log.error(
+        {
+          err: error,
+          errorMessage: error instanceof Error ? error.message : "Unknown error",
+          errorStack: error instanceof Error ? error.stack : undefined,
+          state: query.state?.substring(0, 50),
+        },
+        "OAuth callback error"
+      );
+      trackEvent("anonymous", AnalyticsEvents.AUTH_FAILURE, {
+        error: error instanceof Error ? error.message : "Unknown error",
       });
-      return reply.type('text/html').send(renderErrorPage('Authentication Error', 'An error occurred during authentication. Please try again.'));
+      return reply
+        .type("text/html")
+        .send(
+          renderErrorPage(
+            "Authentication Error",
+            "An error occurred during authentication. Please try again."
+          )
+        );
     }
   });
 
@@ -450,7 +514,7 @@ export async function authRoutes(fastify: FastifyInstance) {
    * GET /github/start
    * Start the web OAuth flow
    */
-  fastify.get('/github/start', async (request, reply) => {
+  fastify.get("/github/start", async (request, reply) => {
     const query = request.query as { redirect_uri?: string };
     const redirectUri = query.redirect_uri;
 
@@ -460,7 +524,7 @@ export async function authRoutes(fastify: FastifyInstance) {
         try {
           const redirectUrl = new URL(redirectUri);
           const redirectOrigin = redirectUrl.origin;
-          isAllowed = config.cors.allowedOrigins.some(origin => {
+          isAllowed = config.cors.allowedOrigins.some((origin) => {
             try {
               const allowedUrl = new URL(origin);
               return redirectOrigin === allowedUrl.origin;
@@ -474,24 +538,24 @@ export async function authRoutes(fastify: FastifyInstance) {
       }
 
       if (!isAllowed) {
-        fastify.log.warn({ redirectUri }, 'Blocked redirect to non-allowed origin');
-        throw new BadRequestError('The redirect_uri is not in the allowed origins list');
+        fastify.log.warn({ redirectUri }, "Blocked redirect to non-allowed origin");
+        throw new BadRequestError("The redirect_uri is not in the allowed origins list");
       }
     }
 
     // Sign state with HMAC to prevent CSRF attacks (CRIT-2 fix)
     const state = signState({
-      type: 'web',
+      type: "web",
       redirectUri: redirectUri || null,
     });
 
     const callbackUri = buildCallbackUrl(request);
 
-    const githubAuthUrl = new URL('https://github.com/login/oauth/authorize');
-    githubAuthUrl.searchParams.set('client_id', config.github.clientId);
-    githubAuthUrl.searchParams.set('redirect_uri', callbackUri);
-    githubAuthUrl.searchParams.set('scope', 'read:user user:email read:org');
-    githubAuthUrl.searchParams.set('state', state);
+    const githubAuthUrl = new URL("https://github.com/login/oauth/authorize");
+    githubAuthUrl.searchParams.set("client_id", config.github.clientId);
+    githubAuthUrl.searchParams.set("redirect_uri", callbackUri);
+    githubAuthUrl.searchParams.set("scope", "read:user user:email read:org");
+    githubAuthUrl.searchParams.set("state", state);
 
     return reply.redirect(githubAuthUrl.toString());
   });
@@ -500,31 +564,35 @@ export async function authRoutes(fastify: FastifyInstance) {
    * POST /device/start
    * Start the device authorization flow
    */
-  fastify.post('/device/start', async (request, reply) => {
+  fastify.post("/device/start", async (request, _reply) => {
     const body = DeviceFlowStartSchema.parse(request.body);
 
     const deviceCode = generateDeviceCode();
     const userCode = generateUserCode();
     const expiresAt = new Date(Date.now() + DEVICE_FLOW_CONFIG.EXPIRES_IN * 1000);
 
-    const [deviceCodeRecord] = await db.insert(deviceCodes).values({
-      deviceCode,
-      userCode,
-      status: 'pending',
-      suggestedRepository: body.repository,
-      suggestedOwnerId: body.ownerId,   // For deep linking in chained OAuth flow
-      suggestedRepoId: body.repoId,     // For deep linking in chained OAuth flow
-      expiresAt,
-    }).returning({ id: deviceCodes.id });
+    const [deviceCodeRecord] = await db
+      .insert(deviceCodes)
+      .values({
+        deviceCode,
+        userCode,
+        status: "pending",
+        suggestedRepository: body.repository,
+        suggestedOwnerId: body.ownerId, // For deep linking in chained OAuth flow
+        suggestedRepoId: body.repoId, // For deep linking in chained OAuth flow
+        expiresAt,
+      })
+      .returning({ id: deviceCodes.id });
 
-    const protocol = request.headers['x-forwarded-proto'] || (config.server.isDevelopment ? 'http' : 'https');
+    const protocol =
+      request.headers["x-forwarded-proto"] || (config.server.isDevelopment ? "http" : "https");
     const verificationUri = `${protocol}://${request.hostname}/v1/auth/device/verify`;
     const verificationUriComplete = `${verificationUri}?user_code=${userCode}`;
 
     // Sign state with device code ID for GitHub App installation callback
     const state = signState({
       deviceCodeId: deviceCodeRecord.id,
-      type: 'github_app_install',
+      type: "github_app_install",
     });
 
     // Build GitHub App install URL with deep linking if repo IDs are provided
@@ -553,7 +621,7 @@ export async function authRoutes(fastify: FastifyInstance) {
    * POST /device/poll
    * Poll for device authorization status
    */
-  fastify.post('/device/poll', async (request, reply) => {
+  fastify.post("/device/poll", async (request, reply) => {
     const body = DeviceFlowPollSchema.parse(request.body);
 
     const deviceCodeRecord = await db.query.deviceCodes.findFirst({
@@ -562,32 +630,32 @@ export async function authRoutes(fastify: FastifyInstance) {
     });
 
     if (!deviceCodeRecord) {
-      throw new NotFoundError('Invalid device code');
+      throw new NotFoundError("Invalid device code");
     }
 
     if (new Date() > deviceCodeRecord.expiresAt) {
       await db
         .update(deviceCodes)
-        .set({ status: 'expired' })
+        .set({ status: "expired" })
         .where(eq(deviceCodes.deviceCode, body.deviceCode));
 
       // Note: Device flow responses intentionally include 'status' for CLI compatibility
       return reply.status(400).send({
-        status: 'expired',
-        error: 'device_code_expired',
-        message: 'The device code has expired. Please restart the authentication flow.',
+        status: "expired",
+        error: "device_code_expired",
+        message: "The device code has expired. Please restart the authentication flow.",
       });
     }
 
-    if (deviceCodeRecord.status === 'pending') {
-      return { status: 'pending' };
+    if (deviceCodeRecord.status === "pending") {
+      return { status: "pending" };
     }
 
-    if (deviceCodeRecord.status === 'oauth_complete') {
+    if (deviceCodeRecord.status === "oauth_complete") {
       // OAuth done, waiting for GitHub App installation
       // Check if installation is now available (handles case where GitHub doesn't redirect back)
       if (deviceCodeRecord.suggestedRepository && deviceCodeRecord.userId) {
-        const [owner, repo] = deviceCodeRecord.suggestedRepository.split('/');
+        const [owner, repo] = deviceCodeRecord.suggestedRepository.split("/");
         if (owner && repo) {
           try {
             const installStatus = await checkInstallationStatus(owner, repo);
@@ -595,7 +663,7 @@ export async function authRoutes(fastify: FastifyInstance) {
               // Installation now available, approve the device code
               await db
                 .update(deviceCodes)
-                .set({ status: 'approved' })
+                .set({ status: "approved" })
                 .where(eq(deviceCodes.id, deviceCodeRecord.id));
 
               // Load user and return token
@@ -604,11 +672,14 @@ export async function authRoutes(fastify: FastifyInstance) {
               });
 
               if (user) {
-                fastify.log.info({
-                  deviceCodeId: deviceCodeRecord.id,
-                  userId: user.id,
-                  repository: deviceCodeRecord.suggestedRepository,
-                }, 'Device code approved after detecting GitHub App installation via poll');
+                fastify.log.info(
+                  {
+                    deviceCodeId: deviceCodeRecord.id,
+                    userId: user.id,
+                    repository: deviceCodeRecord.suggestedRepository,
+                  },
+                  "Device code approved after detecting GitHub App installation via poll"
+                );
 
                 const keywayToken = generateKeywayToken({
                   userId: user.id,
@@ -620,7 +691,7 @@ export async function authRoutes(fastify: FastifyInstance) {
                 const expiresAt = getTokenExpiresAt(keywayToken);
 
                 return {
-                  status: 'approved',
+                  status: "approved",
                   keywayToken,
                   githubLogin: user.username,
                   expiresAt: expiresAt.toISOString(),
@@ -628,40 +699,43 @@ export async function authRoutes(fastify: FastifyInstance) {
               }
             }
           } catch (err) {
-            fastify.log.warn({ error: err }, 'Failed to check installation status during poll');
+            fastify.log.warn({ error: err }, "Failed to check installation status during poll");
           }
         }
       }
       // Installation not yet available, keep polling
-      return { status: 'pending' };
+      return { status: "pending" };
     }
 
-    if (deviceCodeRecord.status === 'denied') {
+    if (deviceCodeRecord.status === "denied") {
       // Note: Device flow responses intentionally include 'status' for CLI compatibility
       return reply.status(403).send({
-        status: 'denied',
-        error: 'authorization_denied',
-        message: 'User denied the authorization request.',
+        status: "denied",
+        error: "authorization_denied",
+        message: "User denied the authorization request.",
       });
     }
 
-    if (deviceCodeRecord.status === 'expired') {
+    if (deviceCodeRecord.status === "expired") {
       // Note: Device flow responses intentionally include 'status' for CLI compatibility
       return reply.status(400).send({
-        status: 'expired',
-        error: 'device_code_expired',
-        message: 'The device code has expired.',
+        status: "expired",
+        error: "device_code_expired",
+        message: "The device code has expired.",
       });
     }
 
-    if (deviceCodeRecord.status === 'approved') {
+    if (deviceCodeRecord.status === "approved") {
       if (!deviceCodeRecord.user) {
-        fastify.log.error({
-          deviceCodeId: deviceCodeRecord.id,
-          userId: deviceCodeRecord.userId,
-          status: deviceCodeRecord.status,
-        }, 'Device code approved but user not loaded');
-        throw new Error('User not found for approved device code');
+        fastify.log.error(
+          {
+            deviceCodeId: deviceCodeRecord.id,
+            userId: deviceCodeRecord.userId,
+            status: deviceCodeRecord.status,
+          },
+          "Device code approved but user not loaded"
+        );
+        throw new Error("User not found for approved device code");
       }
 
       const keywayToken = generateKeywayToken({
@@ -674,31 +748,31 @@ export async function authRoutes(fastify: FastifyInstance) {
       const expiresAt = getTokenExpiresAt(keywayToken);
 
       return {
-        status: 'approved',
+        status: "approved",
         keywayToken,
         githubLogin: deviceCodeRecord.user.username,
         expiresAt: expiresAt.toISOString(),
       };
     }
 
-    return { status: 'pending' };
+    return { status: "pending" };
   });
 
   /**
    * GET /device/verify
    * Device verification page
    */
-  fastify.get('/device/verify', async (request, reply) => {
+  fastify.get("/device/verify", async (request, reply) => {
     const query = request.query as { user_code?: string };
-    const userCode = query.user_code || '';
+    const userCode = query.user_code || "";
     const autoSubmit = userCode.length === 11; // XXXXX-XXXXX = 11 chars
 
     // Track funnel: page view
-    trackEvent('anonymous', AnalyticsEvents.DEVICE_VERIFY_PAGE_VIEW, {
+    trackEvent("anonymous", AnalyticsEvents.DEVICE_VERIFY_PAGE_VIEW, {
       hasCode: autoSubmit,
     });
 
-    reply.type('text/html').send(renderVerifyPage(userCode, autoSubmit));
+    reply.type("text/html").send(renderVerifyPage(userCode, autoSubmit));
   });
 
   /**
@@ -706,111 +780,132 @@ export async function authRoutes(fastify: FastifyInstance) {
    * Submit device verification
    * Rate limited to 5 requests per minute to prevent brute force (CRIT-3 fix)
    */
-  fastify.post('/device/verify', {
-    config: {
-      rateLimit: {
-        max: 5,
-        timeWindow: '1 minute',
+  fastify.post(
+    "/device/verify",
+    {
+      config: {
+        rateLimit: {
+          max: 5,
+          timeWindow: "1 minute",
+        },
       },
     },
-  }, async (request, reply) => {
-    const body = request.body as { user_code: string };
-    const userCode = body.user_code.trim().toUpperCase();
+    async (request, reply) => {
+      const body = request.body as { user_code: string };
+      const userCode = body.user_code.trim().toUpperCase();
 
-    // Track funnel: form submitted
-    trackEvent('anonymous', AnalyticsEvents.DEVICE_VERIFY_SUBMIT, {
-      codeLength: userCode.length,
-    });
+      // Track funnel: form submitted
+      trackEvent("anonymous", AnalyticsEvents.DEVICE_VERIFY_SUBMIT, {
+        codeLength: userCode.length,
+      });
 
-    const deviceCodeRecord = await db.query.deviceCodes.findFirst({
-      where: eq(deviceCodes.userCode, userCode),
-    });
+      const deviceCodeRecord = await db.query.deviceCodes.findFirst({
+        where: eq(deviceCodes.userCode, userCode),
+      });
 
-    if (!deviceCodeRecord) {
-      return reply.type('text/html').send(renderErrorPage('Invalid Code', 'The code you entered is invalid or has expired.'));
+      if (!deviceCodeRecord) {
+        return reply
+          .type("text/html")
+          .send(renderErrorPage("Invalid Code", "The code you entered is invalid or has expired."));
+      }
+
+      if (new Date() > deviceCodeRecord.expiresAt) {
+        return reply
+          .type("text/html")
+          .send(
+            renderErrorPage(
+              "Code Expired",
+              "This verification code has expired. Please restart the authentication flow."
+            )
+          );
+      }
+
+      // Sign state with HMAC to prevent CSRF attacks (CRIT-2 fix)
+      const state = signState({ deviceCodeId: deviceCodeRecord.id });
+      const callbackUri = buildCallbackUrl(request);
+
+      const githubAuthUrl = new URL("https://github.com/login/oauth/authorize");
+      githubAuthUrl.searchParams.set("client_id", config.github.clientId);
+      githubAuthUrl.searchParams.set("redirect_uri", callbackUri);
+      githubAuthUrl.searchParams.set("scope", "read:user user:email read:org");
+      githubAuthUrl.searchParams.set("state", state);
+
+      return reply.redirect(githubAuthUrl.toString());
     }
-
-    if (new Date() > deviceCodeRecord.expiresAt) {
-      return reply.type('text/html').send(renderErrorPage('Code Expired', 'This verification code has expired. Please restart the authentication flow.'));
-    }
-
-    // Sign state with HMAC to prevent CSRF attacks (CRIT-2 fix)
-    const state = signState({ deviceCodeId: deviceCodeRecord.id });
-    const callbackUri = buildCallbackUrl(request);
-
-    const githubAuthUrl = new URL('https://github.com/login/oauth/authorize');
-    githubAuthUrl.searchParams.set('client_id', config.github.clientId);
-    githubAuthUrl.searchParams.set('redirect_uri', callbackUri);
-    githubAuthUrl.searchParams.set('scope', 'read:user user:email read:org');
-    githubAuthUrl.searchParams.set('state', state);
-
-    return reply.redirect(githubAuthUrl.toString());
-  });
+  );
 
   /**
    * POST /token/validate
    * Validate a token
    */
-  fastify.post('/token/validate', {
-    preHandler: [authenticateGitHub],
-  }, async (request, reply) => {
-    const vcsUser = request.vcsUser || request.githubUser;
+  fastify.post(
+    "/token/validate",
+    {
+      preHandler: [authenticateGitHub],
+    },
+    async (request, reply) => {
+      const vcsUser = request.vcsUser || request.githubUser;
 
-    // Fetch user from DB to get plan
-    const user = await db.query.users.findFirst({
-      where: and(
-        eq(users.forgeType, vcsUser!.forgeType),
-        eq(users.forgeUserId, vcsUser!.forgeUserId)
-      ),
-      columns: {
-        plan: true,
-        createdAt: true,
-      },
-    });
+      // Fetch user from DB to get plan
+      const user = await db.query.users.findFirst({
+        where: and(
+          eq(users.forgeType, vcsUser!.forgeType),
+          eq(users.forgeUserId, vcsUser!.forgeUserId)
+        ),
+        columns: {
+          plan: true,
+          createdAt: true,
+        },
+      });
 
-    return sendData(reply, {
-      username: vcsUser!.username,
-      forgeType: vcsUser!.forgeType,
-      forgeUserId: vcsUser!.forgeUserId,
-      plan: user?.plan || 'free',
-      createdAt: user?.createdAt?.toISOString() || null,
-    }, { requestId: request.id });
-  });
+      return sendData(
+        reply,
+        {
+          username: vcsUser!.username,
+          forgeType: vcsUser!.forgeType,
+          forgeUserId: vcsUser!.forgeUserId,
+          plan: user?.plan || "free",
+          createdAt: user?.createdAt?.toISOString() || null,
+        },
+        { requestId: request.id }
+      );
+    }
+  );
 
   /**
    * POST /logout
    * Clear session cookie
    */
-  fastify.post('/logout', async (request, reply) => {
+  fastify.post("/logout", async (request, reply) => {
     const isProduction = config.server.isProduction;
 
     // Determine domain for cookie
-    const host = (request.headers.host || '').split(':')[0];
-    const isLocalhost = host === 'localhost' || host === '127.0.0.1' || host.endsWith('.localhost');
+    const host = (request.headers.host || "").split(":")[0];
+    const isLocalhost = host === "localhost" || host === "127.0.0.1" || host.endsWith(".localhost");
     let domain: string | undefined;
 
     if (isProduction && !isLocalhost) {
-      const parts = host.split('.');
+      const parts = host.split(".");
       if (parts.length >= 2) {
-        domain = `.${parts.slice(-2).join('.')}`;
+        domain = `.${parts.slice(-2).join(".")}`;
       }
     }
 
     // Clear session cookie with same security flags
-    reply.clearCookie('keyway_session', {
-      path: '/',
+    reply.clearCookie("keyway_session", {
+      path: "/",
       httpOnly: true,
       secure: isProduction,
-      sameSite: 'lax',
+      sameSite: "lax",
       domain,
     });
 
     // Clear flag cookie
-    reply.clearCookie('keyway_logged_in', {
-      path: '/',
+    reply.clearCookie("keyway_logged_in", {
+      path: "/",
       httpOnly: false,
       secure: isProduction,
-      sameSite: 'lax',
+      sameSite: "lax",
       domain,
     });
 
@@ -1227,15 +1322,16 @@ function renderVerifyPage(userCode: string, autoSubmit: boolean): string {
       <span>Keyway</span>
     </div>
     <h1>Verify Your Device</h1>
-    ${autoSubmit
-      ? `<p class="subtitle">Code detected! Click below to continue.</p>
+    ${
+      autoSubmit
+        ? `<p class="subtitle">Code detected! Click below to continue.</p>
          <div class="code-confirmed">
            <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
              <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/>
            </svg>
            Code <strong>${userCode}</strong> confirmed
          </div>`
-      : '<p class="subtitle">Enter the code displayed in your terminal to continue with GitHub authentication.</p>'
+        : '<p class="subtitle">Enter the code displayed in your terminal to continue with GitHub authentication.</p>'
     }
     <div class="permissions">
       <div class="permissions-header">
@@ -1267,7 +1363,7 @@ function renderVerifyPage(userCode: string, autoSubmit: boolean): string {
       <p class="permissions-note">Repository access requires installing the Keyway GitHub App (separate step)</p>
     </div>
     <form id="verifyForm" action="/v1/auth/device/verify" method="POST">
-      <input type="text" name="user_code" id="userCodeInput" placeholder="XXXXX-XXXXX" value="${userCode}" pattern="[A-Z0-9]{5}-[A-Z0-9]{5}" maxlength="11" required ${autoSubmit ? 'readonly' : 'autofocus'} />
+      <input type="text" name="user_code" id="userCodeInput" placeholder="XXXXX-XXXXX" value="${userCode}" pattern="[A-Z0-9]{5}-[A-Z0-9]{5}" maxlength="11" required ${autoSubmit ? "readonly" : "autofocus"} />
       <button type="submit">
         <svg viewBox="0 0 24 24" fill="currentColor">
           <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
@@ -1281,7 +1377,9 @@ function renderVerifyPage(userCode: string, autoSubmit: boolean): string {
 }
 
 function renderInstallSuccessPage(installationId: string, isFromCli = false): string {
-  const actionHtml = isFromCli ? '' : `
+  const actionHtml = isFromCli
+    ? ""
+    : `
     <a href="${config.app.dashboardUrl}" class="dashboard-link">
       Go to Dashboard
       <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
@@ -1291,8 +1389,8 @@ function renderInstallSuccessPage(installationId: string, isFromCli = false): st
   `;
 
   const subtitleText = isFromCli
-    ? 'You can now close this window and return to your terminal.'
-    : 'You can now manage your secrets from the dashboard.';
+    ? "You can now close this window and return to your terminal."
+    : "You can now manage your secrets from the dashboard.";
 
   return `<!DOCTYPE html>
 <html lang="en">

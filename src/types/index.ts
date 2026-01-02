@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import { z } from "zod";
 
 // ============================================
 // Shared Constants
@@ -6,7 +6,7 @@ import { z } from 'zod';
 
 // Default environments for new vaults
 // Maps to common .env file conventions: .env -> development, .env.staging -> staging, etc.
-export const DEFAULT_ENVIRONMENTS = ['development', 'staging', 'production'] as const;
+export const DEFAULT_ENVIRONMENTS = ["development", "staging", "production"] as const;
 
 // ============================================
 // Shared Validation Patterns
@@ -19,17 +19,17 @@ export const ENVIRONMENT_NAME_PATTERN = /^[a-zA-Z0-9_.-]+$/;
 
 // Reusable Zod schemas for validation
 export const repoFullNameSchema = z.string().regex(REPO_FULL_NAME_PATTERN, {
-  message: 'Invalid repository format. Expected: owner/repo',
+  message: "Invalid repository format. Expected: owner/repo",
 });
 
 export const environmentNameSchema = z.string().regex(ENVIRONMENT_NAME_PATTERN, {
-  message: 'Invalid environment name. Only alphanumeric, hyphens, underscores, and dots allowed.',
+  message: "Invalid environment name. Only alphanumeric, hyphens, underscores, and dots allowed.",
 });
 
 // User schemas
 export const UserSchema = z.object({
   id: z.string(),
-  forgeType: z.enum(['github', 'gitlab', 'bitbucket']),
+  forgeType: z.enum(["github", "gitlab", "bitbucket"]),
   forgeUserId: z.string(),
   username: z.string(),
   email: z.string().email().nullable(),
@@ -153,23 +153,23 @@ export const DeviceFlowPollRequestSchema = z.object({
 export type DeviceFlowPollRequest = z.infer<typeof DeviceFlowPollRequestSchema>;
 
 export const DeviceFlowPollResponsePendingSchema = z.object({
-  status: z.literal('pending'),
+  status: z.literal("pending"),
 });
 
 export const DeviceFlowPollResponseApprovedSchema = z.object({
-  status: z.literal('approved'),
+  status: z.literal("approved"),
   keywayToken: z.string(),
   githubLogin: z.string(),
   expiresAt: z.string(),
 });
 
 export const DeviceFlowPollResponseExpiredSchema = z.object({
-  status: z.literal('expired'),
+  status: z.literal("expired"),
   message: z.string(),
 });
 
 export const DeviceFlowPollResponseDeniedSchema = z.object({
-  status: z.literal('denied'),
+  status: z.literal("denied"),
   message: z.string(),
 });
 
@@ -200,7 +200,7 @@ export type ErrorResponse = z.infer<typeof ErrorResponseSchema>;
 // GET /api/me - User profile response
 export const UserProfileResponseSchema = z.object({
   id: z.string().uuid().nullable(), // null if user hasn't created any vault yet
-  forgeType: z.enum(['github', 'gitlab', 'bitbucket']),
+  forgeType: z.enum(["github", "gitlab", "bitbucket"]),
   forgeUserId: z.string(),
   username: z.string(),
   email: z.string().nullable(),
@@ -211,7 +211,7 @@ export const UserProfileResponseSchema = z.object({
 export type UserProfileResponse = z.infer<typeof UserProfileResponseSchema>;
 
 // Permission levels (matches CollaboratorRole)
-export const PermissionLevelSchema = z.enum(['read', 'triage', 'write', 'maintain', 'admin']);
+export const PermissionLevelSchema = z.enum(["read", "triage", "write", "maintain", "admin"]);
 export type PermissionLevel = z.infer<typeof PermissionLevelSchema>;
 
 // GET /api/vaults - Vault list item
@@ -271,31 +271,42 @@ export type SecretListResponse = z.infer<typeof SecretListResponseSchema>;
 
 // POST /api/vaults/:vaultId/secrets - Upsert secret request
 export const UpsertSecretRequestSchema = z.object({
-  key: z.string().min(1).max(255).regex(/^[A-Z][A-Z0-9_]*$/, {
-    message: 'Key must be uppercase with underscores (e.g., DATABASE_URL)',
-  }),
+  key: z
+    .string()
+    .min(1)
+    .max(255)
+    .regex(/^[A-Z][A-Z0-9_]*$/, {
+      message: "Key must be uppercase with underscores (e.g., DATABASE_URL)",
+    }),
   value: z.string(),
-  environment: z.string().min(1).max(50).default('default'),
+  environment: z.string().min(1).max(50).default("default"),
 });
 
 export type UpsertSecretRequest = z.infer<typeof UpsertSecretRequestSchema>;
 
 export const UpsertSecretResponseSchema = z.object({
   id: z.string().uuid(),
-  status: z.enum(['created', 'updated']),
+  status: z.enum(["created", "updated"]),
 });
 
 export type UpsertSecretResponse = z.infer<typeof UpsertSecretResponseSchema>;
 
 // PATCH /api/vaults/:owner/:repo/secrets/:secretId - Partial update
-export const PatchSecretRequestSchema = z.object({
-  name: z.string().min(1).max(255).regex(/^[A-Z][A-Z0-9_]*$/, {
-    message: 'Key must be uppercase with underscores (e.g., DATABASE_URL)',
-  }).optional(),
-  value: z.string().optional(),
-}).refine(data => data.name !== undefined || data.value !== undefined, {
-  message: 'At least one of name or value must be provided',
-});
+export const PatchSecretRequestSchema = z
+  .object({
+    name: z
+      .string()
+      .min(1)
+      .max(255)
+      .regex(/^[A-Z][A-Z0-9_]*$/, {
+        message: "Key must be uppercase with underscores (e.g., DATABASE_URL)",
+      })
+      .optional(),
+    value: z.string().optional(),
+  })
+  .refine((data) => data.name !== undefined || data.value !== undefined, {
+    message: "At least one of name or value must be provided",
+  });
 
 export type PatchSecretRequest = z.infer<typeof PatchSecretRequestSchema>;
 
@@ -303,14 +314,14 @@ export type PatchSecretRequest = z.infer<typeof PatchSecretRequestSchema>;
 export const ActivityLogItemSchema = z.object({
   id: z.string().uuid(),
   action: z.enum([
-    'vault_created',
-    'secrets_pushed',
-    'secrets_pulled',
-    'secret_created',
-    'secret_updated',
-    'secret_deleted',
-    'secret_rotated',
-    'permission_changed',
+    "vault_created",
+    "secrets_pushed",
+    "secrets_pulled",
+    "secret_created",
+    "secret_updated",
+    "secret_deleted",
+    "secret_rotated",
+    "permission_changed",
   ]),
   vaultId: z.string().uuid().nullable(),
   repoFullName: z.string().nullable(),
@@ -319,7 +330,7 @@ export const ActivityLogItemSchema = z.object({
     username: z.string(),
     avatarUrl: z.string().nullable(),
   }),
-  platform: z.enum(['cli', 'web', 'api']),
+  platform: z.enum(["cli", "web", "api"]),
   metadata: z.record(z.unknown()).nullable(),
   timestamp: z.string(),
 });
@@ -385,8 +396,8 @@ export type RepoParam = z.infer<typeof RepoParamSchema>;
 // Environment permission body schema
 export const EnvironmentPermissionBodySchema = z.object({
   permissions: z.object({
-    read: z.enum(['read', 'triage', 'write', 'maintain', 'admin']),
-    write: z.enum(['read', 'triage', 'write', 'maintain', 'admin']),
+    read: z.enum(["read", "triage", "write", "maintain", "admin"]),
+    write: z.enum(["read", "triage", "write", "maintain", "admin"]),
   }),
 });
 
@@ -409,7 +420,7 @@ export type Contributor = z.infer<typeof ContributorSchema>;
 // GET /v1/vaults/:owner/:repo/contributors - Contributors list response
 export const ContributorsResponseSchema = z.object({
   repoId: z.string(),
-  provider: z.literal('github'),
+  provider: z.literal("github"),
   contributors: z.array(ContributorSchema),
 });
 

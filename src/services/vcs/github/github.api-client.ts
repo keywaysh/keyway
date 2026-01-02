@@ -5,10 +5,10 @@
  * This is extracted from src/utils/github.ts and will be used by GitHubProvider.
  */
 
-import { config } from '../../../config';
-import { logger } from '../../../utils/sharedLogger';
-import { maskToken } from '../../../utils/logger';
-import type { CollaboratorRole } from '../../../db/schema';
+import { config } from "../../../config";
+import { logger } from "../../../utils/sharedLogger";
+import { maskToken } from "../../../utils/logger";
+import type { CollaboratorRole } from "../../../db/schema";
 
 const GITHUB_API_BASE = config.github.apiBaseUrl;
 
@@ -37,7 +37,7 @@ export interface GitHubRepo {
   default_branch?: string;
   owner: {
     login: string;
-    type: 'User' | 'Organization';
+    type: "User" | "Organization";
   };
   permissions?: {
     pull?: boolean;
@@ -53,12 +53,12 @@ export interface GitHubCollaborator {
   login: string;
   avatar_url: string;
   html_url: string;
-  role_name: 'pull' | 'triage' | 'push' | 'maintain' | 'admin';
+  role_name: "pull" | "triage" | "push" | "maintain" | "admin";
 }
 
 export interface GitHubOrgMembership {
-  state: 'active' | 'pending';
-  role: 'admin' | 'member';
+  state: "active" | "pending";
+  role: "admin" | "member";
   organization: {
     id: number;
     login: string;
@@ -97,25 +97,39 @@ export interface GitHubPermissionResponse {
  * Map GitHub's role_name to our CollaboratorRole type
  */
 export const GITHUB_ROLE_MAP: Record<string, CollaboratorRole> = {
-  pull: 'read',
-  read: 'read',
-  triage: 'triage',
-  push: 'write',
-  write: 'write',
-  maintain: 'maintain',
-  admin: 'admin',
+  pull: "read",
+  read: "read",
+  triage: "triage",
+  push: "write",
+  write: "write",
+  maintain: "maintain",
+  admin: "admin",
 };
 
 /**
  * Get CollaboratorRole from GitHub permissions object
  */
-export function getCollaboratorRoleFromPermissions(permissions: GitHubRepo['permissions']): CollaboratorRole | null {
-  if (!permissions) return null;
-  if (permissions.admin) return 'admin';
-  if (permissions.maintain) return 'maintain';
-  if (permissions.push) return 'write';
-  if (permissions.triage) return 'triage';
-  if (permissions.pull) return 'read';
+export function getCollaboratorRoleFromPermissions(
+  permissions: GitHubRepo["permissions"]
+): CollaboratorRole | null {
+  if (!permissions) {
+    return null;
+  }
+  if (permissions.admin) {
+    return "admin";
+  }
+  if (permissions.maintain) {
+    return "maintain";
+  }
+  if (permissions.push) {
+    return "write";
+  }
+  if (permissions.triage) {
+    return "triage";
+  }
+  if (permissions.pull) {
+    return "read";
+  }
   return null;
 }
 
@@ -149,21 +163,24 @@ export class GitHubApiClient {
       ...options,
       headers: {
         Authorization: `Bearer ${accessToken}`,
-        Accept: 'application/vnd.github+json',
-        'X-GitHub-Api-Version': '2022-11-28',
+        Accept: "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
         ...options.headers,
       },
     });
 
     if (!response.ok) {
       const errorBody = await response.text();
-      logger.debug({
-        status: response.status,
-        statusText: response.statusText,
-        path,
-        errorBody: errorBody.substring(0, 500),
-        token: maskToken(accessToken),
-      }, 'GitHub API request failed');
+      logger.debug(
+        {
+          status: response.status,
+          statusText: response.statusText,
+          path,
+          errorBody: errorBody.substring(0, 500),
+          token: maskToken(accessToken),
+        },
+        "GitHub API request failed"
+      );
       return null;
     }
 
@@ -178,14 +195,14 @@ export class GitHubApiClient {
    * Get the authenticated user's profile
    */
   async getUser(accessToken: string): Promise<GitHubUser | null> {
-    return this.request<GitHubUser>('/user', accessToken);
+    return this.request<GitHubUser>("/user", accessToken);
   }
 
   /**
    * Get the authenticated user's email addresses
    */
   async getUserEmails(accessToken: string): Promise<GitHubEmail[]> {
-    const emails = await this.request<GitHubEmail[]>('/user/emails', accessToken);
+    const emails = await this.request<GitHubEmail[]>("/user/emails", accessToken);
     return emails || [];
   }
 
@@ -194,10 +211,12 @@ export class GitHubApiClient {
    */
   async getPrimaryEmail(accessToken: string): Promise<string | null> {
     const emails = await this.getUserEmails(accessToken);
-    if (emails.length === 0) return null;
+    if (emails.length === 0) {
+      return null;
+    }
 
-    const primaryEmail = emails.find(e => e.primary && e.verified);
-    const verifiedEmail = emails.find(e => e.verified);
+    const primaryEmail = emails.find((e) => e.primary && e.verified);
+    const verifiedEmail = emails.find((e) => e.verified);
     return primaryEmail?.email || verifiedEmail?.email || emails[0]?.email || null;
   }
 
@@ -241,33 +260,33 @@ export class GitHubApiClient {
     repo: string,
     username: string
   ): Promise<CollaboratorRole | null> {
-    logger.debug({ username, owner, repo }, 'Getting GitHub user role');
+    logger.debug({ username, owner, repo }, "Getting GitHub user role");
 
     // First, get basic repo info
     const repoData = await this.getRepository(accessToken, owner, repo);
     if (!repoData) {
-      logger.debug({ owner, repo }, 'Repository not found or no access');
+      logger.debug({ owner, repo }, "Repository not found or no access");
       return null;
     }
 
     // Check if user is the repository owner
     if (repoData.owner.login === username || owner === username) {
-      logger.debug({ username, reason: 'repo_owner' }, 'User is repo owner');
-      return 'admin';
+      logger.debug({ username, reason: "repo_owner" }, "User is repo owner");
+      return "admin";
     }
 
     // Check admin permission from repo API
     if (repoData.permissions?.admin) {
-      logger.debug({ username, reason: 'repo_api_admin' }, 'User has admin permission');
-      return 'admin';
+      logger.debug({ username, reason: "repo_api_admin" }, "User has admin permission");
+      return "admin";
     }
 
     // For org repos, check org membership
-    if (repoData.owner.type === 'Organization') {
+    if (repoData.owner.type === "Organization") {
       const membership = await this.getOrgMembership(accessToken, owner, username);
-      if (membership?.role === 'admin' && membership?.state === 'active') {
-        logger.debug({ username, reason: 'org_owner' }, 'User is org owner');
-        return 'admin';
+      if (membership?.role === "admin" && membership?.state === "active") {
+        logger.debug({ username, reason: "org_owner" }, "User is org owner");
+        return "admin";
       }
     }
 
@@ -276,7 +295,10 @@ export class GitHubApiClient {
     if (permission) {
       const role = GITHUB_ROLE_MAP[permission.role_name] || GITHUB_ROLE_MAP[permission.permission];
       if (role) {
-        logger.debug({ username, roleName: permission.role_name, role }, 'Got role from permission API');
+        logger.debug(
+          { username, roleName: permission.role_name, role },
+          "Got role from permission API"
+        );
         return role;
       }
     }
@@ -284,11 +306,14 @@ export class GitHubApiClient {
     // Fall back to basic permissions
     const role = getCollaboratorRoleFromPermissions(repoData.permissions);
     if (role) {
-      logger.debug({ username, role, reason: 'fallback_permissions' }, 'Got role from repo permissions');
+      logger.debug(
+        { username, role, reason: "fallback_permissions" },
+        "Got role from repo permissions"
+      );
       return role;
     }
 
-    logger.warn({ username, owner, repo }, 'No role found for user');
+    logger.warn({ username, owner, repo }, "No role found for user");
     return null;
   }
 
@@ -310,11 +335,15 @@ export class GitHubApiClient {
         accessToken
       );
 
-      if (!data || data.length === 0) break;
+      if (!data || data.length === 0) {
+        break;
+      }
 
       collaborators.push(...data);
 
-      if (data.length < perPage) break;
+      if (data.length < perPage) {
+        break;
+      }
       page++;
     }
 
@@ -333,10 +362,7 @@ export class GitHubApiClient {
     org: string,
     username: string
   ): Promise<GitHubOrgMembership | null> {
-    return this.request<GitHubOrgMembership>(
-      `/orgs/${org}/memberships/${username}`,
-      accessToken
-    );
+    return this.request<GitHubOrgMembership>(`/orgs/${org}/memberships/${username}`, accessToken);
   }
 
   /**
@@ -353,11 +379,15 @@ export class GitHubApiClient {
         accessToken
       );
 
-      if (!data || data.length === 0) break;
+      if (!data || data.length === 0) {
+        break;
+      }
 
       members.push(...data);
 
-      if (data.length < perPage) break;
+      if (data.length < perPage) {
+        break;
+      }
       page++;
     }
 
@@ -376,11 +406,11 @@ export class GitHubApiClient {
     clientId: string,
     clientSecret: string
   ): Promise<string> {
-    const response = await fetch('https://github.com/login/oauth/access_token', {
-      method: 'POST',
+    const response = await fetch("https://github.com/login/oauth/access_token", {
+      method: "POST",
       headers: {
-        'Content-Type': 'application/json',
-        Accept: 'application/json',
+        "Content-Type": "application/json",
+        Accept: "application/json",
       },
       body: JSON.stringify({
         client_id: clientId,
@@ -402,7 +432,7 @@ export class GitHubApiClient {
     }
 
     if (!data.access_token) {
-      throw new Error('No access token received from GitHub');
+      throw new Error("No access token received from GitHub");
     }
 
     return data.access_token;

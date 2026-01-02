@@ -1,13 +1,13 @@
-import crypto from 'crypto';
-import { db, pullEvents, securityAlerts, users, vaults, secretAccesses, activityLogs } from '../db';
-import { eq, and, desc, gte, isNotNull, count, inArray, sql } from 'drizzle-orm';
-import type { SecurityAlertType } from '../db/schema';
-import { config } from '../config';
-import { sendSecurityAlertEmail } from '../utils/email';
-import { logger } from '../utils/sharedLogger';
+import crypto from "crypto";
+import { db, pullEvents, securityAlerts, users, vaults, secretAccesses, activityLogs } from "../db";
+import { eq, and, desc, gte, isNotNull, count, inArray, sql } from "drizzle-orm";
+import type { SecurityAlertType } from "../db/schema";
+import { config } from "../config";
+import { sendSecurityAlertEmail } from "../utils/email";
+import { logger } from "../utils/sharedLogger";
 
 // Types
-export type PullSource = 'cli' | 'api_key' | 'mcp';
+export type PullSource = "cli" | "api_key" | "mcp";
 
 export interface PullContext {
   userId: string;
@@ -32,13 +32,15 @@ const GEO_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 // ============ GEOLOCATION ============
 async function getLocation(ip: string): Promise<GeoLocation> {
   // Skip private/local IPs
-  if (ip === '127.0.0.1' || ip === '::1' || ip.startsWith('192.168.') || ip.startsWith('10.')) {
+  if (ip === "127.0.0.1" || ip === "::1" || ip.startsWith("192.168.") || ip.startsWith("10.")) {
     return { country: null, city: null, latitude: null, longitude: null };
   }
 
   // Check cache
   const cached = geoCache.get(ip);
-  if (cached && cached.expires > Date.now()) return cached.data;
+  if (cached && cached.expires > Date.now()) {
+    return cached.data;
+  }
 
   try {
     let url = `https://ipinfo.io/${ip}/json`;
@@ -46,8 +48,8 @@ async function getLocation(ip: string): Promise<GeoLocation> {
       url += `?token=${config.security.ipinfoToken}`;
     }
     const res = await fetch(url);
-    const data = await res.json() as { loc?: string; country?: string; city?: string };
-    const [lat, lon] = (data.loc || '').split(',').map(Number);
+    const data = (await res.json()) as { loc?: string; country?: string; city?: string };
+    const [lat, lon] = (data.loc || "").split(",").map(Number);
 
     const location: GeoLocation = {
       country: data.country || null,
@@ -68,10 +70,7 @@ async function getLocation(ip: string): Promise<GeoLocation> {
 // A. New Device
 async function checkNewDevice(ctx: PullContext): Promise<string | null> {
   const existing = await db.query.pullEvents.findFirst({
-    where: and(
-      eq(pullEvents.vaultId, ctx.vaultId),
-      eq(pullEvents.deviceId, ctx.deviceId)
-    ),
+    where: and(eq(pullEvents.vaultId, ctx.vaultId), eq(pullEvents.deviceId, ctx.deviceId)),
   });
   if (!existing) {
     return `New device detected: ${ctx.deviceId.slice(0, 8)}...`;
@@ -81,13 +80,12 @@ async function checkNewDevice(ctx: PullContext): Promise<string | null> {
 
 // B. New Location
 async function checkNewLocation(ctx: PullContext, loc: GeoLocation): Promise<string | null> {
-  if (!loc.country) return null;
+  if (!loc.country) {
+    return null;
+  }
 
   const existing = await db.query.pullEvents.findFirst({
-    where: and(
-      eq(pullEvents.vaultId, ctx.vaultId),
-      eq(pullEvents.country, loc.country)
-    ),
+    where: and(eq(pullEvents.vaultId, ctx.vaultId), eq(pullEvents.country, loc.country)),
   });
   if (!existing) {
     return `Pull from new location: ${loc.city || loc.country}`;
@@ -97,7 +95,9 @@ async function checkNewLocation(ctx: PullContext, loc: GeoLocation): Promise<str
 
 // C. Impossible Travel
 async function checkImpossibleTravel(ctx: PullContext, loc: GeoLocation): Promise<string | null> {
-  if (!loc.latitude || !loc.longitude) return null;
+  if (!loc.latitude || !loc.longitude) {
+    return null;
+  }
 
   const lastPull = await db.query.pullEvents.findFirst({
     where: and(
@@ -108,11 +108,15 @@ async function checkImpossibleTravel(ctx: PullContext, loc: GeoLocation): Promis
     orderBy: [desc(pullEvents.createdAt)],
   });
 
-  if (!lastPull?.latitude || !lastPull?.longitude) return null;
+  if (!lastPull?.latitude || !lastPull?.longitude) {
+    return null;
+  }
 
   const distanceKm = haversine(
-    Number(lastPull.latitude), Number(lastPull.longitude),
-    loc.latitude, loc.longitude
+    Number(lastPull.latitude),
+    Number(lastPull.longitude),
+    loc.latitude,
+    loc.longitude
   );
   const timeDiffMin = (Date.now() - lastPull.createdAt.getTime()) / 60000;
 
@@ -125,9 +129,9 @@ async function checkImpossibleTravel(ctx: PullContext, loc: GeoLocation): Promis
 
 // D. Weird User Agent
 function checkWeirdUserAgent(ctx: PullContext): string | null {
-  const ua = ctx.userAgent || '';
-  if (!ua.toLowerCase().startsWith('keyway-cli/')) {
-    return `Suspicious user-agent: ${ua.slice(0, 50) || '(empty)'}`;
+  const ua = ctx.userAgent || "";
+  if (!ua.toLowerCase().startsWith("keyway-cli/")) {
+    return `Suspicious user-agent: ${ua.slice(0, 50) || "(empty)"}`;
   }
   return null;
 }
@@ -136,12 +140,10 @@ function checkWeirdUserAgent(ctx: PullContext): string | null {
 async function checkRateAnomaly(ctx: PullContext): Promise<string | null> {
   const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1000);
 
-  const recentPulls = await db.select({ count: count() })
+  const recentPulls = await db
+    .select({ count: count() })
     .from(pullEvents)
-    .where(and(
-      eq(pullEvents.vaultId, ctx.vaultId),
-      gte(pullEvents.createdAt, fiveMinAgo)
-    ));
+    .where(and(eq(pullEvents.vaultId, ctx.vaultId), gte(pullEvents.createdAt, fiveMinAgo)));
 
   const pullCount = recentPulls[0]?.count ?? 0;
   if (pullCount > 20) {
@@ -151,7 +153,11 @@ async function checkRateAnomaly(ctx: PullContext): Promise<string | null> {
 }
 
 // ============ DEDUPLICATION ============
-async function isDuplicate(vaultId: string, deviceId: string, alertType: SecurityAlertType): Promise<boolean> {
+async function isDuplicate(
+  vaultId: string,
+  deviceId: string,
+  alertType: SecurityAlertType
+): Promise<boolean> {
   const dayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
 
   const existing = await db.query.securityAlerts.findFirst({
@@ -171,32 +177,38 @@ export async function processPullEvent(ctx: PullContext): Promise<void> {
   const location = await getLocation(ctx.ip);
 
   // 2. Log pull event
-  const source = ctx.source || 'cli';
-  const [pullEvent] = await db.insert(pullEvents).values({
-    userId: ctx.userId,
-    vaultId: ctx.vaultId,
-    deviceId: ctx.deviceId,
-    ip: ctx.ip,
-    userAgent: ctx.userAgent,
-    country: location.country,
-    city: location.city,
-    latitude: location.latitude?.toString(),
-    longitude: location.longitude?.toString(),
-    source,
-  }).returning();
+  const source = ctx.source || "cli";
+  const [pullEvent] = await db
+    .insert(pullEvents)
+    .values({
+      userId: ctx.userId,
+      vaultId: ctx.vaultId,
+      deviceId: ctx.deviceId,
+      ip: ctx.ip,
+      userAgent: ctx.userAgent,
+      country: location.country,
+      city: location.city,
+      latitude: location.latitude?.toString(),
+      longitude: location.longitude?.toString(),
+      source,
+    })
+    .returning();
 
   // 3. Skip security checks for non-CLI sources (API keys, MCP)
-  if (source !== 'cli') {
+  if (source !== "cli") {
     return;
   }
 
   // 4. Run detection checks
-  const checks: Array<{ type: SecurityAlertType; check: () => Promise<string | null> | string | null }> = [
-    { type: 'new_device', check: () => checkNewDevice(ctx) },
-    { type: 'new_location', check: () => checkNewLocation(ctx, location) },
-    { type: 'impossible_travel', check: () => checkImpossibleTravel(ctx, location) },
-    { type: 'weird_user_agent', check: () => checkWeirdUserAgent(ctx) },
-    { type: 'rate_anomaly', check: () => checkRateAnomaly(ctx) },
+  const checks: Array<{
+    type: SecurityAlertType;
+    check: () => Promise<string | null> | string | null;
+  }> = [
+    { type: "new_device", check: () => checkNewDevice(ctx) },
+    { type: "new_location", check: () => checkNewLocation(ctx, location) },
+    { type: "impossible_travel", check: () => checkImpossibleTravel(ctx, location) },
+    { type: "weird_user_agent", check: () => checkWeirdUserAgent(ctx) },
+    { type: "rate_anomaly", check: () => checkRateAnomaly(ctx) },
   ];
 
   // 5. Create alerts (with dedup) and send email notifications
@@ -214,8 +226,9 @@ export async function processPullEvent(ctx: PullContext): Promise<void> {
       });
 
       // Send email notification (fire-and-forget)
-      notifyUserOfAlert(ctx.userId, ctx.vaultId, type, message, ctx.ip, location)
-        .catch(err => logger.error({ err, userId: ctx.userId, alertType: type }, 'notifyUserOfAlert failed'));
+      notifyUserOfAlert(ctx.userId, ctx.vaultId, type, message, ctx.ip, location).catch((err) =>
+        logger.error({ err, userId: ctx.userId, alertType: type }, "notifyUserOfAlert failed")
+      );
     }
   }
 }
@@ -247,13 +260,13 @@ async function notifyUserOfAlert(
         username: user.username,
         alertType,
         message,
-        vaultName: vault?.repoFullName || 'Unknown vault',
+        vaultName: vault?.repoFullName || "Unknown vault",
         ip,
         location,
       });
     }
   } catch (err) {
-    logger.error({ err, userId, vaultId, alertType }, 'Failed to send security alert notification');
+    logger.error({ err, userId, vaultId, alertType }, "Failed to send security alert notification");
   }
 }
 
@@ -294,7 +307,11 @@ export interface SecurityOverviewResponse {
   };
 }
 
-const CRITICAL_ALERT_TYPES: SecurityAlertType[] = ['impossible_travel', 'weird_user_agent', 'rate_anomaly'];
+const _CRITICAL_ALERT_TYPES: SecurityAlertType[] = [
+  "impossible_travel",
+  "weird_user_agent",
+  "rate_anomaly",
+];
 
 export async function getSecurityOverview(userId: string): Promise<SecurityOverviewResponse> {
   const now = new Date();
@@ -306,7 +323,7 @@ export async function getSecurityOverview(userId: string): Promise<SecurityOverv
     where: eq(vaults.ownerId, userId),
     columns: { id: true, repoFullName: true },
   });
-  const vaultIds = userVaults.map(v => v.id);
+  const vaultIds = userVaults.map((v) => v.id);
 
   if (vaultIds.length === 0) {
     return {
@@ -317,85 +334,102 @@ export async function getSecurityOverview(userId: string): Promise<SecurityOverv
   }
 
   // === ALERTS STATS ===
-  const alertStats = await db.select({
-    total: count(),
-    critical: count(sql`CASE WHEN ${securityAlerts.alertType} IN ('impossible_travel', 'weird_user_agent', 'rate_anomaly') THEN 1 END`),
-    warning: count(sql`CASE WHEN ${securityAlerts.alertType} IN ('new_device', 'new_location') THEN 1 END`),
-    last7Days: count(sql`CASE WHEN ${securityAlerts.createdAt} >= ${sevenDaysAgo.toISOString()} THEN 1 END`),
-    last30Days: count(sql`CASE WHEN ${securityAlerts.createdAt} >= ${thirtyDaysAgo.toISOString()} THEN 1 END`),
-  })
+  const alertStats = await db
+    .select({
+      total: count(),
+      critical: count(
+        sql`CASE WHEN ${securityAlerts.alertType} IN ('impossible_travel', 'weird_user_agent', 'rate_anomaly') THEN 1 END`
+      ),
+      warning: count(
+        sql`CASE WHEN ${securityAlerts.alertType} IN ('new_device', 'new_location') THEN 1 END`
+      ),
+      last7Days: count(
+        sql`CASE WHEN ${securityAlerts.createdAt} >= ${sevenDaysAgo.toISOString()} THEN 1 END`
+      ),
+      last30Days: count(
+        sql`CASE WHEN ${securityAlerts.createdAt} >= ${thirtyDaysAgo.toISOString()} THEN 1 END`
+      ),
+    })
     .from(securityAlerts)
     .where(inArray(securityAlerts.vaultId, vaultIds));
 
   // === ACCESS STATS (from pullEvents) ===
-  const accessStats = await db.select({
-    uniqueUsers: sql<number>`COUNT(DISTINCT ${pullEvents.userId})`,
-    totalPulls: count(),
-    last7Days: count(sql`CASE WHEN ${pullEvents.createdAt} >= ${sevenDaysAgo.toISOString()} THEN 1 END`),
-  })
+  const accessStats = await db
+    .select({
+      uniqueUsers: sql<number>`COUNT(DISTINCT ${pullEvents.userId})`,
+      totalPulls: count(),
+      last7Days: count(
+        sql`CASE WHEN ${pullEvents.createdAt} >= ${sevenDaysAgo.toISOString()} THEN 1 END`
+      ),
+    })
     .from(pullEvents)
     .where(inArray(pullEvents.vaultId, vaultIds));
 
   // Top 5 vaults by pull count
-  const topVaultsResult = await db.select({
-    vaultId: pullEvents.vaultId,
-    pullCount: count(),
-  })
+  const topVaultsResult = await db
+    .select({
+      vaultId: pullEvents.vaultId,
+      pullCount: count(),
+    })
     .from(pullEvents)
     .where(inArray(pullEvents.vaultId, vaultIds))
     .groupBy(pullEvents.vaultId)
     .orderBy(desc(count()))
     .limit(5);
 
-  const vaultIdToName = new Map(userVaults.map(v => [v.id, v.repoFullName]));
-  const topVaults = topVaultsResult.map(r => ({
-    repoFullName: vaultIdToName.get(r.vaultId!) || 'Unknown',
+  const vaultIdToName = new Map(userVaults.map((v) => [v.id, v.repoFullName]));
+  const topVaults = topVaultsResult.map((r) => ({
+    repoFullName: vaultIdToName.get(r.vaultId!) || "Unknown",
     pullCount: Number(r.pullCount),
   }));
 
   // Top 5 users by pull count
-  const topUsersResult = await db.select({
-    userId: pullEvents.userId,
-    pullCount: count(),
-  })
+  const topUsersResult = await db
+    .select({
+      userId: pullEvents.userId,
+      pullCount: count(),
+    })
     .from(pullEvents)
-    .where(and(
-      inArray(pullEvents.vaultId, vaultIds),
-      isNotNull(pullEvents.userId)
-    ))
+    .where(and(inArray(pullEvents.vaultId, vaultIds), isNotNull(pullEvents.userId)))
     .groupBy(pullEvents.userId)
     .orderBy(desc(count()))
     .limit(5);
 
   // Fetch user info for top users
-  const topUserIds = topUsersResult.map(r => r.userId).filter((id): id is string => id !== null);
-  const topUsersInfo = topUserIds.length > 0
-    ? await db.query.users.findMany({
-        where: inArray(users.id, topUserIds),
-        columns: { id: true, username: true, avatarUrl: true },
-      })
-    : [];
-  const userIdToInfo = new Map(topUsersInfo.map(u => [u.id, { username: u.username, avatarUrl: u.avatarUrl }]));
+  const topUserIds = topUsersResult.map((r) => r.userId).filter((id): id is string => id !== null);
+  const topUsersInfo =
+    topUserIds.length > 0
+      ? await db.query.users.findMany({
+          where: inArray(users.id, topUserIds),
+          columns: { id: true, username: true, avatarUrl: true },
+        })
+      : [];
+  const userIdToInfo = new Map(
+    topUsersInfo.map((u) => [u.id, { username: u.username, avatarUrl: u.avatarUrl }])
+  );
 
-  const topUsers = topUsersResult.map(r => ({
-    username: userIdToInfo.get(r.userId!)?.username || 'Unknown',
+  const topUsers = topUsersResult.map((r) => ({
+    username: userIdToInfo.get(r.userId!)?.username || "Unknown",
     avatarUrl: userIdToInfo.get(r.userId!)?.avatarUrl || null,
     pullCount: Number(r.pullCount),
   }));
 
   // === EXPOSURE STATS (from secretAccesses) ===
-  const exposureStats = await db.select({
-    usersWithAccess: sql<number>`COUNT(DISTINCT ${secretAccesses.userId})`,
-    secretsAccessed: sql<number>`COUNT(DISTINCT ${secretAccesses.secretId})`,
-    lastAccessAt: sql<string | null>`MAX(${secretAccesses.lastAccessedAt})`,
-  })
+  const exposureStats = await db
+    .select({
+      usersWithAccess: sql<number>`COUNT(DISTINCT ${secretAccesses.userId})`,
+      secretsAccessed: sql<number>`COUNT(DISTINCT ${secretAccesses.secretId})`,
+      lastAccessAt: sql<string | null>`MAX(${secretAccesses.lastAccessedAt})`,
+    })
     .from(secretAccesses)
     .where(inArray(secretAccesses.vaultId, vaultIds));
 
   // lastAccessAt comes as string from SQL
   const lastAccessAtRaw = exposureStats[0]?.lastAccessAt;
   const lastAccessAt = lastAccessAtRaw
-    ? (typeof lastAccessAtRaw === 'string' ? lastAccessAtRaw : new Date(lastAccessAtRaw).toISOString())
+    ? typeof lastAccessAtRaw === "string"
+      ? lastAccessAtRaw
+      : new Date(lastAccessAtRaw).toISOString()
     : null;
 
   return {
@@ -423,7 +457,7 @@ export async function getSecurityOverview(userId: string): Promise<SecurityOverv
 
 // ============ ACCESS LOG ============
 
-export type AccessLogAction = 'pull' | 'view' | 'view_version';
+export type AccessLogAction = "pull" | "view" | "view_version";
 
 export interface AccessLogEvent {
   id: string;
@@ -460,7 +494,7 @@ export async function getAccessLog(
     where: eq(vaults.ownerId, userId),
     columns: { id: true, repoFullName: true },
   });
-  const vaultIds = userVaults.map(v => v.id);
+  const vaultIds = userVaults.map((v) => v.id);
 
   if (vaultIds.length === 0) {
     return { events: [], total: 0 };
@@ -468,7 +502,7 @@ export async function getAccessLog(
 
   // Filter by specific vault if provided
   const targetVaultIds = options?.vaultId
-    ? vaultIds.filter(id => id === options.vaultId)
+    ? vaultIds.filter((id) => id === options.vaultId)
     : vaultIds;
 
   if (targetVaultIds.length === 0) {
@@ -476,17 +510,21 @@ export async function getAccessLog(
   }
 
   // Get total count for pull events
-  const [pullCountResult] = await db.select({ count: count() })
+  const [pullCountResult] = await db
+    .select({ count: count() })
     .from(pullEvents)
     .where(inArray(pullEvents.vaultId, targetVaultIds));
 
   // Get total count for view events (secret_value_accessed, secret_version_value_accessed)
-  const [viewCountResult] = await db.select({ count: count() })
+  const [viewCountResult] = await db
+    .select({ count: count() })
     .from(activityLogs)
-    .where(and(
-      inArray(activityLogs.vaultId, targetVaultIds),
-      inArray(activityLogs.action, ['secret_value_accessed', 'secret_version_value_accessed'])
-    ));
+    .where(
+      and(
+        inArray(activityLogs.vaultId, targetVaultIds),
+        inArray(activityLogs.action, ["secret_value_accessed", "secret_version_value_accessed"])
+      )
+    );
 
   const totalCount = (pullCountResult?.count ?? 0) + (viewCountResult?.count ?? 0);
 
@@ -513,7 +551,7 @@ export async function getAccessLog(
   const viewEventsData = await db.query.activityLogs.findMany({
     where: and(
       inArray(activityLogs.vaultId, targetVaultIds),
-      inArray(activityLogs.action, ['secret_value_accessed', 'secret_version_value_accessed'])
+      inArray(activityLogs.action, ["secret_value_accessed", "secret_version_value_accessed"])
     ),
     orderBy: [desc(activityLogs.createdAt)],
     limit: limit * 2, // Get more to allow for merged sorting
@@ -528,10 +566,10 @@ export async function getAccessLog(
   });
 
   // Map pull events
-  const mappedPullEvents: AccessLogEvent[] = pullEventsData.map(e => ({
+  const mappedPullEvents: AccessLogEvent[] = pullEventsData.map((e) => ({
     id: e.id,
     timestamp: e.createdAt.toISOString(),
-    action: 'pull' as AccessLogAction,
+    action: "pull" as AccessLogAction,
     user: e.user ? { username: e.user.username, avatarUrl: e.user.avatarUrl } : null,
     vault: e.vault ? { repoFullName: e.vault.repoFullName } : null,
     ip: e.ip,
@@ -542,17 +580,19 @@ export async function getAccessLog(
   }));
 
   // Map view events
-  const mappedViewEvents: AccessLogEvent[] = viewEventsData.map(e => {
+  const mappedViewEvents: AccessLogEvent[] = viewEventsData.map((e) => {
     const metadata = e.metadata ? JSON.parse(e.metadata) : {};
     return {
       id: e.id,
       timestamp: e.createdAt.toISOString(),
-      action: (e.action === 'secret_version_value_accessed' ? 'view_version' : 'view') as AccessLogAction,
+      action: (e.action === "secret_version_value_accessed"
+        ? "view_version"
+        : "view") as AccessLogAction,
       user: e.user ? { username: e.user.username, avatarUrl: e.user.avatarUrl } : null,
       vault: e.vault ? { repoFullName: e.vault.repoFullName } : null,
-      ip: e.ipAddress || 'unknown',
+      ip: e.ipAddress || "unknown",
       location: { country: null, city: null }, // Activity logs don't have geo data
-      deviceId: '', // Activity logs don't have device ID
+      deviceId: "", // Activity logs don't have device ID
       hasAlert: false, // No security alerts for view events
       metadata: {
         secretKey: metadata.key,
@@ -591,15 +631,15 @@ export async function getSecurityAlertsForUser(userId: string, limit = 50, offse
 // ============ HELPERS ============
 function haversine(lat1: number, lon1: number, lat2: number, lon2: number): number {
   const R = 6371;
-  const dLat = (lat2 - lat1) * Math.PI / 180;
-  const dLon = (lon2 - lon1) * Math.PI / 180;
-  const a = Math.sin(dLat / 2) ** 2 +
-            Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
-            Math.sin(dLon / 2) ** 2;
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLon = ((lon2 - lon1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLon / 2) ** 2;
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
 export function generateDeviceId(userAgent: string | null, ip: string): string {
-  const data = `${userAgent || 'unknown'}|${ip}`;
-  return crypto.createHash('sha256').update(data).digest('hex').slice(0, 32);
+  const data = `${userAgent || "unknown"}|${ip}`;
+  return crypto.createHash("sha256").update(data).digest("hex").slice(0, 32);
 }

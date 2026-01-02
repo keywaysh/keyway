@@ -1,4 +1,4 @@
-import { getEncryptionService } from './encryption';
+import { getEncryptionService } from "./encryption";
 
 /**
  * Encrypted token data for storage in database

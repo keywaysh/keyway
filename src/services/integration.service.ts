@@ -3,12 +3,12 @@
  * Handles provider connections and sync operations
  */
 
-import { eq, and, isNull } from 'drizzle-orm';
-import { db, providerConnections, vaultSyncs, syncLogs, secrets, vaults } from '../db';
-import { getProvider } from './providers';
-import { getEncryptionService, type EncryptedData } from '../utils/encryption';
-import type { SyncDirection, SyncStatus } from '../db/schema';
-import { logger } from '../utils/sharedLogger';
+import { eq, and, isNull } from "drizzle-orm";
+import { db, providerConnections, vaultSyncs, syncLogs, secrets } from "../db";
+import { getProvider } from "./providers";
+import { getEncryptionService } from "../utils/encryption";
+import type { SyncDirection, SyncStatus } from "../db/schema";
+import { logger } from "../utils/sharedLogger";
 
 // Types
 export interface ConnectionInfo {
@@ -78,7 +78,11 @@ async function decryptProviderRefreshToken(connection: {
   refreshTokenAuthTag: string | null;
   refreshTokenVersion?: number | null;
 }): Promise<string | null> {
-  if (!connection.encryptedRefreshToken || !connection.refreshTokenIv || !connection.refreshTokenAuthTag) {
+  if (
+    !connection.encryptedRefreshToken ||
+    !connection.refreshTokenIv ||
+    !connection.refreshTokenAuthTag
+  ) {
     return null;
   }
   const encryptionService = await getEncryptionService();
@@ -111,7 +115,10 @@ async function safeDecryptSecret(secret: {
     });
     return { key: secret.key, value };
   } catch (error) {
-    logger.error({ secretKey: secret.key, error: error instanceof Error ? error.message : 'Unknown error' }, 'Failed to decrypt secret');
+    logger.error(
+      { secretKey: secret.key, error: error instanceof Error ? error.message : "Unknown error" },
+      "Failed to decrypt secret"
+    );
     return null;
   }
 }
@@ -138,14 +145,17 @@ type ConnectionWithTokens = {
 async function getValidAccessToken(connection: ConnectionWithTokens): Promise<string> {
   // Check if token is expired
   if (connection.tokenExpiresAt && connection.tokenExpiresAt < new Date()) {
-    logger.info({ connectionId: connection.id, provider: connection.provider }, 'Token expired, attempting refresh');
+    logger.info(
+      { connectionId: connection.id, provider: connection.provider },
+      "Token expired, attempting refresh"
+    );
     const provider = getProvider(connection.provider);
     const refreshToken = await decryptProviderRefreshToken(connection);
 
     if (provider?.refreshToken && refreshToken) {
       try {
         const newTokens = await provider.refreshToken(refreshToken);
-        logger.info({ connectionId: connection.id }, 'Token refreshed successfully');
+        logger.info({ connectionId: connection.id }, "Token refreshed successfully");
 
         // Update connection with new tokens
         const encrypted = await encryptProviderToken(newTokens.accessToken);
@@ -162,13 +172,19 @@ async function getValidAccessToken(connection: ConnectionWithTokens): Promise<st
 
         return newTokens.accessToken;
       } catch (error) {
-        logger.error({ connectionId: connection.id, error: error instanceof Error ? error.message : 'Unknown error' }, 'Token refresh failed');
-        throw new Error('Token expired and refresh failed. Please reconnect to provider.');
+        logger.error(
+          {
+            connectionId: connection.id,
+            error: error instanceof Error ? error.message : "Unknown error",
+          },
+          "Token refresh failed"
+        );
+        throw new Error("Token expired and refresh failed. Please reconnect to provider.");
       }
     }
 
-    logger.error({ connectionId: connection.id }, 'Token expired and no refresh token available');
-    throw new Error('Token expired. Please reconnect to provider.');
+    logger.error({ connectionId: connection.id }, "Token expired and no refresh token available");
+    throw new Error("Token expired. Please reconnect to provider.");
   }
 
   return decryptProviderToken(connection);
@@ -195,7 +211,9 @@ export async function getConnection(
     where: and(...conditions),
   });
 
-  if (!connection) return null;
+  if (!connection) {
+    return null;
+  }
 
   return {
     id: connection.id,
@@ -215,7 +233,7 @@ export async function listConnections(userId: string): Promise<ConnectionInfo[]>
     where: eq(providerConnections.userId, userId),
   });
 
-  return connections.map(c => ({
+  return connections.map((c) => ({
     id: c.id,
     provider: c.provider,
     providerUserId: c.providerUserId,
@@ -264,7 +282,11 @@ export async function createConnection(
       scopes: scopes || null,
     })
     .onConflictDoUpdate({
-      target: [providerConnections.userId, providerConnections.provider, providerConnections.providerTeamId],
+      target: [
+        providerConnections.userId,
+        providerConnections.provider,
+        providerConnections.providerTeamId,
+      ],
       set: {
         ...encrypted,
         ...refreshTokenData,
@@ -285,10 +307,7 @@ export async function createConnection(
 export async function deleteConnection(userId: string, connectionId: string): Promise<boolean> {
   const result = await db
     .delete(providerConnections)
-    .where(and(
-      eq(providerConnections.id, connectionId),
-      eq(providerConnections.userId, userId)
-    ))
+    .where(and(eq(providerConnections.id, connectionId), eq(providerConnections.userId, userId)))
     .returning({ id: providerConnections.id });
 
   return result.length > 0;
@@ -302,7 +321,9 @@ export async function getConnectionToken(connectionId: string): Promise<string |
     where: eq(providerConnections.id, connectionId),
   });
 
-  if (!connection) return null;
+  if (!connection) {
+    return null;
+  }
 
   return decryptProviderToken(connection);
 }
@@ -314,14 +335,11 @@ export async function getConnectionToken(connectionId: string): Promise<string |
 export async function listProviderProjects(connectionId: string, userId: string) {
   // Validate connection belongs to the user (IDOR protection)
   const connection = await db.query.providerConnections.findFirst({
-    where: and(
-      eq(providerConnections.id, connectionId),
-      eq(providerConnections.userId, userId)
-    ),
+    where: and(eq(providerConnections.id, connectionId), eq(providerConnections.userId, userId)),
   });
 
   if (!connection) {
-    throw new Error('Connection not found');
+    throw new Error("Connection not found");
   }
 
   const provider = getProvider(connection.provider);
@@ -377,7 +395,10 @@ export async function listAllProviderProjects(
     connections.map(async (connection) => {
       try {
         const accessToken = await getValidAccessToken(connection);
-        const projects = await provider.listProjects(accessToken, connection.providerTeamId || undefined);
+        const projects = await provider.listProjects(
+          accessToken,
+          connection.providerTeamId || undefined
+        );
         return {
           connectionId: connection.id,
           teamId: connection.providerTeamId,
@@ -386,8 +407,12 @@ export async function listAllProviderProjects(
       } catch (error) {
         // Log but don't fail - one expired token shouldn't block all connections
         logger.warn(
-          { connectionId: connection.id, teamId: connection.providerTeamId, error: error instanceof Error ? error.message : 'Unknown' },
-          'Failed to fetch projects for connection, skipping'
+          {
+            connectionId: connection.id,
+            teamId: connection.providerTeamId,
+            error: error instanceof Error ? error.message : "Unknown",
+          },
+          "Failed to fetch projects for connection, skipping"
         );
         return null;
       }
@@ -399,7 +424,7 @@ export async function listAllProviderProjects(
   const teamIdsToFetch = new Set<string>();
 
   for (const result of projectResults) {
-    if (result.status === 'fulfilled' && result.value) {
+    if (result.status === "fulfilled" && result.value) {
       const { connectionId, teamId, projects } = result.value;
       if (teamId) {
         teamIdsToFetch.add(teamId);
@@ -439,12 +464,15 @@ export async function listAllProviderProjects(
         );
 
         for (const result of teamResults) {
-          if (result.status === 'fulfilled' && result.value.teamName) {
+          if (result.status === "fulfilled" && result.value.teamName) {
             teamNames.set(result.value.teamId, result.value.teamName);
           }
         }
       } catch (error) {
-        logger.warn({ error: error instanceof Error ? error.message : 'Unknown' }, 'Failed to fetch team names');
+        logger.warn(
+          { error: error instanceof Error ? error.message : "Unknown" },
+          "Failed to fetch team names"
+        );
       }
     }
   }
@@ -457,7 +485,7 @@ export async function listAllProviderProjects(
   }
 
   // Return connection info for UI (picker)
-  const connectionInfos: ConnectionInfo[] = connections.map(c => ({
+  const connectionInfos: ConnectionInfo[] = connections.map((c) => ({
     id: c.id,
     provider: c.provider,
     providerUserId: c.providerUserId,
@@ -500,15 +528,12 @@ export async function getSyncStatus(
     }),
     // Get connection for provider access (with ownership validation)
     db.query.providerConnections.findFirst({
-      where: and(
-        eq(providerConnections.id, connectionId),
-        eq(providerConnections.userId, userId)
-      ),
+      where: and(eq(providerConnections.id, connectionId), eq(providerConnections.userId, userId)),
     }),
   ]);
 
   if (!connection) {
-    throw new Error('Connection not found');
+    throw new Error("Connection not found");
   }
 
   let providerSecretCount = 0;
@@ -558,14 +583,11 @@ export async function getSyncDiff(
 ): Promise<SyncDiff> {
   // Validate connection belongs to the user (IDOR protection)
   const connection = await db.query.providerConnections.findFirst({
-    where: and(
-      eq(providerConnections.id, connectionId),
-      eq(providerConnections.userId, userId)
-    ),
+    where: and(eq(providerConnections.id, connectionId), eq(providerConnections.userId, userId)),
   });
 
   if (!connection) {
-    throw new Error('Connection not found');
+    throw new Error("Connection not found");
   }
 
   const provider = getProvider(connection.provider);
@@ -657,14 +679,11 @@ export async function getSyncPreview(
 ): Promise<SyncPreview> {
   // Validate connection belongs to the user (IDOR protection)
   const connection = await db.query.providerConnections.findFirst({
-    where: and(
-      eq(providerConnections.id, connectionId),
-      eq(providerConnections.userId, userId)
-    ),
+    where: and(eq(providerConnections.id, connectionId), eq(providerConnections.userId, userId)),
   });
 
   if (!connection) {
-    throw new Error('Connection not found');
+    throw new Error("Connection not found");
   }
 
   const provider = getProvider(connection.provider);
@@ -696,7 +715,10 @@ export async function getSyncPreview(
 
   // Log if there were decryption errors but continue with available secrets
   if (decryptionErrors.length > 0) {
-    logger.warn({ count: decryptionErrors.length, keys: decryptionErrors }, 'Skipped secrets due to decryption errors');
+    logger.warn(
+      { count: decryptionErrors.length, keys: decryptionErrors },
+      "Skipped secrets due to decryption errors"
+    );
   }
 
   // Get provider secrets
@@ -719,7 +741,7 @@ export async function getSyncPreview(
   const toDelete: string[] = [];
   const toSkip: string[] = [];
 
-  if (direction === 'push') {
+  if (direction === "push") {
     // Keyway → Provider
     for (const [key, value] of keywaySecretsMap) {
       const providerValue = providerSecretsMap.get(key);
@@ -771,7 +793,10 @@ export async function executeSync(
   allowDelete: boolean,
   triggeredBy: string
 ): Promise<SyncResult> {
-  logger.info({ vaultId, direction, keywayEnvironment, providerEnvironment }, 'executeSync started');
+  logger.info(
+    { vaultId, direction, keywayEnvironment, providerEnvironment },
+    "executeSync started"
+  );
 
   // Validate connection belongs to the user (IDOR protection)
   const connection = await db.query.providerConnections.findFirst({
@@ -782,15 +807,18 @@ export async function executeSync(
   });
 
   if (!connection) {
-    logger.error({ connectionId, userId: triggeredBy }, 'Connection not found');
-    throw new Error('Connection not found');
+    logger.error({ connectionId, userId: triggeredBy }, "Connection not found");
+    throw new Error("Connection not found");
   }
 
-  logger.debug({ provider: connection.provider, teamId: connection.providerTeamId }, 'Connection found');
+  logger.debug(
+    { provider: connection.provider, teamId: connection.providerTeamId },
+    "Connection found"
+  );
 
   const provider = getProvider(connection.provider);
   if (!provider) {
-    logger.error({ provider: connection.provider }, 'Provider not found');
+    logger.error({ provider: connection.provider }, "Provider not found");
     throw new Error(`Provider ${connection.provider} not found`);
   }
 
@@ -810,7 +838,11 @@ export async function executeSync(
     // Get project name
     let projectName: string | undefined;
     if (provider.getProject) {
-      const project = await provider.getProject(accessToken, projectId, connection.providerTeamId || undefined);
+      const project = await provider.getProject(
+        accessToken,
+        projectId,
+        connection.providerTeamId || undefined
+      );
       projectName = project?.name;
     }
 
@@ -831,7 +863,7 @@ export async function executeSync(
   let result: SyncResult;
 
   try {
-    if (direction === 'push') {
+    if (direction === "push") {
       result = await executePush(
         vaultId,
         keywayEnvironment,
@@ -875,13 +907,12 @@ export async function executeSync(
         triggeredBy,
       });
     });
-
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    logger.error({ error: errorMessage, vaultId, direction }, 'Sync failed');
+    const errorMessage = error instanceof Error ? error.message : "Unknown error";
+    logger.error({ error: errorMessage, vaultId, direction }, "Sync failed");
 
     result = {
-      status: 'failed',
+      status: "failed",
       created: 0,
       updated: 0,
       deleted: 0,
@@ -905,7 +936,16 @@ export async function executeSync(
     });
   }
 
-  logger.info({ status: result.status, created: result.created, updated: result.updated, deleted: result.deleted, skipped: result.skipped }, 'Sync completed');
+  logger.info(
+    {
+      status: result.status,
+      created: result.created,
+      updated: result.updated,
+      deleted: result.deleted,
+      skipped: result.skipped,
+    },
+    "Sync completed"
+  );
   return result;
 }
 
@@ -922,7 +962,9 @@ async function executePush(
   teamId: string | undefined,
   allowDelete: boolean
 ): Promise<SyncResult> {
-  if (!provider) throw new Error('Provider not found');
+  if (!provider) {
+    throw new Error("Provider not found");
+  }
 
   // Get Keyway secrets (active only, excludes trash)
   const keywaySecrets = await db.query.secrets.findMany({
@@ -946,7 +988,10 @@ async function executePush(
 
   // Log if there were decryption errors but continue with available secrets
   if (decryptionErrors.length > 0) {
-    logger.warn({ count: decryptionErrors.length, keys: decryptionErrors }, 'Skipped secrets in push due to decryption errors');
+    logger.warn(
+      { count: decryptionErrors.length, keys: decryptionErrors },
+      "Skipped secrets in push due to decryption errors"
+    );
   }
 
   // Set env vars
@@ -968,13 +1013,17 @@ async function executePush(
       teamId
     );
 
-    const keysToDelete = providerEnvVars
-      .filter(env => !varsToSet[env.key])
-      .map(env => env.key);
+    const keysToDelete = providerEnvVars.filter((env) => !varsToSet[env.key]).map((env) => env.key);
 
     if (keysToDelete.length > 0) {
       if (provider.deleteEnvVars) {
-        const result = await provider.deleteEnvVars(accessToken, projectId, providerEnvironment, keysToDelete, teamId);
+        const result = await provider.deleteEnvVars(
+          accessToken,
+          projectId,
+          providerEnvironment,
+          keysToDelete,
+          teamId
+        );
         deleted = result.deleted;
       } else {
         for (const key of keysToDelete) {
@@ -986,7 +1035,7 @@ async function executePush(
   }
 
   return {
-    status: 'success',
+    status: "success",
     created,
     updated,
     deleted,
@@ -1006,7 +1055,9 @@ async function executePull(
   providerEnvironment: string,
   teamId: string | undefined
 ): Promise<SyncResult> {
-  if (!provider) throw new Error('Provider not found');
+  if (!provider) {
+    throw new Error("Provider not found");
+  }
 
   // Get provider env vars
   const providerEnvVars = await provider.listEnvVars(
@@ -1025,7 +1076,7 @@ async function executePull(
     ),
   });
 
-  const existingKeys = new Set(existingSecrets.map(s => s.key));
+  const existingKeys = new Set(existingSecrets.map((s) => s.key));
 
   let created = 0;
   let skipped = 0;
@@ -1057,7 +1108,7 @@ async function executePull(
   }
 
   return {
-    status: 'success',
+    status: "success",
     created,
     updated: 0,
     deleted: 0,

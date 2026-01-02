@@ -3,13 +3,12 @@
  * Handles OAuth flows and sync operations with external providers (Vercel, Netlify, etc.)
  */
 
-import { FastifyInstance } from 'fastify';
-import { z } from 'zod';
-import { authenticateGitHub, requireApiKeyScope } from '../../../middleware/auth';
-import { hasRequiredScopes } from '../../../utils/apiKeys';
-import { getProvider, getAvailableProviders } from '../../../services/providers';
+import { FastifyInstance } from "fastify";
+import { z } from "zod";
+import { authenticateGitHub, requireApiKeyScope } from "../../../middleware/auth";
+import { hasRequiredScopes } from "../../../utils/apiKeys";
+import { getProvider, getAvailableProviders } from "../../../services/providers";
 import {
-  getConnection,
   listConnections,
   createConnection,
   deleteConnection,
@@ -19,33 +18,32 @@ import {
   getSyncDiff,
   getSyncPreview,
   executeSync,
-  getConnectionToken,
-} from '../../../services/integration.service';
-import { signState, verifyState } from '../../../utils/state';
-import { config } from '../../../config';
-import { db, vaults, users } from '../../../db';
-import { eq } from 'drizzle-orm';
-import { NotFoundError, ForbiddenError, BadRequestError, PlanLimitError } from '../../../lib';
-import { getUserRoleWithApp } from '../../../utils/github';
-import { resolveEffectivePermission } from '../../../utils/permissions';
-import { logger } from '../../../utils/sharedLogger';
-import { providerConnections } from '../../../db/schema';
-import { and } from 'drizzle-orm';
-import { sendData, sendNoContent } from '../../../lib/response';
-import { canConnectProvider } from '../../../config/plans';
-import { logActivity, extractRequestInfo, detectPlatform } from '../../../services';
+} from "../../../services/integration.service";
+import { signState, verifyState } from "../../../utils/state";
+import { config } from "../../../config";
+import { db, vaults, users } from "../../../db";
+import { eq } from "drizzle-orm";
+import { NotFoundError, ForbiddenError, BadRequestError, PlanLimitError } from "../../../lib";
+import { getUserRoleWithApp } from "../../../utils/github";
+import { requireSyncPermission, requireEnvironmentPermission } from "../../../utils/permissions";
+import { logger } from "../../../utils/sharedLogger";
+import { providerConnections } from "../../../db/schema";
+import { and } from "drizzle-orm";
+import { sendData, sendNoContent } from "../../../lib/response";
+import { canConnectProvider } from "../../../config/plans";
+import { logActivity, extractRequestInfo, detectPlatform } from "../../../services";
 
 // Allowed redirect origins for OAuth callbacks
 const ALLOWED_REDIRECT_ORIGINS = [
   // Production
-  'https://keyway.sh',
-  'https://api.keyway.sh',
+  "https://keyway.sh",
+  "https://api.keyway.sh",
   // Test/Staging
-  'https://keyway.cloud',
-  'https://api.keyway.cloud',
+  "https://keyway.cloud",
+  "https://api.keyway.cloud",
   // Local development
-  'http://localhost:3000',
-  'http://localhost:5173',
+  "http://localhost:3000",
+  "http://localhost:5173",
 ];
 
 // Schemas
@@ -53,9 +51,9 @@ const SyncBodySchema = z.object({
   connectionId: z.string().uuid(),
   projectId: z.string(),
   serviceId: z.string().optional(), // Railway: service ID for service-specific variables
-  keywayEnvironment: z.string().default('production'),
-  providerEnvironment: z.string().default('production'),
-  direction: z.enum(['push', 'pull']).default('push'),
+  keywayEnvironment: z.string().default("production"),
+  providerEnvironment: z.string().default("production"),
+  direction: z.enum(["push", "pull"]).default("push"),
   allowDelete: z.boolean().default(false),
 });
 
@@ -63,30 +61,37 @@ const SyncPreviewQuerySchema = z.object({
   connectionId: z.string().uuid(),
   projectId: z.string(),
   serviceId: z.string().optional(), // Railway: service ID for service-specific variables
-  keywayEnvironment: z.string().optional().default('production'),
-  providerEnvironment: z.string().optional().default('production'),
-  direction: z.enum(['push', 'pull']).optional().default('push'),
-  allowDelete: z.string().optional().transform(v => v === 'true'),
+  keywayEnvironment: z.string().optional().default("production"),
+  providerEnvironment: z.string().optional().default("production"),
+  direction: z.enum(["push", "pull"]).optional().default("push"),
+  allowDelete: z
+    .string()
+    .optional()
+    .transform((v) => v === "true"),
 });
 
 const SyncStatusQuerySchema = z.object({
   connectionId: z.string().uuid(),
   projectId: z.string(),
   serviceId: z.string().optional(), // Railway: service ID for service-specific variables
-  environment: z.string().optional().default('production'),
+  environment: z.string().optional().default("production"),
 });
 
 const SyncDiffQuerySchema = z.object({
   connectionId: z.string().uuid(),
   projectId: z.string(),
   serviceId: z.string().optional(), // Railway: service ID for service-specific variables
-  keywayEnvironment: z.string().optional().default('production'),
-  providerEnvironment: z.string().optional().default('production'),
+  keywayEnvironment: z.string().optional().default("production"),
+  providerEnvironment: z.string().optional().default("production"),
 });
 
 // Helper to build callback URL
-function buildCallbackUrl(request: { headers: { 'x-forwarded-proto'?: string; host?: string }; hostname: string }, provider: string): string {
-  const protocol = request.headers['x-forwarded-proto'] || (config.server.isDevelopment ? 'http' : 'https');
+function buildCallbackUrl(
+  request: { headers: { "x-forwarded-proto"?: string; host?: string }; hostname: string },
+  provider: string
+): string {
+  const protocol =
+    request.headers["x-forwarded-proto"] || (config.server.isDevelopment ? "http" : "https");
   const host = request.headers.host || request.hostname;
   return `${protocol}://${host}/v1/integrations/${provider}/callback`;
 }
@@ -95,28 +100,28 @@ function buildCallbackUrl(request: { headers: { 'x-forwarded-proto'?: string; ho
 // Uses GitHub App to check permissions (consistent with other access checks)
 async function verifyVaultAccess(username: string, owner: string, repo: string) {
   const repoFullName = `${owner}/${repo}`;
-  logger.debug({ username, repoFullName }, 'Verifying vault access');
+  logger.debug({ username, repoFullName }, "Verifying vault access");
 
   // Use GitHub App to check user's role (same as requireEnvironmentAccess middleware)
   const role = await getUserRoleWithApp(repoFullName, username);
 
   if (!role) {
-    logger.warn({ username, repoFullName }, 'Access denied: user has no role on repository');
-    throw new ForbiddenError('You do not have access to this repository');
+    logger.warn({ username, repoFullName }, "Access denied: user has no role on repository");
+    throw new ForbiddenError("You do not have access to this repository");
   }
 
-  logger.debug({ username, role, repoFullName }, 'Access granted');
+  logger.debug({ username, role, repoFullName }, "Access granted");
 
   const vault = await db.query.vaults.findFirst({
     where: eq(vaults.repoFullName, repoFullName),
   });
 
   if (!vault) {
-    logger.warn({ repoFullName }, 'Vault not found for repository');
-    throw new NotFoundError('Vault not found');
+    logger.warn({ repoFullName }, "Vault not found for repository");
+    throw new NotFoundError("Vault not found");
   }
 
-  logger.debug({ vaultId: vault.id, repoFullName }, 'Vault found');
+  logger.debug({ vaultId: vault.id, repoFullName }, "Vault found");
   return vault;
 }
 
@@ -125,250 +130,288 @@ export async function integrationsRoutes(fastify: FastifyInstance) {
    * GET /integrations
    * List available providers
    */
-  fastify.get('/', async (request, reply) => {
-    return sendData(reply, {
-      providers: getAvailableProviders(),
-    }, { requestId: request.id });
+  fastify.get("/", async (request, reply) => {
+    return sendData(
+      reply,
+      {
+        providers: getAvailableProviders(),
+      },
+      { requestId: request.id }
+    );
   });
 
   /**
    * GET /integrations/connections
    * List user's provider connections
    */
-  fastify.get('/connections', {
-    preHandler: [authenticateGitHub, requireApiKeyScope('read:secrets')],
-  }, async (request, reply) => {
-    // Get user from DB to get the UUID
-    const user = await db.query.users.findFirst({
-      where: and(
-        eq(users.forgeType, (request.vcsUser || request.githubUser!).forgeType),
-        eq(users.forgeUserId, (request.vcsUser || request.githubUser!).forgeUserId)
-      ),
-    });
+  fastify.get(
+    "/connections",
+    {
+      preHandler: [authenticateGitHub, requireApiKeyScope("read:secrets")],
+    },
+    async (request, reply) => {
+      // Get user from DB to get the UUID
+      const user = await db.query.users.findFirst({
+        where: and(
+          eq(users.forgeType, (request.vcsUser || request.githubUser!).forgeType),
+          eq(users.forgeUserId, (request.vcsUser || request.githubUser!).forgeUserId)
+        ),
+      });
 
-    if (!user) {
-      throw new NotFoundError('User not found');
+      if (!user) {
+        throw new NotFoundError("User not found");
+      }
+
+      const connections = await listConnections(user.id);
+      return sendData(reply, { connections }, { requestId: request.id });
     }
-
-    const connections = await listConnections(user.id);
-    return sendData(reply, { connections }, { requestId: request.id });
-  });
+  );
 
   /**
    * DELETE /integrations/connections/:id
    * Delete a provider connection
    */
-  fastify.delete('/connections/:id', {
-    preHandler: [authenticateGitHub, requireApiKeyScope('write:secrets')],
-  }, async (request, reply) => {
-    const { id } = request.params as { id: string };
+  fastify.delete(
+    "/connections/:id",
+    {
+      preHandler: [authenticateGitHub, requireApiKeyScope("write:secrets")],
+    },
+    async (request, reply) => {
+      const { id } = request.params as { id: string };
 
-    const user = await db.query.users.findFirst({
-      where: and(
-        eq(users.forgeType, (request.vcsUser || request.githubUser!).forgeType),
-        eq(users.forgeUserId, (request.vcsUser || request.githubUser!).forgeUserId)
-      ),
-    });
+      const user = await db.query.users.findFirst({
+        where: and(
+          eq(users.forgeType, (request.vcsUser || request.githubUser!).forgeType),
+          eq(users.forgeUserId, (request.vcsUser || request.githubUser!).forgeUserId)
+        ),
+      });
 
-    if (!user) {
-      throw new NotFoundError('User not found');
+      if (!user) {
+        throw new NotFoundError("User not found");
+      }
+
+      // Get connection info before deletion for logging
+      const connection = await db.query.providerConnections.findFirst({
+        where: and(eq(providerConnections.id, id), eq(providerConnections.userId, user.id)),
+      });
+
+      const deleted = await deleteConnection(user.id, id);
+
+      if (!deleted) {
+        throw new NotFoundError("Connection not found");
+      }
+
+      // Log integration disconnected (no vaultId since it's user-level)
+      const { ipAddress, userAgent } = extractRequestInfo(request);
+      await logActivity({
+        userId: user.id,
+        action: "integration_disconnected",
+        platform: detectPlatform(userAgent),
+        ipAddress,
+        userAgent,
+        metadata: { provider: connection?.provider },
+      });
+
+      return sendNoContent(reply);
     }
-
-    // Get connection info before deletion for logging
-    const connection = await db.query.providerConnections.findFirst({
-      where: and(
-        eq(providerConnections.id, id),
-        eq(providerConnections.userId, user.id)
-      ),
-    });
-
-    const deleted = await deleteConnection(user.id, id);
-
-    if (!deleted) {
-      throw new NotFoundError('Connection not found');
-    }
-
-    // Log integration disconnected (no vaultId since it's user-level)
-    const { ipAddress, userAgent } = extractRequestInfo(request);
-    await logActivity({
-      userId: user.id,
-      action: 'integration_disconnected',
-      platform: detectPlatform(userAgent),
-      ipAddress,
-      userAgent,
-      metadata: { provider: connection?.provider },
-    });
-
-    return sendNoContent(reply);
-  });
+  );
 
   /**
    * POST /integrations/:provider/connect
    * Connect with API token (for providers like Railway that don't use OAuth)
    */
-  fastify.post('/:provider/connect', {
-    preHandler: [authenticateGitHub, requireApiKeyScope('write:secrets')],
-  }, async (request, reply) => {
-    const { provider: providerName } = request.params as { provider: string };
-    const body = request.body as { token?: string };
+  fastify.post(
+    "/:provider/connect",
+    {
+      preHandler: [authenticateGitHub, requireApiKeyScope("write:secrets")],
+    },
+    async (request, reply) => {
+      const { provider: providerName } = request.params as { provider: string };
+      const body = request.body as { token?: string };
 
-    if (!body.token) {
-      throw new BadRequestError('Token is required');
+      if (!body.token) {
+        throw new BadRequestError("Token is required");
+      }
+
+      const provider = getProvider(providerName);
+      if (!provider) {
+        throw new NotFoundError(`Provider ${providerName} not found`);
+      }
+
+      // Only allow token-based auth for specific providers
+      const tokenAuthProviders = ["railway"];
+      if (!tokenAuthProviders.includes(providerName)) {
+        throw new BadRequestError(`Provider ${providerName} requires OAuth authentication`);
+      }
+
+      // Get Keyway user
+      const user = await db.query.users.findFirst({
+        where: and(
+          eq(users.forgeType, (request.vcsUser || request.githubUser!).forgeType),
+          eq(users.forgeUserId, (request.vcsUser || request.githubUser!).forgeUserId)
+        ),
+      });
+
+      if (!user) {
+        throw new NotFoundError("User not found");
+      }
+
+      // Check provider limit before creating connection
+      const existingConnections = await listConnections(user.id);
+      const providerCheck = canConnectProvider(user.plan, existingConnections.length);
+      if (!providerCheck.allowed) {
+        throw new PlanLimitError(providerCheck.reason || "Provider limit reached");
+      }
+
+      // Validate token by fetching user info
+      let providerUser;
+      try {
+        providerUser = await provider.getUser(body.token);
+      } catch (_error) {
+        throw new BadRequestError("Invalid API token. Please check your token and try again.");
+      }
+
+      // Store connection (no refresh token or expiry for API tokens)
+      await createConnection(
+        user.id,
+        providerName,
+        body.token,
+        { id: providerUser.id, teamId: providerUser.teamId },
+        undefined, // no refresh token
+        undefined, // no expiry
+        undefined // no scopes
+      );
+
+      // Log integration connected
+      const { ipAddress, userAgent } = extractRequestInfo(request);
+      await logActivity({
+        userId: user.id,
+        action: "integration_connected",
+        platform: detectPlatform(userAgent),
+        ipAddress,
+        userAgent,
+        metadata: { provider: providerName },
+      });
+
+      return sendData(
+        reply,
+        {
+          success: true,
+          provider: providerName,
+          user: {
+            id: providerUser.id,
+            username: providerUser.username,
+            email: providerUser.email,
+            teamName: providerUser.teamName,
+          },
+        },
+        { requestId: request.id }
+      );
     }
-
-    const provider = getProvider(providerName);
-    if (!provider) {
-      throw new NotFoundError(`Provider ${providerName} not found`);
-    }
-
-    // Only allow token-based auth for specific providers
-    const tokenAuthProviders = ['railway'];
-    if (!tokenAuthProviders.includes(providerName)) {
-      throw new BadRequestError(`Provider ${providerName} requires OAuth authentication`);
-    }
-
-    // Get Keyway user
-    const user = await db.query.users.findFirst({
-      where: and(
-        eq(users.forgeType, (request.vcsUser || request.githubUser!).forgeType),
-        eq(users.forgeUserId, (request.vcsUser || request.githubUser!).forgeUserId)
-      ),
-    });
-
-    if (!user) {
-      throw new NotFoundError('User not found');
-    }
-
-    // Check provider limit before creating connection
-    const existingConnections = await listConnections(user.id);
-    const providerCheck = canConnectProvider(user.plan, existingConnections.length);
-    if (!providerCheck.allowed) {
-      throw new PlanLimitError(providerCheck.reason || 'Provider limit reached');
-    }
-
-    // Validate token by fetching user info
-    let providerUser;
-    try {
-      providerUser = await provider.getUser(body.token);
-    } catch (error) {
-      throw new BadRequestError('Invalid API token. Please check your token and try again.');
-    }
-
-    // Store connection (no refresh token or expiry for API tokens)
-    await createConnection(
-      user.id,
-      providerName,
-      body.token,
-      { id: providerUser.id, teamId: providerUser.teamId },
-      undefined, // no refresh token
-      undefined, // no expiry
-      undefined  // no scopes
-    );
-
-    // Log integration connected
-    const { ipAddress, userAgent } = extractRequestInfo(request);
-    await logActivity({
-      userId: user.id,
-      action: 'integration_connected',
-      platform: detectPlatform(userAgent),
-      ipAddress,
-      userAgent,
-      metadata: { provider: providerName },
-    });
-
-    return sendData(reply, {
-      success: true,
-      provider: providerName,
-      user: {
-        id: providerUser.id,
-        username: providerUser.username,
-        email: providerUser.email,
-        teamName: providerUser.teamName,
-      },
-    }, { requestId: request.id });
-  });
+  );
 
   /**
    * GET /integrations/:provider/authorize
    * Start OAuth flow for a provider
    */
-  fastify.get('/:provider/authorize', {
-    preHandler: [authenticateGitHub, requireApiKeyScope('write:secrets')],
-  }, async (request, reply) => {
-    const { provider: providerName } = request.params as { provider: string };
-    const query = request.query as { redirect_uri?: string };
+  fastify.get(
+    "/:provider/authorize",
+    {
+      preHandler: [authenticateGitHub, requireApiKeyScope("write:secrets")],
+    },
+    async (request, reply) => {
+      const { provider: providerName } = request.params as { provider: string };
+      const query = request.query as { redirect_uri?: string };
 
-    const provider = getProvider(providerName);
-    if (!provider) {
-      throw new NotFoundError(`Provider ${providerName} not found`);
-    }
-
-    // Check provider limit BEFORE redirecting to OAuth
-    const user = await db.query.users.findFirst({
-      where: and(
-        eq(users.forgeType, (request.vcsUser || request.githubUser!).forgeType),
-        eq(users.forgeUserId, (request.vcsUser || request.githubUser!).forgeUserId)
-      ),
-    });
-    if (!user) {
-      throw new NotFoundError('User not found');
-    }
-    const existingConnections = await listConnections(user.id);
-    const providerCheck = canConnectProvider(user.plan, existingConnections.length);
-    if (!providerCheck.allowed) {
-      throw new PlanLimitError(providerCheck.reason || 'Provider limit reached');
-    }
-
-    // Validate redirect_uri upfront if provided (prevents signing invalid URIs)
-    let validatedRedirectUri: string | null = null;
-    if (query.redirect_uri) {
-      try {
-        const url = new URL(query.redirect_uri);
-        if (!ALLOWED_REDIRECT_ORIGINS.includes(url.origin)) {
-          throw new ForbiddenError(`Invalid redirect origin: ${url.origin}`);
-        }
-        validatedRedirectUri = query.redirect_uri;
-      } catch (e) {
-        if (e instanceof ForbiddenError) throw e;
-        throw new ForbiddenError('Invalid redirect URI format');
+      const provider = getProvider(providerName);
+      if (!provider) {
+        throw new NotFoundError(`Provider ${providerName} not found`);
       }
+
+      // Check provider limit BEFORE redirecting to OAuth
+      const user = await db.query.users.findFirst({
+        where: and(
+          eq(users.forgeType, (request.vcsUser || request.githubUser!).forgeType),
+          eq(users.forgeUserId, (request.vcsUser || request.githubUser!).forgeUserId)
+        ),
+      });
+      if (!user) {
+        throw new NotFoundError("User not found");
+      }
+      const existingConnections = await listConnections(user.id);
+      const providerCheck = canConnectProvider(user.plan, existingConnections.length);
+      if (!providerCheck.allowed) {
+        throw new PlanLimitError(providerCheck.reason || "Provider limit reached");
+      }
+
+      // Validate redirect_uri upfront if provided (prevents signing invalid URIs)
+      let validatedRedirectUri: string | null = null;
+      if (query.redirect_uri) {
+        try {
+          const url = new URL(query.redirect_uri);
+          if (!ALLOWED_REDIRECT_ORIGINS.includes(url.origin)) {
+            throw new ForbiddenError(`Invalid redirect origin: ${url.origin}`);
+          }
+          validatedRedirectUri = query.redirect_uri;
+        } catch (e) {
+          if (e instanceof ForbiddenError) {
+            throw e;
+          }
+          throw new ForbiddenError("Invalid redirect URI format");
+        }
+      }
+
+      const callbackUri = buildCallbackUrl(request, providerName);
+      const { url: authUrl, codeVerifier } = provider.getAuthorizationUrl("", callbackUri);
+
+      // Sign state to prevent CSRF (include codeVerifier for PKCE)
+      const vcsUser = request.vcsUser || request.githubUser!;
+      const state = signState({
+        type: "provider_oauth",
+        provider: providerName,
+        forgeType: vcsUser.forgeType,
+        forgeUserId: vcsUser.forgeUserId,
+        redirectUri: validatedRedirectUri,
+        codeVerifier, // Store for token exchange
+      });
+
+      // Replace empty state in URL with signed state
+      const finalUrl = authUrl.replace("state=", `state=${encodeURIComponent(state)}`);
+
+      return reply.redirect(finalUrl);
     }
-
-    const callbackUri = buildCallbackUrl(request, providerName);
-    const { url: authUrl, codeVerifier } = provider.getAuthorizationUrl('', callbackUri);
-
-    // Sign state to prevent CSRF (include codeVerifier for PKCE)
-    const vcsUser = request.vcsUser || request.githubUser!;
-    const state = signState({
-      type: 'provider_oauth',
-      provider: providerName,
-      forgeType: vcsUser.forgeType,
-      forgeUserId: vcsUser.forgeUserId,
-      redirectUri: validatedRedirectUri,
-      codeVerifier, // Store for token exchange
-    });
-
-    // Replace empty state in URL with signed state
-    const finalUrl = authUrl.replace('state=', `state=${encodeURIComponent(state)}`);
-
-    return reply.redirect(finalUrl);
-  });
+  );
 
   /**
    * GET /integrations/:provider/callback
    * OAuth callback for a provider
    */
-  fastify.get('/:provider/callback', async (request, reply) => {
+  fastify.get("/:provider/callback", async (request, reply) => {
     const { provider: providerName } = request.params as { provider: string };
-    const query = request.query as { code?: string; state?: string; error?: string; error_description?: string };
+    const query = request.query as {
+      code?: string;
+      state?: string;
+      error?: string;
+      error_description?: string;
+    };
 
     if (query.error) {
-      fastify.log.warn({ error: query.error, description: query.error_description }, 'Provider OAuth error');
-      return reply.type('text/html').send(renderErrorPage('Authorization Denied', query.error_description || 'You denied the authorization request.'));
+      fastify.log.warn(
+        { error: query.error, description: query.error_description },
+        "Provider OAuth error"
+      );
+      return reply
+        .type("text/html")
+        .send(
+          renderErrorPage(
+            "Authorization Denied",
+            query.error_description || "You denied the authorization request."
+          )
+        );
     }
 
     if (!query.code || !query.state) {
-      throw new BadRequestError('Missing code or state parameter');
+      throw new BadRequestError("Missing code or state parameter");
     }
 
     const provider = getProvider(providerName);
@@ -379,14 +422,22 @@ export async function integrationsRoutes(fastify: FastifyInstance) {
     try {
       // Verify state
       const stateData = verifyState(query.state);
-      if (!stateData || stateData.type !== 'provider_oauth' || stateData.provider !== providerName) {
-        throw new BadRequestError('Invalid or tampered state parameter');
+      if (
+        !stateData ||
+        stateData.type !== "provider_oauth" ||
+        stateData.provider !== providerName
+      ) {
+        throw new BadRequestError("Invalid or tampered state parameter");
       }
 
       // Exchange code for token (include codeVerifier for PKCE if present)
       const callbackUri = buildCallbackUrl(request, providerName);
       const codeVerifier = stateData.codeVerifier as string | undefined;
-      const tokenResponse = await provider.exchangeCodeForToken(query.code, callbackUri, codeVerifier);
+      const tokenResponse = await provider.exchangeCodeForToken(
+        query.code,
+        callbackUri,
+        codeVerifier
+      );
 
       // Get provider user info
       const providerUser = await provider.getUser(tokenResponse.accessToken);
@@ -394,23 +445,27 @@ export async function integrationsRoutes(fastify: FastifyInstance) {
       // Get Keyway user
       const user = await db.query.users.findFirst({
         where: and(
-          eq(users.forgeType, stateData.forgeType as 'github' | 'gitlab' | 'bitbucket'),
+          eq(users.forgeType, stateData.forgeType as "github" | "gitlab" | "bitbucket"),
           eq(users.forgeUserId, stateData.forgeUserId as string)
         ),
       });
 
       if (!user) {
-        throw new NotFoundError('User not found. Please log in again.');
+        throw new NotFoundError("User not found. Please log in again.");
       }
 
       // Check provider limit before creating connection
       const existingConnections = await listConnections(user.id);
       const providerCheck = canConnectProvider(user.plan, existingConnections.length);
       if (!providerCheck.allowed) {
-        return reply.type('text/html').send(renderErrorPage(
-          'Provider Limit Reached',
-          `${providerCheck.reason} <a href="https://keyway.sh/upgrade">Upgrade your plan</a> to connect more providers.`
-        ));
+        return reply
+          .type("text/html")
+          .send(
+            renderErrorPage(
+              "Provider Limit Reached",
+              `${providerCheck.reason} <a href="https://keyway.sh/upgrade">Upgrade your plan</a> to connect more providers.`
+            )
+          );
       }
 
       // Store connection
@@ -421,14 +476,14 @@ export async function integrationsRoutes(fastify: FastifyInstance) {
         { id: providerUser.id, teamId: providerUser.teamId },
         tokenResponse.refreshToken,
         tokenResponse.expiresIn ? new Date(Date.now() + tokenResponse.expiresIn * 1000) : undefined,
-        tokenResponse.scope?.split(' ')
+        tokenResponse.scope?.split(" ")
       );
 
       // Log integration connected
       const { ipAddress, userAgent } = extractRequestInfo(request);
       await logActivity({
         userId: user.id,
-        action: 'integration_connected',
+        action: "integration_connected",
         platform: detectPlatform(userAgent),
         ipAddress,
         userAgent,
@@ -441,26 +496,38 @@ export async function integrationsRoutes(fastify: FastifyInstance) {
         try {
           const url = new URL(redirectUri);
           if (!ALLOWED_REDIRECT_ORIGINS.includes(url.origin)) {
-            fastify.log.warn({ redirectUri, origin: url.origin }, 'Invalid redirect origin attempted');
+            fastify.log.warn(
+              { redirectUri, origin: url.origin },
+              "Invalid redirect origin attempted"
+            );
             // Fall through to success page instead of open redirect
           } else {
             return reply.redirect(redirectUri);
           }
         } catch {
-          fastify.log.warn({ redirectUri }, 'Invalid redirect URI format');
+          fastify.log.warn({ redirectUri }, "Invalid redirect URI format");
           // Fall through to success page
         }
       }
 
-      return reply.type('text/html').send(renderSuccessPage(providerName, providerUser.username));
-
+      return reply.type("text/html").send(renderSuccessPage(providerName, providerUser.username));
     } catch (error) {
-      fastify.log.error({
-        err: error,
-        provider: providerName,
-      }, 'Provider OAuth callback error');
+      fastify.log.error(
+        {
+          err: error,
+          provider: providerName,
+        },
+        "Provider OAuth callback error"
+      );
 
-      return reply.type('text/html').send(renderErrorPage('Connection Failed', 'An error occurred while connecting. Please try again.'));
+      return reply
+        .type("text/html")
+        .send(
+          renderErrorPage(
+            "Connection Failed",
+            "An error occurred while connecting. Please try again."
+          )
+        );
     }
   });
 
@@ -468,334 +535,379 @@ export async function integrationsRoutes(fastify: FastifyInstance) {
    * GET /integrations/connections/:id/projects
    * List projects for a connection
    */
-  fastify.get('/connections/:id/projects', {
-    preHandler: [authenticateGitHub, requireApiKeyScope('read:secrets')],
-  }, async (request, reply) => {
-    const { id } = request.params as { id: string };
+  fastify.get(
+    "/connections/:id/projects",
+    {
+      preHandler: [authenticateGitHub, requireApiKeyScope("read:secrets")],
+    },
+    async (request, reply) => {
+      const { id } = request.params as { id: string };
 
-    // Get the authenticated user
-    const user = await db.query.users.findFirst({
-      where: and(
-        eq(users.forgeType, (request.vcsUser || request.githubUser!).forgeType),
-        eq(users.forgeUserId, (request.vcsUser || request.githubUser!).forgeUserId)
-      ),
-    });
+      // Get the authenticated user
+      const user = await db.query.users.findFirst({
+        where: and(
+          eq(users.forgeType, (request.vcsUser || request.githubUser!).forgeType),
+          eq(users.forgeUserId, (request.vcsUser || request.githubUser!).forgeUserId)
+        ),
+      });
 
-    if (!user) {
-      throw new NotFoundError('User not found');
+      if (!user) {
+        throw new NotFoundError("User not found");
+      }
+
+      // listProviderProjects now requires userId for ownership validation
+      const projects = await listProviderProjects(id, user.id);
+      return sendData(reply, { projects }, { requestId: request.id });
     }
-
-    // listProviderProjects now requires userId for ownership validation
-    const projects = await listProviderProjects(id, user.id);
-    return sendData(reply, { projects }, { requestId: request.id });
-  });
+  );
 
   /**
    * GET /integrations/providers/:provider/all-projects
    * List projects from ALL connections for a provider
    * Used for auto-detection when user has multiple accounts/teams
    */
-  fastify.get('/providers/:provider/all-projects', {
-    preHandler: [authenticateGitHub, requireApiKeyScope('read:secrets')],
-  }, async (request, reply) => {
-    const { provider: providerName } = request.params as { provider: string };
+  fastify.get(
+    "/providers/:provider/all-projects",
+    {
+      preHandler: [authenticateGitHub, requireApiKeyScope("read:secrets")],
+    },
+    async (request, reply) => {
+      const { provider: providerName } = request.params as { provider: string };
 
-    // Verify provider exists
-    const provider = getProvider(providerName);
-    if (!provider) {
-      throw new NotFoundError(`Provider ${providerName} not found`);
+      // Verify provider exists
+      const provider = getProvider(providerName);
+      if (!provider) {
+        throw new NotFoundError(`Provider ${providerName} not found`);
+      }
+
+      // Get the authenticated user
+      const user = await db.query.users.findFirst({
+        where: and(
+          eq(users.forgeType, (request.vcsUser || request.githubUser!).forgeType),
+          eq(users.forgeUserId, (request.vcsUser || request.githubUser!).forgeUserId)
+        ),
+      });
+
+      if (!user) {
+        throw new NotFoundError("User not found");
+      }
+
+      const result = await listAllProviderProjects(user.id, providerName);
+      return sendData(reply, result, { requestId: request.id });
     }
-
-    // Get the authenticated user
-    const user = await db.query.users.findFirst({
-      where: and(
-        eq(users.forgeType, (request.vcsUser || request.githubUser!).forgeType),
-        eq(users.forgeUserId, (request.vcsUser || request.githubUser!).forgeUserId)
-      ),
-    });
-
-    if (!user) {
-      throw new NotFoundError('User not found');
-    }
-
-    const result = await listAllProviderProjects(user.id, providerName);
-    return sendData(reply, result, { requestId: request.id });
-  });
+  );
 
   /**
    * GET /vaults/:owner/:repo/sync/status
    * Get sync status for first-time detection
    */
-  fastify.get('/vaults/:owner/:repo/sync/status', {
-    preHandler: [authenticateGitHub, requireApiKeyScope('read:secrets')],
-  }, async (request, reply) => {
-    const { owner, repo } = request.params as { owner: string; repo: string };
-    const query = SyncStatusQuerySchema.parse(request.query);
+  fastify.get(
+    "/vaults/:owner/:repo/sync/status",
+    {
+      preHandler: [authenticateGitHub, requireApiKeyScope("read:secrets")],
+    },
+    async (request, reply) => {
+      const { owner, repo } = request.params as { owner: string; repo: string };
+      const query = SyncStatusQuerySchema.parse(request.query);
 
-    const vault = await verifyVaultAccess((request.vcsUser || request.githubUser!).username, owner, repo);
+      const vault = await verifyVaultAccess(
+        (request.vcsUser || request.githubUser!).username,
+        owner,
+        repo
+      );
 
-    // Get the authenticated user for ownership validation
-    const user = await db.query.users.findFirst({
-      where: and(
-        eq(users.forgeType, (request.vcsUser || request.githubUser!).forgeType),
-        eq(users.forgeUserId, (request.vcsUser || request.githubUser!).forgeUserId)
-      ),
-    });
+      // Get the authenticated user for ownership validation
+      const user = await db.query.users.findFirst({
+        where: and(
+          eq(users.forgeType, (request.vcsUser || request.githubUser!).forgeType),
+          eq(users.forgeUserId, (request.vcsUser || request.githubUser!).forgeUserId)
+        ),
+      });
 
-    if (!user) {
-      throw new NotFoundError('User not found');
+      if (!user) {
+        throw new NotFoundError("User not found");
+      }
+
+      // For Railway: append serviceId to environment (format: "production:serviceId")
+      const providerEnv = query.serviceId
+        ? `${query.environment}:${query.serviceId}`
+        : query.environment;
+
+      const status = await getSyncStatus(
+        vault.id,
+        query.connectionId,
+        query.projectId,
+        providerEnv,
+        user.id
+      );
+
+      return sendData(reply, status, { requestId: request.id });
     }
-
-    // For Railway: append serviceId to environment (format: "production:serviceId")
-    const providerEnv = query.serviceId
-      ? `${query.environment}:${query.serviceId}`
-      : query.environment;
-
-    const status = await getSyncStatus(
-      vault.id,
-      query.connectionId,
-      query.projectId,
-      providerEnv,
-      user.id
-    );
-
-    return sendData(reply, status, { requestId: request.id });
-  });
+  );
 
   /**
    * GET /vaults/:owner/:repo/sync/diff
    * Get bi-directional diff between Keyway vault and provider
    */
-  fastify.get('/vaults/:owner/:repo/sync/diff', {
-    preHandler: [authenticateGitHub, requireApiKeyScope('read:secrets')],
-  }, async (request, reply) => {
-    const { owner, repo } = request.params as { owner: string; repo: string };
-    const query = SyncDiffQuerySchema.parse(request.query);
+  fastify.get(
+    "/vaults/:owner/:repo/sync/diff",
+    {
+      preHandler: [authenticateGitHub, requireApiKeyScope("read:secrets")],
+    },
+    async (request, reply) => {
+      const { owner, repo } = request.params as { owner: string; repo: string };
+      const query = SyncDiffQuerySchema.parse(request.query);
 
-    // Get the authenticated user first
-    const user = await db.query.users.findFirst({
-      where: and(
-        eq(users.forgeType, (request.vcsUser || request.githubUser!).forgeType),
-        eq(users.forgeUserId, (request.vcsUser || request.githubUser!).forgeUserId)
-      ),
-    });
+      // Get the authenticated user first
+      const user = await db.query.users.findFirst({
+        where: and(
+          eq(users.forgeType, (request.vcsUser || request.githubUser!).forgeType),
+          eq(users.forgeUserId, (request.vcsUser || request.githubUser!).forgeUserId)
+        ),
+      });
 
-    if (!user) {
-      throw new NotFoundError('User not found');
-    }
+      if (!user) {
+        throw new NotFoundError("User not found");
+      }
 
-    const vault = await verifyVaultAccess((request.vcsUser || request.githubUser!).username, owner, repo);
-
-    // Check environment-level read permission for the Keyway environment
-    const role = await getUserRoleWithApp(`${owner}/${repo}`, (request.vcsUser || request.githubUser!).username);
-    if (role) {
-      const hasReadPermission = await resolveEffectivePermission(
-        vault.id,
-        query.keywayEnvironment,
-        user.id,
-        role,
-        'read'
+      const vault = await verifyVaultAccess(
+        (request.vcsUser || request.githubUser!).username,
+        owner,
+        repo
       );
-      if (!hasReadPermission) {
-        throw new ForbiddenError(
-          `Your role (${role}) does not have permission to read secrets from the "${query.keywayEnvironment}" environment`
+
+      // Check environment-level read permission for the Keyway environment
+      // Diff is read-only, so we only check read permission (no cross-env check needed)
+      const role = await getUserRoleWithApp(
+        `${owner}/${repo}`,
+        (request.vcsUser || request.githubUser!).username
+      );
+      if (role) {
+        await requireEnvironmentPermission(
+          vault.id,
+          query.keywayEnvironment,
+          user.id,
+          role,
+          "read"
         );
       }
+
+      // For Railway: append serviceId to providerEnvironment (format: "production:serviceId")
+      const providerEnv = query.serviceId
+        ? `${query.providerEnvironment}:${query.serviceId}`
+        : query.providerEnvironment;
+
+      const diff = await getSyncDiff(
+        vault.id,
+        query.connectionId,
+        query.projectId,
+        query.keywayEnvironment,
+        providerEnv,
+        user.id
+      );
+
+      return sendData(reply, diff, { requestId: request.id });
     }
-
-    // For Railway: append serviceId to providerEnvironment (format: "production:serviceId")
-    const providerEnv = query.serviceId
-      ? `${query.providerEnvironment}:${query.serviceId}`
-      : query.providerEnvironment;
-
-    const diff = await getSyncDiff(
-      vault.id,
-      query.connectionId,
-      query.projectId,
-      query.keywayEnvironment,
-      providerEnv,
-      user.id
-    );
-
-    return sendData(reply, diff, { requestId: request.id });
-  });
+  );
 
   /**
    * GET /vaults/:owner/:repo/sync/preview
    * Preview what would change during a sync
    */
-  fastify.get('/vaults/:owner/:repo/sync/preview', {
-    preHandler: [authenticateGitHub, requireApiKeyScope('read:secrets')],
-  }, async (request, reply) => {
-    const { owner, repo } = request.params as { owner: string; repo: string };
-    const query = SyncPreviewQuerySchema.parse(request.query);
+  fastify.get(
+    "/vaults/:owner/:repo/sync/preview",
+    {
+      preHandler: [authenticateGitHub, requireApiKeyScope("read:secrets")],
+    },
+    async (request, reply) => {
+      const { owner, repo } = request.params as { owner: string; repo: string };
+      const query = SyncPreviewQuerySchema.parse(request.query);
 
-    // Get the authenticated user first
-    const user = await db.query.users.findFirst({
-      where: and(
-        eq(users.forgeType, (request.vcsUser || request.githubUser!).forgeType),
-        eq(users.forgeUserId, (request.vcsUser || request.githubUser!).forgeUserId)
-      ),
-    });
+      // Get the authenticated user first
+      const user = await db.query.users.findFirst({
+        where: and(
+          eq(users.forgeType, (request.vcsUser || request.githubUser!).forgeType),
+          eq(users.forgeUserId, (request.vcsUser || request.githubUser!).forgeUserId)
+        ),
+      });
 
-    if (!user) {
-      throw new NotFoundError('User not found');
-    }
+      if (!user) {
+        throw new NotFoundError("User not found");
+      }
 
-    const vault = await verifyVaultAccess((request.vcsUser || request.githubUser!).username, owner, repo);
-
-    // Check environment-level permission for the Keyway environment
-    // Push requires write, pull requires read
-    const role = await getUserRoleWithApp(`${owner}/${repo}`, (request.vcsUser || request.githubUser!).username);
-    if (role) {
-      const permissionType = query.direction === 'push' ? 'write' : 'read';
-      const hasPermission = await resolveEffectivePermission(
-        vault.id,
-        query.keywayEnvironment,
-        user.id,
-        role,
-        permissionType
+      const vault = await verifyVaultAccess(
+        (request.vcsUser || request.githubUser!).username,
+        owner,
+        repo
       );
-      if (!hasPermission) {
-        const action = permissionType === 'write' ? 'write to' : 'read from';
-        throw new ForbiddenError(
-          `Your role (${role}) does not have permission to ${action} the "${query.keywayEnvironment}" environment`
+
+      // Check environment-level permission and cross-environment protection
+      const role = await getUserRoleWithApp(
+        `${owner}/${repo}`,
+        (request.vcsUser || request.githubUser!).username
+      );
+      if (role) {
+        // For Railway: append serviceId to providerEnvironment (format: "production:serviceId")
+        const providerEnv = query.serviceId
+          ? `${query.providerEnvironment}:${query.serviceId}`
+          : query.providerEnvironment;
+
+        await requireSyncPermission(
+          vault.id,
+          query.keywayEnvironment,
+          providerEnv,
+          query.direction,
+          user.id,
+          role
         );
       }
+
+      // For Railway: append serviceId to providerEnvironment (format: "production:serviceId")
+      const providerEnv = query.serviceId
+        ? `${query.providerEnvironment}:${query.serviceId}`
+        : query.providerEnvironment;
+
+      const preview = await getSyncPreview(
+        vault.id,
+        query.connectionId,
+        query.projectId,
+        query.keywayEnvironment,
+        providerEnv,
+        query.direction,
+        query.allowDelete || false,
+        user.id
+      );
+
+      return sendData(reply, preview, { requestId: request.id });
     }
-
-    // For Railway: append serviceId to providerEnvironment (format: "production:serviceId")
-    const providerEnv = query.serviceId
-      ? `${query.providerEnvironment}:${query.serviceId}`
-      : query.providerEnvironment;
-
-    const preview = await getSyncPreview(
-      vault.id,
-      query.connectionId,
-      query.projectId,
-      query.keywayEnvironment,
-      providerEnv,
-      query.direction,
-      query.allowDelete || false,
-      user.id
-    );
-
-    return sendData(reply, preview, { requestId: request.id });
-  });
+  );
 
   /**
    * POST /vaults/:owner/:repo/sync
    * Execute a sync operation
    */
-  fastify.post('/vaults/:owner/:repo/sync', {
-    preHandler: [authenticateGitHub],
-  }, async (request, reply) => {
-    const { owner, repo } = request.params as { owner: string; repo: string };
-    const body = SyncBodySchema.parse(request.body);
+  fastify.post(
+    "/vaults/:owner/:repo/sync",
+    {
+      preHandler: [authenticateGitHub],
+    },
+    async (request, reply) => {
+      const { owner, repo } = request.params as { owner: string; repo: string };
+      const body = SyncBodySchema.parse(request.body);
 
-    // Validate API key scopes based on sync direction
-    // Push (Keyway → Provider) = reading secrets from Keyway
-    // Pull (Provider → Keyway) = writing secrets to Keyway
-    if (request.apiKey) {
-      const requiredScope = body.direction === 'push' ? 'read:secrets' : 'write:secrets';
-      if (!hasRequiredScopes(request.apiKey.scopes, [requiredScope])) {
-        throw new ForbiddenError(`API key missing required scope: ${requiredScope}`);
+      // Validate API key scopes based on sync direction
+      // Push (Keyway → Provider) = reading secrets from Keyway
+      // Pull (Provider → Keyway) = writing secrets to Keyway
+      if (request.apiKey) {
+        const requiredScope = body.direction === "push" ? "read:secrets" : "write:secrets";
+        if (!hasRequiredScopes(request.apiKey.scopes, [requiredScope])) {
+          throw new ForbiddenError(`API key missing required scope: ${requiredScope}`);
+        }
       }
-    }
 
-    const user = await db.query.users.findFirst({
-      where: and(
-        eq(users.forgeType, (request.vcsUser || request.githubUser!).forgeType),
-        eq(users.forgeUserId, (request.vcsUser || request.githubUser!).forgeUserId)
-      ),
-    });
+      const user = await db.query.users.findFirst({
+        where: and(
+          eq(users.forgeType, (request.vcsUser || request.githubUser!).forgeType),
+          eq(users.forgeUserId, (request.vcsUser || request.githubUser!).forgeUserId)
+        ),
+      });
 
-    if (!user) {
-      throw new NotFoundError('User not found');
-    }
+      if (!user) {
+        throw new NotFoundError("User not found");
+      }
 
-    // Verify vault access first
-    const vault = await verifyVaultAccess((request.vcsUser || request.githubUser!).username, owner, repo);
-
-    // Check environment-level permission for the Keyway environment
-    // Push requires write, pull requires write (to modify local secrets from provider)
-    const role = await getUserRoleWithApp(`${owner}/${repo}`, (request.vcsUser || request.githubUser!).username);
-    if (role) {
-      const permissionType = body.direction === 'push' ? 'read' : 'write';
-      const hasPermission = await resolveEffectivePermission(
-        vault.id,
-        body.keywayEnvironment,
-        user.id,
-        role,
-        permissionType
+      // Verify vault access first
+      const vault = await verifyVaultAccess(
+        (request.vcsUser || request.githubUser!).username,
+        owner,
+        repo
       );
-      if (!hasPermission) {
-        const action = permissionType === 'write' ? 'write to' : 'read from';
-        throw new ForbiddenError(
-          `Your role (${role}) does not have permission to ${action} the "${body.keywayEnvironment}" environment`
+
+      // Check environment-level permission and cross-environment protection
+      const role = await getUserRoleWithApp(
+        `${owner}/${repo}`,
+        (request.vcsUser || request.githubUser!).username
+      );
+      if (role) {
+        // For Railway: append serviceId to providerEnvironment (format: "production:serviceId")
+        const providerEnvForCheck = body.serviceId
+          ? `${body.providerEnvironment}:${body.serviceId}`
+          : body.providerEnvironment;
+
+        await requireSyncPermission(
+          vault.id,
+          body.keywayEnvironment,
+          providerEnvForCheck,
+          body.direction,
+          user.id,
+          role
         );
       }
-    }
 
-    // Verify the connection belongs to the authenticated user
-    const connection = await db.query.providerConnections.findFirst({
-      where: and(
-        eq(providerConnections.id, body.connectionId),
-        eq(providerConnections.userId, user.id)
-      ),
-    });
-
-    if (!connection) {
-      throw new ForbiddenError('Connection not found or does not belong to you');
-    }
-
-    // For Railway: append serviceId to providerEnvironment (format: "production:serviceId")
-    const providerEnv = body.serviceId
-      ? `${body.providerEnvironment}:${body.serviceId}`
-      : body.providerEnvironment;
-
-    const result = await executeSync(
-      vault.id,
-      body.connectionId,
-      body.projectId,
-      body.keywayEnvironment,
-      providerEnv,
-      body.direction,
-      body.allowDelete,
-      user.id
-    );
-
-    // Log secrets synced (only on success)
-    if (result.status === 'success') {
-      const { ipAddress, userAgent } = extractRequestInfo(request);
-      await logActivity({
-        userId: user.id,
-        vaultId: vault.id,
-        action: 'secrets_synced',
-        platform: detectPlatform(userAgent),
-        ipAddress,
-        userAgent,
-        metadata: {
-          provider: connection.provider,
-          direction: body.direction,
-          environment: body.keywayEnvironment,
-          count: result.created + result.updated + result.deleted,
-        },
+      // Verify the connection belongs to the authenticated user
+      const connection = await db.query.providerConnections.findFirst({
+        where: and(
+          eq(providerConnections.id, body.connectionId),
+          eq(providerConnections.userId, user.id)
+        ),
       });
-    }
 
-    return sendData(reply, {
-      success: result.status === 'success',
-      stats: {
-        created: result.created,
-        updated: result.updated,
-        deleted: result.deleted,
-        skipped: result.skipped,
-        total: result.created + result.updated + result.deleted,
-      },
-      error: result.error,
-    }, { requestId: request.id });
-  });
+      if (!connection) {
+        throw new ForbiddenError("Connection not found or does not belong to you");
+      }
+
+      // For Railway: append serviceId to providerEnvironment (format: "production:serviceId")
+      const providerEnv = body.serviceId
+        ? `${body.providerEnvironment}:${body.serviceId}`
+        : body.providerEnvironment;
+
+      const result = await executeSync(
+        vault.id,
+        body.connectionId,
+        body.projectId,
+        body.keywayEnvironment,
+        providerEnv,
+        body.direction,
+        body.allowDelete,
+        user.id
+      );
+
+      // Log secrets synced (only on success)
+      if (result.status === "success") {
+        const { ipAddress, userAgent } = extractRequestInfo(request);
+        await logActivity({
+          userId: user.id,
+          vaultId: vault.id,
+          action: "secrets_synced",
+          platform: detectPlatform(userAgent),
+          ipAddress,
+          userAgent,
+          metadata: {
+            provider: connection.provider,
+            direction: body.direction,
+            environment: body.keywayEnvironment,
+            count: result.created + result.updated + result.deleted,
+          },
+        });
+      }
+
+      return sendData(
+        reply,
+        {
+          success: result.status === "success",
+          stats: {
+            created: result.created,
+            updated: result.updated,
+            deleted: result.deleted,
+            skipped: result.skipped,
+            total: result.created + result.updated + result.deleted,
+          },
+          error: result.error,
+        },
+        { requestId: request.id }
+      );
+    }
+  );
 }
 
 // Keyway logo SVG
@@ -921,7 +1033,7 @@ function renderErrorPage(title: string, message: string): string {
 
 function renderSuccessPage(provider: string, username: string): string {
   const providerName = provider.charAt(0).toUpperCase() + provider.slice(1);
-  const providerIcon = providerIcons[provider] || '';
+  const providerIcon = providerIcons[provider] || "";
 
   return `<!DOCTYPE html>
 <html lang="en">

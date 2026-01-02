@@ -1,11 +1,11 @@
-import { db, vaults, secrets } from '../db';
-import { eq, desc, and, asc } from 'drizzle-orm';
-import { getUserRoleWithApp } from '../utils/github';
-import type { UserPlan } from '../db/schema';
-import { PLANS } from '../config/plans';
-import { DEFAULT_ENVIRONMENTS } from '../types';
-import { getOrganizationById } from './organization.service';
-import { getEffectivePlanWithTrial } from './trial.service';
+import { db, vaults } from "../db";
+import { eq, desc, and, asc } from "drizzle-orm";
+import { getUserRoleWithApp } from "../utils/github";
+import type { UserPlan } from "../db/schema";
+import { PLANS } from "../config/plans";
+import { DEFAULT_ENVIRONMENTS } from "../types";
+import { getOrganizationById } from "./organization.service";
+import { getEffectivePlanWithTrial } from "./trial.service";
 
 // Helper to get GitHub avatar URL for a repo owner
 function getGitHubAvatarUrl(owner: string): string {
@@ -85,7 +85,7 @@ async function getExcessPrivateVaultIds(userId: string, plan: UserPlan): Promise
     .orderBy(asc(vaults.createdAt));
 
   // Vaults beyond the limit are "excess" (read-only)
-  return new Set(privateVaults.slice(limit).map(v => v.id));
+  return new Set(privateVaults.slice(limit).map((v) => v.id));
 }
 
 /**
@@ -114,12 +114,13 @@ export async function getVaultsForUser(
 
   const vaultList = await Promise.all(
     ownedVaults.map(async (vault) => {
-      const [repoOwner, repoName] = vault.repoFullName.split('/');
+      const [repoOwner, repoName] = vault.repoFullName.split("/");
 
       // Use vault's defined environments, fallback to defaults for pre-migration vaults
-      const environments = vault.environments && vault.environments.length > 0
-        ? vault.environments
-        : [...DEFAULT_ENVIRONMENTS];
+      const environments =
+        vault.environments && vault.environments.length > 0
+          ? vault.environments
+          : [...DEFAULT_ENVIRONMENTS];
 
       // Fetch user's permission for this repo using GitHub App token
       const permission = await getUserRoleWithApp(vault.repoFullName, username);
@@ -132,11 +133,11 @@ export async function getVaultsForUser(
           let orgPlan = orgPlanCache.get(vault.orgId);
           if (!orgPlan) {
             const org = await getOrganizationById(vault.orgId);
-            orgPlan = org ? getEffectivePlanWithTrial(org) : 'free';
+            orgPlan = org ? getEffectivePlanWithTrial(org) : "free";
             orgPlanCache.set(vault.orgId, orgPlan);
           }
           // Org vaults are read-only only if org is on free plan
-          isReadOnly = orgPlan === 'free';
+          isReadOnly = orgPlan === "free";
         } else {
           // Personal vault: check if it's in the excess list
           isReadOnly = excessVaultIds.has(vault.id);
@@ -144,7 +145,7 @@ export async function getVaultsForUser(
       }
 
       // Get syncs with full details for sync button
-      const syncs = vault.vaultSyncs.map(sync => ({
+      const syncs = vault.vaultSyncs.map((sync) => ({
         id: sync.id,
         provider: sync.provider,
         projectId: sync.providerProjectId,
@@ -161,7 +162,7 @@ export async function getVaultsForUser(
         repoName,
         repoAvatar: getGitHubAvatarUrl(repoOwner),
         // Only count active secrets (not deleted)
-        secretCount: vault.secrets.filter(s => s.deletedAt === null).length,
+        secretCount: vault.secrets.filter((s) => s.deletedAt === null).length,
         environments,
         permission,
         isPrivate: vault.isPrivate,
@@ -204,12 +205,13 @@ export async function getVaultByRepo(
     return { vault: null as unknown as VaultDetails, hasAccess: false };
   }
 
-  const [repoOwner, repoName] = vault.repoFullName.split('/');
+  const [repoOwner, repoName] = vault.repoFullName.split("/");
 
   // Use vault's defined environments, fallback to defaults for pre-migration vaults
-  const environments = vault.environments && vault.environments.length > 0
-    ? vault.environments
-    : [...DEFAULT_ENVIRONMENTS];
+  const environments =
+    vault.environments && vault.environments.length > 0
+      ? vault.environments
+      : [...DEFAULT_ENVIRONMENTS];
 
   // Determine if vault is read-only based on plan limits
   let isReadOnly = false;
@@ -217,7 +219,7 @@ export async function getVaultByRepo(
     if (vault.orgId) {
       // Org vault: read-only only if org is on free plan
       // Note: plan parameter is already the org's effective plan when called from route
-      isReadOnly = plan === 'free';
+      isReadOnly = plan === "free";
     } else {
       // Personal vault: check if it's in the excess list
       const excessVaultIds = await getExcessPrivateVaultIds(vault.ownerId, plan);
@@ -226,7 +228,7 @@ export async function getVaultByRepo(
   }
 
   // Get syncs with full details for sync button
-  const syncs = vault.vaultSyncs.map(sync => ({
+  const syncs = vault.vaultSyncs.map((sync) => ({
     id: sync.id,
     provider: sync.provider,
     projectId: sync.providerProjectId,
@@ -245,7 +247,7 @@ export async function getVaultByRepo(
       repoName,
       repoAvatar: getGitHubAvatarUrl(repoOwner),
       // Only count active secrets (not deleted)
-      secretCount: vault.secrets.filter(s => s.deletedAt === null).length,
+      secretCount: vault.secrets.filter((s) => s.deletedAt === null).length,
       environments,
       permission: role,
       isPrivate: vault.isPrivate,

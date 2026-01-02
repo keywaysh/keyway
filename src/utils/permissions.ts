@@ -1,9 +1,9 @@
-import { db } from '../db';
-import { environmentPermissions, vaults, organizations } from '../db/schema';
-import { eq, and } from 'drizzle-orm';
-import type { CollaboratorRole, PermissionType } from '../db/schema';
-import { findApplicableOverride } from '../services/permission-override.service';
-import { ForbiddenError } from '../lib';
+import { db } from "../db";
+import { environmentPermissions, vaults } from "../db/schema";
+import { eq, and } from "drizzle-orm";
+import type { CollaboratorRole, PermissionType } from "../db/schema";
+import { findApplicableOverride } from "../services/permission-override.service";
+import { ForbiddenError } from "../lib";
 
 // ============================================================================
 // Role Hierarchy
@@ -12,7 +12,7 @@ import { ForbiddenError } from '../lib';
 /**
  * Role hierarchy (from lowest to highest)
  */
-const ROLE_HIERARCHY: CollaboratorRole[] = ['read', 'triage', 'write', 'maintain', 'admin'];
+const ROLE_HIERARCHY: CollaboratorRole[] = ["read", "triage", "write", "maintain", "admin"];
 
 /**
  * Check if userRole meets or exceeds requiredRole
@@ -27,7 +27,7 @@ export function roleHasLevel(userRole: CollaboratorRole, requiredRole: Collabora
 // Environment Classification
 // ============================================================================
 
-export type EnvironmentType = 'protected' | 'standard' | 'development';
+export type EnvironmentType = "protected" | "standard" | "development";
 
 /**
  * Classify an environment name into a type
@@ -36,17 +36,17 @@ export function getEnvironmentType(environment: string): EnvironmentType {
   const env = environment.toLowerCase();
 
   // Protected environments (production)
-  if (['production', 'prod', 'main', 'master'].includes(env)) {
-    return 'protected';
+  if (["production", "prod", "main", "master"].includes(env)) {
+    return "protected";
   }
 
   // Development environments
-  if (['dev', 'development', 'local'].includes(env)) {
-    return 'development';
+  if (["dev", "development", "local"].includes(env)) {
+    return "development";
   }
 
   // Standard environments (staging, test, qa, etc.)
-  return 'standard';
+  return "standard";
 }
 
 // ============================================================================
@@ -59,10 +59,13 @@ export function getEnvironmentType(environment: string): EnvironmentType {
  * | Role     | development | staging/standard | production |
  * |----------|-------------|------------------|------------|
  * | read     | R           | R                | -          |
- * | triage   | RW          | R                | -          |
+ * | triage   | R           | R                | -          |
  * | write    | RW          | RW               | R          |
  * | maintain | RW          | RW               | R          |
  * | admin    | RW          | RW               | RW         |
+ *
+ * Note: triage role is read-only across all environments because
+ * it's intended for issue/PR management, not code or secrets.
  */
 export const DEFAULT_ROLE_PERMISSIONS: Record<
   CollaboratorRole,
@@ -76,7 +79,7 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<
   triage: {
     protected: { read: false, write: false },
     standard: { read: true, write: false },
-    development: { read: true, write: true },
+    development: { read: true, write: false }, // triage role should not modify secrets
   },
   write: {
     protected: { read: true, write: false },
@@ -108,16 +111,16 @@ const LEGACY_DEFAULT_PERMISSIONS: Record<
   Record<PermissionType, CollaboratorRole>
 > = {
   protected: {
-    read: 'write',  // Need at least 'write' role to read
-    write: 'admin', // Need 'admin' role to write
+    read: "write", // Need at least 'write' role to read
+    write: "admin", // Need 'admin' role to write
   },
   standard: {
-    read: 'read',   // Anyone with 'read' or higher can read
-    write: 'write', // Need 'write' or higher to write
+    read: "read", // Anyone with 'read' or higher can read
+    write: "write", // Need 'write' or higher to write
   },
   development: {
-    read: 'read',   // Anyone with 'read' or higher can read
-    write: 'read',  // Anyone with 'read' or higher can write
+    read: "read", // Anyone with 'read' or higher can read
+    write: "read", // Anyone with 'read' or higher can write
   },
 };
 
@@ -144,7 +147,7 @@ export async function resolveEffectivePermission(
   // 1. Check for applicable override
   const override = await findApplicableOverride(vaultId, environment, userId, userRole);
   if (override) {
-    return permissionType === 'read' ? override.canRead : override.canWrite;
+    return permissionType === "read" ? override.canRead : override.canWrite;
   }
 
   // 2. Check for org-level default permissions
@@ -169,7 +172,7 @@ export async function resolveEffectivePermission(
   // 3. Fall back to global defaults
   const envType = getEnvironmentType(environment);
   const defaults = DEFAULT_ROLE_PERMISSIONS[userRole][envType];
-  return permissionType === 'read' ? defaults.read : defaults.write;
+  return permissionType === "read" ? defaults.read : defaults.write;
 }
 
 // ============================================================================
@@ -211,7 +214,7 @@ export async function hasEnvironmentPermission(
   // Otherwise, use the new role-based defaults
   const envType = getEnvironmentType(environment);
   const defaults = DEFAULT_ROLE_PERMISSIONS[userRole][envType];
-  return permissionType === 'read' ? defaults.read : defaults.write;
+  return permissionType === "read" ? defaults.read : defaults.write;
 }
 
 /**
@@ -270,8 +273,8 @@ export async function getEffectivePermissionsForUser(
 
   for (const env of environments) {
     const [canRead, canWrite] = await Promise.all([
-      resolveEffectivePermission(vaultId, env, userId, userRole, 'read'),
-      resolveEffectivePermission(vaultId, env, userId, userRole, 'write'),
+      resolveEffectivePermission(vaultId, env, userId, userRole, "read"),
+      resolveEffectivePermission(vaultId, env, userId, userRole, "write"),
     ]);
     result[env] = { read: canRead, write: canWrite };
   }
@@ -318,9 +321,101 @@ export async function requireEnvironmentPermission(
   );
 
   if (!hasPermission) {
-    const action = permissionType === 'read' ? 'read secrets from' : 'write to';
+    const action = permissionType === "read" ? "read secrets from" : "write to";
     throw new ForbiddenError(
       `Your role (${userRole}) does not have permission to ${action} the "${environment}" environment`
     );
   }
+}
+
+// ============================================================================
+// Cross-Environment Sync Validation
+// ============================================================================
+
+/**
+ * Environment protection levels (higher = more protected)
+ */
+const ENVIRONMENT_PROTECTION_LEVEL: Record<EnvironmentType, number> = {
+  development: 0,
+  standard: 1,
+  protected: 2,
+};
+
+/**
+ * Check if a sync operation between two environments is allowed based on role
+ *
+ * Rules:
+ * - Syncing to a MORE protected environment requires admin role
+ * - Syncing to SAME or LESS protected environment follows normal permissions
+ *
+ * Examples:
+ * - dev → staging: Allowed for write+ (escalating protection)
+ * - staging → prod: Requires admin
+ * - prod → staging: Allowed for write+ (de-escalating)
+ * - dev → prod: Requires admin (skipping protection level)
+ *
+ * @returns Object with allowed status and optional reason
+ */
+export function canSyncBetweenEnvironments(
+  sourceEnv: string,
+  targetEnv: string,
+  userRole: CollaboratorRole
+): { allowed: boolean; reason?: string } {
+  const sourceType = getEnvironmentType(sourceEnv);
+  const targetType = getEnvironmentType(targetEnv);
+
+  const sourceLevel = ENVIRONMENT_PROTECTION_LEVEL[sourceType];
+  const targetLevel = ENVIRONMENT_PROTECTION_LEVEL[targetType];
+
+  // If syncing to a more protected environment, require admin
+  if (targetLevel > sourceLevel && userRole !== "admin") {
+    const sourceLabel = sourceType === "development" ? "development" : sourceType;
+    const targetLabel = targetType === "protected" ? "production" : targetType;
+
+    return {
+      allowed: false,
+      reason:
+        `Syncing from ${sourceLabel} to ${targetLabel} requires admin role. ` +
+        `Your role (${userRole}) cannot escalate secrets to a more protected environment.`,
+    };
+  }
+
+  return { allowed: true };
+}
+
+/**
+ * Validate sync operation permissions
+ *
+ * Combines:
+ * 1. Cross-environment protection check (dev → prod requires admin)
+ * 2. Standard environment permission check (read/write based on direction)
+ *
+ * @throws ForbiddenError if sync is not allowed
+ */
+export async function requireSyncPermission(
+  vaultId: string,
+  keywayEnv: string,
+  providerEnv: string,
+  direction: "push" | "pull",
+  userId: string,
+  userRole: CollaboratorRole
+): Promise<void> {
+  // Determine source and target based on direction
+  // Push: Keyway → Provider (Keyway is source, Provider is target)
+  // Pull: Provider → Keyway (Provider is source, Keyway is target)
+  const sourceEnv = direction === "push" ? keywayEnv : providerEnv;
+  const targetEnv = direction === "push" ? providerEnv : keywayEnv;
+
+  // 1. Check cross-environment protection
+  const crossEnvCheck = canSyncBetweenEnvironments(sourceEnv, targetEnv, userRole);
+  if (!crossEnvCheck.allowed) {
+    throw new ForbiddenError(crossEnvCheck.reason!);
+  }
+
+  // 2. Check standard environment permissions
+  // Push: need read on Keyway env (reading secrets to push)
+  // Pull: need write on Keyway env (writing secrets from provider)
+  const keywayPermission = direction === "push" ? "read" : "write";
+
+  await requireEnvironmentPermission(vaultId, keywayEnv, userId, userRole, keywayPermission);
 }

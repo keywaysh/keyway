@@ -1,6 +1,6 @@
-import { db, secrets, secretVersions } from '../db';
-import { eq, and, desc, inArray, isNull } from 'drizzle-orm';
-import { getEncryptionService } from '../utils/encryption';
+import { db, secrets, secretVersions } from "../db";
+import { eq, and, desc, inArray, isNull } from "drizzle-orm";
+import { getEncryptionService } from "../utils/encryption";
 
 // Maximum number of versions to keep per secret
 const MAX_VERSIONS_PER_SECRET = 10;
@@ -77,7 +77,10 @@ async function pruneOldVersions(secretId: string): Promise<void> {
 /**
  * Get version history for a secret (metadata only, no values)
  */
-export async function getSecretVersions(secretId: string, vaultId: string): Promise<SecretVersionItem[]> {
+export async function getSecretVersions(
+  secretId: string,
+  vaultId: string
+): Promise<SecretVersionItem[]> {
   const versions = await db.query.secretVersions.findMany({
     where: and(eq(secretVersions.secretId, secretId), eq(secretVersions.vaultId, vaultId)),
     orderBy: [desc(secretVersions.versionNumber)],
@@ -115,7 +118,9 @@ export async function getSecretVersionValue(
     ),
   });
 
-  if (!version) return null;
+  if (!version) {
+    return null;
+  }
 
   const encryptionService = await getEncryptionService();
   const decryptedValue = await encryptionService.decrypt({
@@ -151,14 +156,18 @@ export async function restoreSecretVersion(
     ),
   });
 
-  if (!versionToRestore) return null;
+  if (!versionToRestore) {
+    return null;
+  }
 
   // Get current active secret (not trashed)
   const currentSecret = await db.query.secrets.findFirst({
     where: and(eq(secrets.id, secretId), isNull(secrets.deletedAt)),
   });
 
-  if (!currentSecret) return null;
+  if (!currentSecret) {
+    return null;
+  }
 
   // Save current value as a new version before restoring
   await saveSecretVersion(

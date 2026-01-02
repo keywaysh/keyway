@@ -1,8 +1,8 @@
-import { db, organizations, organizationMembers, users } from '../db';
-import { eq, and } from 'drizzle-orm';
-import type { Organization, UserPlan } from '../db/schema';
-import { logActivity } from './activity.service';
-import type { ActivityPlatform } from '../db/schema';
+import { db, organizations, organizationMembers, users } from "../db";
+import { eq, and } from "drizzle-orm";
+import type { Organization, UserPlan } from "../db/schema";
+import { logActivity } from "./activity.service";
+import type { ActivityPlatform } from "../db/schema";
 
 // ============================================================================
 // Constants
@@ -15,7 +15,7 @@ export const TRIAL_DURATION_DAYS = 15;
 // Types
 // ============================================================================
 
-export type TrialStatus = 'none' | 'active' | 'expired' | 'converted';
+export type TrialStatus = "none" | "active" | "expired" | "converted";
 
 export interface TrialInfo {
   status: TrialStatus;
@@ -38,7 +38,7 @@ export function getTrialInfo(org: Organization): TrialInfo {
   // No trial ever started
   if (!org.trialStartedAt) {
     return {
-      status: 'none',
+      status: "none",
       startedAt: null,
       endsAt: null,
       convertedAt: null,
@@ -49,7 +49,7 @@ export function getTrialInfo(org: Organization): TrialInfo {
   // Trial was converted to paid
   if (org.trialConvertedAt) {
     return {
-      status: 'converted',
+      status: "converted",
       startedAt: org.trialStartedAt,
       endsAt: org.trialEndsAt,
       convertedAt: org.trialConvertedAt,
@@ -65,7 +65,7 @@ export function getTrialInfo(org: Organization): TrialInfo {
       : 0;
 
     return {
-      status: isActive ? 'active' : 'expired',
+      status: isActive ? "active" : "expired",
       startedAt: org.trialStartedAt,
       endsAt: org.trialEndsAt,
       convertedAt: null,
@@ -75,7 +75,7 @@ export function getTrialInfo(org: Organization): TrialInfo {
 
   // Shouldn't happen, but handle edge case
   return {
-    status: 'none',
+    status: "none",
     startedAt: org.trialStartedAt,
     endsAt: null,
     convertedAt: null,
@@ -87,14 +87,14 @@ export function getTrialInfo(org: Organization): TrialInfo {
  * Check if an organization is on an active trial
  */
 export function isTrialActive(org: Organization): boolean {
-  return getTrialInfo(org).status === 'active';
+  return getTrialInfo(org).status === "active";
 }
 
 /**
  * Check if an organization's trial has expired (and not converted)
  */
 export function isTrialExpired(org: Organization): boolean {
-  return getTrialInfo(org).status === 'expired';
+  return getTrialInfo(org).status === "expired";
 }
 
 /**
@@ -137,17 +137,17 @@ export async function startTrial(input: StartTrialInput): Promise<StartTrialResu
   });
 
   if (!org) {
-    return { success: false, error: 'Organization not found' };
+    return { success: false, error: "Organization not found" };
   }
 
   // Check if already on paid Team plan
-  if (org.plan === 'team' && org.stripeCustomerId) {
-    return { success: false, error: 'Organization already has a paid Team plan' };
+  if (org.plan === "team" && org.stripeCustomerId) {
+    return { success: false, error: "Organization already has a paid Team plan" };
   }
 
   // Check if already had a trial
   if (hasHadTrial(org)) {
-    return { success: false, error: 'Organization has already used their trial' };
+    return { success: false, error: "Organization has already used their trial" };
   }
 
   // Calculate trial dates
@@ -158,7 +158,7 @@ export async function startTrial(input: StartTrialInput): Promise<StartTrialResu
   const [updated] = await db
     .update(organizations)
     .set({
-      plan: 'team',
+      plan: "team",
       trialStartedAt: now,
       trialEndsAt,
       updatedAt: now,
@@ -169,7 +169,7 @@ export async function startTrial(input: StartTrialInput): Promise<StartTrialResu
   // Log activity
   await logActivity({
     userId,
-    action: 'org_trial_started',
+    action: "org_trial_started",
     platform,
     metadata: {
       orgId,
@@ -202,17 +202,17 @@ export async function convertTrial(input: ConvertTrialInput): Promise<StartTrial
   });
 
   if (!org) {
-    return { success: false, error: 'Organization not found' };
+    return { success: false, error: "Organization not found" };
   }
 
   // Check if trial was started
   if (!org.trialStartedAt) {
-    return { success: false, error: 'Organization is not on a trial' };
+    return { success: false, error: "Organization is not on a trial" };
   }
 
   // Already converted
   if (org.trialConvertedAt) {
-    return { success: false, error: 'Trial has already been converted' };
+    return { success: false, error: "Trial has already been converted" };
   }
 
   const now = new Date();
@@ -231,15 +231,13 @@ export async function convertTrial(input: ConvertTrialInput): Promise<StartTrial
   // Log activity
   await logActivity({
     userId,
-    action: 'org_trial_converted',
+    action: "org_trial_converted",
     platform,
     metadata: {
       orgId,
       orgLogin: org.login,
       stripeCustomerId,
-      daysUsed: Math.ceil(
-        (now.getTime() - org.trialStartedAt.getTime()) / (1000 * 60 * 60 * 24)
-      ),
+      daysUsed: Math.ceil((now.getTime() - org.trialStartedAt.getTime()) / (1000 * 60 * 60 * 24)),
     },
   });
 
@@ -264,17 +262,17 @@ export async function expireTrial(input: ExpireTrialInput): Promise<StartTrialRe
   });
 
   if (!org) {
-    return { success: false, error: 'Organization not found' };
+    return { success: false, error: "Organization not found" };
   }
 
   // Check if trial was started
   if (!org.trialStartedAt) {
-    return { success: false, error: 'Organization is not on a trial' };
+    return { success: false, error: "Organization is not on a trial" };
   }
 
   // Already converted - don't expire
   if (org.trialConvertedAt) {
-    return { success: false, error: 'Trial has already been converted to paid' };
+    return { success: false, error: "Trial has already been converted to paid" };
   }
 
   const now = new Date();
@@ -283,7 +281,7 @@ export async function expireTrial(input: ExpireTrialInput): Promise<StartTrialRe
   const [updated] = await db
     .update(organizations)
     .set({
-      plan: 'free',
+      plan: "free",
       updatedAt: now,
     })
     .where(eq(organizations.id, orgId))
@@ -292,12 +290,12 @@ export async function expireTrial(input: ExpireTrialInput): Promise<StartTrialRe
   // Log activity (system action, no user)
   await logActivity({
     userId: org.id, // Use org ID as actor for system actions
-    action: 'org_trial_expired',
-    platform: 'api',
+    action: "org_trial_expired",
+    platform: "api",
     metadata: {
       orgId,
       orgLogin: org.login,
-      reason: reason || 'Trial period ended',
+      reason: reason || "Trial period ended",
       trialDurationDays: Math.ceil(
         (now.getTime() - org.trialStartedAt.getTime()) / (1000 * 60 * 60 * 24)
       ),
@@ -320,20 +318,20 @@ export async function expireTrial(input: ExpireTrialInput): Promise<StartTrialRe
  * - If trial is expired (not converted) -> return 'free'
  * - Otherwise -> return actual plan
  */
-export function getEffectivePlanWithTrial(org: Organization): 'free' | 'pro' | 'team' {
+export function getEffectivePlanWithTrial(org: Organization): "free" | "pro" | "team" {
   // Paid customer takes precedence
-  if (org.stripeCustomerId && org.plan === 'team') {
-    return 'team';
+  if (org.stripeCustomerId && org.plan === "team") {
+    return "team";
   }
 
   const trialInfo = getTrialInfo(org);
 
   switch (trialInfo.status) {
-    case 'active':
-      return 'team';
-    case 'expired':
-      return 'free';
-    case 'converted':
+    case "active":
+      return "team";
+    case "expired":
+      return "free";
+    case "converted":
       return org.plan;
     default:
       return org.plan;
@@ -359,16 +357,13 @@ export async function getEffectivePlanForUser(userId: string): Promise<UserPlan>
   });
 
   // If user has team plan personally, return it
-  if (user?.plan === 'team') {
-    return 'team';
+  if (user?.plan === "team") {
+    return "team";
   }
 
   // Check if user is owner of any org with effective team plan
   const ownedOrgs = await db.query.organizationMembers.findMany({
-    where: and(
-      eq(organizationMembers.userId, userId),
-      eq(organizationMembers.orgRole, 'owner')
-    ),
+    where: and(eq(organizationMembers.userId, userId), eq(organizationMembers.orgRole, "owner")),
     with: {
       organization: true,
     },
@@ -377,12 +372,12 @@ export async function getEffectivePlanForUser(userId: string): Promise<UserPlan>
   for (const membership of ownedOrgs) {
     if (membership.organization) {
       const effectivePlan = getEffectivePlanWithTrial(membership.organization);
-      if (effectivePlan === 'team') {
-        return 'team';
+      if (effectivePlan === "team") {
+        return "team";
       }
     }
   }
 
   // Fall back to user's personal plan
-  return user?.plan ?? 'free';
+  return user?.plan ?? "free";
 }

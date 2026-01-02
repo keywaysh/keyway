@@ -5,9 +5,9 @@
  * Used by both the CLI script and the admin API endpoint.
  */
 
-import { db, secrets, providerConnections, users } from '../db';
-import { eq, ne, or, isNull } from 'drizzle-orm';
-import { getEncryptionService } from '../utils/encryption';
+import { db, secrets, providerConnections, users } from "../db";
+import { eq, ne, or, isNull } from "drizzle-orm";
+import { getEncryptionService } from "../utils/encryption";
 
 export interface RotationOptions {
   dryRun?: boolean;
@@ -29,7 +29,7 @@ export interface RotationResult {
 
 async function getCurrentVersion(): Promise<number> {
   const encryptionService = await getEncryptionService();
-  const result = await encryptionService.encrypt('test');
+  const result = await encryptionService.encrypt("test");
   return result.version ?? 1;
 }
 
@@ -41,10 +41,7 @@ async function rotateSecrets(
   const result: RotationCategoryResult = { total: 0, rotated: 0, failed: 0 };
 
   const secretsToRotate = await db.query.secrets.findMany({
-    where: or(
-      ne(secrets.encryptionVersion, targetVersion),
-      isNull(secrets.encryptionVersion)
-    ),
+    where: or(ne(secrets.encryptionVersion, targetVersion), isNull(secrets.encryptionVersion)),
   });
 
   result.total = secretsToRotate.length;
@@ -69,13 +66,16 @@ async function rotateSecrets(
 
         const encrypted = await encryptionService.encrypt(decrypted);
 
-        await db.update(secrets).set({
-          encryptedValue: encrypted.encryptedContent,
-          iv: encrypted.iv,
-          authTag: encrypted.authTag,
-          encryptionVersion: encrypted.version ?? targetVersion,
-          updatedAt: new Date(),
-        }).where(eq(secrets.id, secret.id));
+        await db
+          .update(secrets)
+          .set({
+            encryptedValue: encrypted.encryptedContent,
+            iv: encrypted.iv,
+            authTag: encrypted.authTag,
+            encryptionVersion: encrypted.version ?? targetVersion,
+            updatedAt: new Date(),
+          })
+          .where(eq(secrets.id, secret.id));
 
         result.rotated++;
       } catch {
@@ -131,7 +131,11 @@ async function rotateProviderTokens(
           updatedAt: new Date(),
         };
 
-        if (connection.encryptedRefreshToken && connection.refreshTokenIv && connection.refreshTokenAuthTag) {
+        if (
+          connection.encryptedRefreshToken &&
+          connection.refreshTokenIv &&
+          connection.refreshTokenAuthTag
+        ) {
           const decryptedRefresh = await encryptionService.decrypt({
             encryptedContent: connection.encryptedRefreshToken,
             iv: connection.refreshTokenIv,
@@ -146,7 +150,10 @@ async function rotateProviderTokens(
           updateData.refreshTokenVersion = encryptedRefresh.version ?? targetVersion;
         }
 
-        await db.update(providerConnections).set(updateData).where(eq(providerConnections.id, connection.id));
+        await db
+          .update(providerConnections)
+          .set(updateData)
+          .where(eq(providerConnections.id, connection.id));
 
         result.rotated++;
       } catch {
@@ -172,7 +179,7 @@ async function rotateUserTokens(
     ),
   });
 
-  const usersWithTokens = usersToRotate.filter(u => u.encryptedAccessToken);
+  const usersWithTokens = usersToRotate.filter((u) => u.encryptedAccessToken);
   result.total = usersWithTokens.length;
 
   if (dryRun) {
@@ -199,12 +206,15 @@ async function rotateUserTokens(
 
         const encrypted = await encryptionService.encrypt(decrypted);
 
-        await db.update(users).set({
-          encryptedAccessToken: encrypted.encryptedContent,
-          accessTokenIv: encrypted.iv,
-          accessTokenAuthTag: encrypted.authTag,
-          tokenEncryptionVersion: encrypted.version ?? targetVersion,
-        }).where(eq(users.id, user.id));
+        await db
+          .update(users)
+          .set({
+            encryptedAccessToken: encrypted.encryptedContent,
+            accessTokenIv: encrypted.iv,
+            accessTokenAuthTag: encrypted.authTag,
+            tokenEncryptionVersion: encrypted.version ?? targetVersion,
+          })
+          .where(eq(users.id, user.id));
 
         result.rotated++;
       } catch {

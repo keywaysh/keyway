@@ -54,7 +54,11 @@ export interface Provider {
   getAuthorizationUrl(state: string, redirectUri: string): { url: string; codeVerifier?: string };
 
   /** Exchange authorization code for access token */
-  exchangeCodeForToken(code: string, redirectUri: string, codeVerifier?: string): Promise<TokenResponse>;
+  exchangeCodeForToken(
+    code: string,
+    redirectUri: string,
+    codeVerifier?: string
+  ): Promise<TokenResponse>;
 
   /** Refresh an expired access token */
   refreshToken?(refreshToken: string): Promise<TokenResponse>;
@@ -67,7 +71,10 @@ export interface Provider {
   getUser(accessToken: string): Promise<ProviderUser>;
 
   /** Get team information by ID (optional) */
-  getTeam?(accessToken: string, teamId: string): Promise<{ id: string; name: string; slug?: string } | null>;
+  getTeam?(
+    accessToken: string,
+    teamId: string
+  ): Promise<{ id: string; name: string; slug?: string } | null>;
 
   /**
    * Project Methods
@@ -77,7 +84,11 @@ export interface Provider {
   listProjects(accessToken: string, teamId?: string): Promise<ProviderProject[]>;
 
   /** Get a specific project by ID */
-  getProject?(accessToken: string, projectId: string, teamId?: string): Promise<ProviderProject | null>;
+  getProject?(
+    accessToken: string,
+    projectId: string,
+    teamId?: string
+  ): Promise<ProviderProject | null>;
 
   /**
    * Environment Variables Methods
@@ -136,8 +147,12 @@ export function getAllProviders(): Provider[] {
   return Array.from(providers.values());
 }
 
-export function getAvailableProviders(): { name: string; displayName: string; configured: boolean }[] {
-  return getAllProviders().map(p => ({
+export function getAvailableProviders(): {
+  name: string;
+  displayName: string;
+  configured: boolean;
+}[] {
+  return getAllProviders().map((p) => ({
     name: p.name,
     displayName: p.displayName,
     configured: isProviderConfigured(p.name),
@@ -147,14 +162,14 @@ export function getAvailableProviders(): { name: string; displayName: string; co
 function isProviderConfigured(name: string): boolean {
   // Dynamic import to avoid circular dependency
   // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const { config } = require('../../config');
+  const { config } = require("../../config");
 
   switch (name) {
-    case 'vercel':
+    case "vercel":
       return !!(config.vercel?.clientId && config.vercel?.clientSecret);
-    case 'netlify':
+    case "netlify":
       return !!(config.netlify?.clientId && config.netlify?.clientSecret);
-    case 'railway':
+    case "railway":
       // Railway uses direct API token auth, always configured
       return true;
     default:

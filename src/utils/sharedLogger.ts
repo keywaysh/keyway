@@ -1,5 +1,5 @@
-import pino from 'pino';
-import { config } from '../config';
+import pino from "pino";
+import { config } from "../config";
 
 /**
  * Shared logger for use in utilities and services where Fastify request context isn't available.
@@ -18,7 +18,7 @@ import { config } from '../config';
  */
 
 // Safe defaults for when config is not fully loaded (e.g., during tests)
-const logLevel = config?.server?.logLevel ?? 'info';
+const logLevel = config?.server?.logLevel ?? "info";
 const isDevelopment = config?.server?.isDevelopment ?? false;
 
 export const logger = pino({
@@ -26,11 +26,11 @@ export const logger = pino({
   // Use pino-pretty in development for readable output
   transport: isDevelopment
     ? {
-        target: 'pino-pretty',
+        target: "pino-pretty",
         options: {
           colorize: true,
-          translateTime: 'HH:MM:ss Z',
-          ignore: 'pid,hostname',
+          translateTime: "HH:MM:ss Z",
+          ignore: "pid,hostname",
         },
       }
     : undefined,

@@ -1,5 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { getDefaultPermission } from '../src/utils/permissions';
+import {
+  getDefaultPermission,
+  canSyncBetweenEnvironments,
+  DEFAULT_ROLE_PERMISSIONS,
+  getEnvironmentType,
+} from '../src/utils/permissions';
 import type { CollaboratorRole, PermissionType } from '../src/db/schema';
 
 // Test pure functions without DB
@@ -180,6 +185,169 @@ describe('Role hierarchy logic', () => {
       expect(roleHasLevel('write', requiredWrite)).toBe(false);
       expect(roleHasLevel('maintain', requiredWrite)).toBe(false);
       expect(roleHasLevel('admin', requiredWrite)).toBe(true);
+    });
+  });
+});
+
+describe('DEFAULT_ROLE_PERMISSIONS matrix', () => {
+  describe('triage role', () => {
+    it('should be read-only on all environments', () => {
+      // Triage is for issue/PR management, not secrets management
+      expect(DEFAULT_ROLE_PERMISSIONS.triage.development.write).toBe(false);
+      expect(DEFAULT_ROLE_PERMISSIONS.triage.standard.write).toBe(false);
+      expect(DEFAULT_ROLE_PERMISSIONS.triage.protected.write).toBe(false);
+    });
+
+    it('should have read access to development and standard', () => {
+      expect(DEFAULT_ROLE_PERMISSIONS.triage.development.read).toBe(true);
+      expect(DEFAULT_ROLE_PERMISSIONS.triage.standard.read).toBe(true);
+    });
+
+    it('should NOT have read access to production', () => {
+      expect(DEFAULT_ROLE_PERMISSIONS.triage.protected.read).toBe(false);
+    });
+  });
+
+  describe('read role', () => {
+    it('should be read-only everywhere', () => {
+      expect(DEFAULT_ROLE_PERMISSIONS.read.development.write).toBe(false);
+      expect(DEFAULT_ROLE_PERMISSIONS.read.standard.write).toBe(false);
+      expect(DEFAULT_ROLE_PERMISSIONS.read.protected.write).toBe(false);
+    });
+  });
+
+  describe('write role', () => {
+    it('should have write on development and standard', () => {
+      expect(DEFAULT_ROLE_PERMISSIONS.write.development.write).toBe(true);
+      expect(DEFAULT_ROLE_PERMISSIONS.write.standard.write).toBe(true);
+    });
+
+    it('should be read-only on production', () => {
+      expect(DEFAULT_ROLE_PERMISSIONS.write.protected.read).toBe(true);
+      expect(DEFAULT_ROLE_PERMISSIONS.write.protected.write).toBe(false);
+    });
+  });
+
+  describe('maintain role', () => {
+    it('should have same permissions as write role', () => {
+      expect(DEFAULT_ROLE_PERMISSIONS.maintain.development).toEqual(
+        DEFAULT_ROLE_PERMISSIONS.write.development
+      );
+      expect(DEFAULT_ROLE_PERMISSIONS.maintain.standard).toEqual(
+        DEFAULT_ROLE_PERMISSIONS.write.standard
+      );
+      expect(DEFAULT_ROLE_PERMISSIONS.maintain.protected).toEqual(
+        DEFAULT_ROLE_PERMISSIONS.write.protected
+      );
+    });
+  });
+
+  describe('admin role', () => {
+    it('should have full access everywhere', () => {
+      expect(DEFAULT_ROLE_PERMISSIONS.admin.development).toEqual({ read: true, write: true });
+      expect(DEFAULT_ROLE_PERMISSIONS.admin.standard).toEqual({ read: true, write: true });
+      expect(DEFAULT_ROLE_PERMISSIONS.admin.protected).toEqual({ read: true, write: true });
+    });
+  });
+});
+
+describe('Cross-environment sync validation', () => {
+  describe('canSyncBetweenEnvironments', () => {
+    describe('escalating protection levels', () => {
+      it('should block dev → staging for non-admin', () => {
+        const result = canSyncBetweenEnvironments('development', 'staging', 'write');
+        expect(result.allowed).toBe(false);
+        expect(result.reason).toContain('requires admin role');
+      });
+
+      it('should block dev → production for non-admin', () => {
+        const result = canSyncBetweenEnvironments('development', 'production', 'write');
+        expect(result.allowed).toBe(false);
+        expect(result.reason).toContain('requires admin role');
+      });
+
+      it('should block staging → production for non-admin', () => {
+        const result = canSyncBetweenEnvironments('staging', 'production', 'maintain');
+        expect(result.allowed).toBe(false);
+        expect(result.reason).toContain('requires admin role');
+      });
+
+      it('should allow admin for any escalation', () => {
+        expect(canSyncBetweenEnvironments('development', 'production', 'admin').allowed).toBe(true);
+        expect(canSyncBetweenEnvironments('development', 'staging', 'admin').allowed).toBe(true);
+        expect(canSyncBetweenEnvironments('staging', 'production', 'admin').allowed).toBe(true);
+      });
+    });
+
+    describe('same protection level', () => {
+      it('should allow staging → staging for write+ roles', () => {
+        expect(canSyncBetweenEnvironments('staging', 'test', 'write').allowed).toBe(true);
+        expect(canSyncBetweenEnvironments('qa', 'uat', 'maintain').allowed).toBe(true);
+      });
+
+      it('should allow production → production for write+ roles', () => {
+        expect(canSyncBetweenEnvironments('production', 'prod', 'write').allowed).toBe(true);
+      });
+
+      it('should allow dev → dev for write+ roles', () => {
+        expect(canSyncBetweenEnvironments('development', 'local', 'write').allowed).toBe(true);
+      });
+    });
+
+    describe('de-escalating protection levels', () => {
+      it('should allow production → staging for write+ roles', () => {
+        expect(canSyncBetweenEnvironments('production', 'staging', 'write').allowed).toBe(true);
+        expect(canSyncBetweenEnvironments('production', 'staging', 'maintain').allowed).toBe(true);
+      });
+
+      it('should allow production → development for write+ roles', () => {
+        expect(canSyncBetweenEnvironments('production', 'development', 'write').allowed).toBe(true);
+      });
+
+      it('should allow staging → development for write+ roles', () => {
+        expect(canSyncBetweenEnvironments('staging', 'development', 'write').allowed).toBe(true);
+      });
+    });
+
+    describe('role restrictions', () => {
+      it('should block escalation for triage role', () => {
+        expect(canSyncBetweenEnvironments('development', 'staging', 'triage').allowed).toBe(false);
+        expect(canSyncBetweenEnvironments('staging', 'production', 'triage').allowed).toBe(false);
+      });
+
+      it('should block escalation for read role', () => {
+        expect(canSyncBetweenEnvironments('development', 'staging', 'read').allowed).toBe(false);
+        expect(canSyncBetweenEnvironments('development', 'production', 'read').allowed).toBe(false);
+      });
+    });
+  });
+
+  describe('getEnvironmentType classification', () => {
+    it('should classify production environments as protected', () => {
+      expect(getEnvironmentType('production')).toBe('protected');
+      expect(getEnvironmentType('prod')).toBe('protected');
+      expect(getEnvironmentType('main')).toBe('protected');
+      expect(getEnvironmentType('master')).toBe('protected');
+      expect(getEnvironmentType('PRODUCTION')).toBe('protected');
+    });
+
+    it('should classify development environments', () => {
+      expect(getEnvironmentType('development')).toBe('development');
+      expect(getEnvironmentType('dev')).toBe('development');
+      expect(getEnvironmentType('local')).toBe('development');
+      expect(getEnvironmentType('DEV')).toBe('development');
+    });
+
+    it('should classify staging/test as standard', () => {
+      expect(getEnvironmentType('staging')).toBe('standard');
+      expect(getEnvironmentType('test')).toBe('standard');
+      expect(getEnvironmentType('qa')).toBe('standard');
+      expect(getEnvironmentType('uat')).toBe('standard');
+    });
+
+    it('should default unknown environments to standard', () => {
+      expect(getEnvironmentType('feature-branch')).toBe('standard');
+      expect(getEnvironmentType('preview-123')).toBe('standard');
     });
   });
 });

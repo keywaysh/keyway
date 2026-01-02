@@ -1,21 +1,19 @@
-import Stripe from 'stripe';
-import { eq } from 'drizzle-orm';
-import { db, users, subscriptions, stripeWebhookEvents, organizations, type UserPlan } from '../db';
-import { config } from '../config';
-import { trackEvent, identifyUser, AnalyticsEvents } from '../utils/analytics';
-import { logActivity } from './activity.service';
-import { logger } from '../utils/sharedLogger';
+import Stripe from "stripe";
+import { eq } from "drizzle-orm";
+import { db, users, subscriptions, stripeWebhookEvents, organizations, type UserPlan } from "../db";
+import { config } from "../config";
+import { trackEvent, identifyUser, AnalyticsEvents } from "../utils/analytics";
+import { logActivity } from "./activity.service";
+import { logger } from "../utils/sharedLogger";
 import {
   updateOrganizationPlan,
   setOrganizationStripeCustomerId,
   getOrganizationById,
-} from './organization.service';
-import { convertTrial, hasHadTrial } from './trial.service';
+} from "./organization.service";
+import { convertTrial, hasHadTrial } from "./trial.service";
 
 // Initialize Stripe client (only if configured)
-const stripe = config.stripe
-  ? new Stripe(config.stripe.secretKey)
-  : null;
+const stripe = config.stripe ? new Stripe(config.stripe.secretKey) : null;
 
 /**
  * Check if Stripe billing is enabled
@@ -29,7 +27,7 @@ export function isStripeEnabled(): boolean {
  */
 function getStripe(): Stripe {
   if (!stripe) {
-    throw new Error('Stripe is not configured');
+    throw new Error("Stripe is not configured");
   }
   return stripe;
 }
@@ -38,14 +36,16 @@ function getStripe(): Stripe {
  * Map Stripe price ID to plan
  */
 function getPlanFromPriceId(priceId: string): UserPlan | null {
-  if (!config.stripe) return null;
+  if (!config.stripe) {
+    return null;
+  }
 
   const { prices } = config.stripe;
   if (priceId === prices.proMonthly || priceId === prices.proYearly) {
-    return 'pro';
+    return "pro";
   }
   if (priceId === prices.teamMonthly || priceId === prices.teamYearly) {
-    return 'team';
+    return "team";
   }
   return null;
 }
@@ -108,7 +108,7 @@ export async function createCheckoutSession(
   // Create checkout session
   const session = await s.checkout.sessions.create({
     customer: customerId,
-    mode: 'subscription',
+    mode: "subscription",
     line_items: [
       {
         price: priceId,
@@ -128,7 +128,7 @@ export async function createCheckoutSession(
   });
 
   if (!session.url) {
-    throw new Error('Failed to create checkout session');
+    throw new Error("Failed to create checkout session");
   }
 
   return session.url;
@@ -137,10 +137,7 @@ export async function createCheckoutSession(
 /**
  * Create a Stripe Customer Portal session
  */
-export async function createPortalSession(
-  userId: string,
-  returnUrl: string
-): Promise<string> {
+export async function createPortalSession(userId: string, returnUrl: string): Promise<string> {
   const s = getStripe();
 
   // Get user's Stripe customer ID
@@ -151,7 +148,7 @@ export async function createPortalSession(
     .limit(1);
 
   if (!user?.stripeCustomerId) {
-    throw new Error('No billing account found');
+    throw new Error("No billing account found");
   }
 
   const session = await s.billingPortal.sessions.create({
@@ -201,24 +198,25 @@ async function recordWebhookEvent(eventId: string, eventType: string): Promise<v
 /**
  * Handle subscription created/updated event
  */
-async function handleSubscriptionChange(
-  subscription: Stripe.Subscription
-): Promise<void> {
+async function handleSubscriptionChange(subscription: Stripe.Subscription): Promise<void> {
   const userId = subscription.metadata.keyway_user_id;
   if (!userId) {
-    logger.warn({ subscriptionId: subscription.id }, 'Subscription missing keyway_user_id metadata');
+    logger.warn(
+      { subscriptionId: subscription.id },
+      "Subscription missing keyway_user_id metadata"
+    );
     return;
   }
 
   const priceId = subscription.items.data[0]?.price.id;
   if (!priceId) {
-    logger.warn({ subscriptionId: subscription.id }, 'Subscription missing price');
+    logger.warn({ subscriptionId: subscription.id }, "Subscription missing price");
     return;
   }
 
   const plan = getPlanFromPriceId(priceId);
   if (!plan) {
-    logger.warn({ priceId }, 'Unknown price ID');
+    logger.warn({ priceId }, "Unknown price ID");
     return;
   }
 
@@ -261,7 +259,7 @@ async function handleSubscriptionChange(
     .where(eq(users.id, userId))
     .limit(1);
 
-  const previousPlan = currentUser?.plan || 'free';
+  const previousPlan = currentUser?.plan || "free";
 
   // Update user plan and billing status
   await db
@@ -273,7 +271,7 @@ async function handleSubscriptionChange(
     })
     .where(eq(users.id, userId));
 
-  logger.info({ userId, plan, billingStatus }, 'Updated user plan');
+  logger.info({ userId, plan, billingStatus }, "Updated user plan");
 
   // Track billing upgrade/downgrade events
   if (previousPlan !== plan) {
@@ -282,22 +280,22 @@ async function handleSubscriptionChange(
     // Log activity
     await logActivity({
       userId,
-      action: isUpgrade ? 'plan_upgraded' : 'plan_downgraded',
-      platform: 'api',
+      action: isUpgrade ? "plan_upgraded" : "plan_downgraded",
+      platform: "api",
       metadata: {
         previousPlan,
         newPlan: plan,
-        billingInterval: subscription.items.data[0]?.price.recurring?.interval || 'unknown',
-        source: 'stripe_webhook',
+        billingInterval: subscription.items.data[0]?.price.recurring?.interval || "unknown",
+        source: "stripe_webhook",
       },
     });
 
     // Track analytics
-    if (previousPlan === 'free' && plan !== 'free') {
+    if (previousPlan === "free" && plan !== "free") {
       trackEvent(userId, AnalyticsEvents.BILLING_UPGRADE, {
         previousPlan,
         newPlan: plan,
-        billingInterval: subscription.items.data[0]?.price.recurring?.interval || 'unknown',
+        billingInterval: subscription.items.data[0]?.price.recurring?.interval || "unknown",
       });
       // Update user identity with new plan
       identifyUser(userId, { plan });
@@ -310,22 +308,24 @@ async function handleSubscriptionChange(
  */
 function getPlanRank(plan: UserPlan): number {
   switch (plan) {
-    case 'free': return 0;
-    case 'pro': return 1;
-    case 'team': return 2;
-    default: return 0;
+    case "free":
+      return 0;
+    case "pro":
+      return 1;
+    case "team":
+      return 2;
+    default:
+      return 0;
   }
 }
 
 /**
  * Handle subscription deleted event
  */
-async function handleSubscriptionDeleted(
-  subscription: Stripe.Subscription
-): Promise<void> {
+async function handleSubscriptionDeleted(subscription: Stripe.Subscription): Promise<void> {
   const userId = subscription.metadata.keyway_user_id;
   if (!userId) {
-    logger.warn({ subscriptionId: subscription.id }, 'Deleted subscription missing keyway_user_id');
+    logger.warn({ subscriptionId: subscription.id }, "Deleted subscription missing keyway_user_id");
     return;
   }
 
@@ -336,46 +336,44 @@ async function handleSubscriptionDeleted(
     .where(eq(users.id, userId))
     .limit(1);
 
-  const previousPlan = currentUser?.plan || 'pro';
+  const previousPlan = currentUser?.plan || "pro";
 
   // Delete subscription record
-  await db
-    .delete(subscriptions)
-    .where(eq(subscriptions.userId, userId));
+  await db.delete(subscriptions).where(eq(subscriptions.userId, userId));
 
   // Downgrade user to free plan
   await db
     .update(users)
     .set({
-      plan: 'free',
-      billingStatus: 'canceled',
+      plan: "free",
+      billingStatus: "canceled",
       updatedAt: new Date(),
     })
     .where(eq(users.id, userId));
 
-  logger.info({ userId }, 'Downgraded user to free plan (subscription deleted)');
+  logger.info({ userId }, "Downgraded user to free plan (subscription deleted)");
 
   // Log activity
   await logActivity({
     userId,
-    action: 'plan_downgraded',
-    platform: 'api',
+    action: "plan_downgraded",
+    platform: "api",
     metadata: {
       previousPlan,
-      newPlan: 'free',
-      reason: 'subscription_deleted',
-      source: 'stripe_webhook',
+      newPlan: "free",
+      reason: "subscription_deleted",
+      source: "stripe_webhook",
     },
   });
 
   // Track billing downgrade event
   trackEvent(userId, AnalyticsEvents.BILLING_DOWNGRADE, {
     previousPlan,
-    newPlan: 'free',
-    reason: 'subscription_deleted',
+    newPlan: "free",
+    reason: "subscription_deleted",
   });
   // Update user identity with new plan
-  identifyUser(userId, { plan: 'free' });
+  identifyUser(userId, { plan: "free" });
 }
 
 /**
@@ -392,7 +390,7 @@ async function handlePaymentFailed(invoice: Stripe.Invoice): Promise<void> {
     .limit(1);
 
   if (!user) {
-    logger.warn({ customerId }, 'Payment failed for unknown customer');
+    logger.warn({ customerId }, "Payment failed for unknown customer");
     return;
   }
 
@@ -400,12 +398,12 @@ async function handlePaymentFailed(invoice: Stripe.Invoice): Promise<void> {
   await db
     .update(users)
     .set({
-      billingStatus: 'past_due',
+      billingStatus: "past_due",
       updatedAt: new Date(),
     })
     .where(eq(users.id, user.id));
 
-  logger.info({ userId: user.id }, 'Marked user as past_due (payment failed)');
+  logger.info({ userId: user.id }, "Marked user as past_due (payment failed)");
 
   // Track payment failed event
   trackEvent(user.id, AnalyticsEvents.BILLING_PAYMENT_FAILED, {
@@ -416,43 +414,38 @@ async function handlePaymentFailed(invoice: Stripe.Invoice): Promise<void> {
 /**
  * Map Stripe subscription status to our billing status
  */
-function mapStripeToBillingStatus(stripeStatus: Stripe.Subscription.Status): 'active' | 'past_due' | 'canceled' | 'trialing' {
+function mapStripeToBillingStatus(
+  stripeStatus: Stripe.Subscription.Status
+): "active" | "past_due" | "canceled" | "trialing" {
   switch (stripeStatus) {
-    case 'active':
-      return 'active';
-    case 'past_due':
-      return 'past_due';
-    case 'canceled':
-    case 'unpaid':
-    case 'incomplete_expired':
-      return 'canceled';
-    case 'trialing':
-      return 'trialing';
-    case 'incomplete':
-    case 'paused':
+    case "active":
+      return "active";
+    case "past_due":
+      return "past_due";
+    case "canceled":
+    case "unpaid":
+    case "incomplete_expired":
+      return "canceled";
+    case "trialing":
+      return "trialing";
+    case "incomplete":
+    case "paused":
     default:
-      return 'active';
+      return "active";
   }
 }
 
 /**
  * Construct and verify a Stripe webhook event
  */
-export function constructWebhookEvent(
-  payload: Buffer,
-  signature: string
-): Stripe.Event {
+export function constructWebhookEvent(payload: Buffer, signature: string): Stripe.Event {
   const s = getStripe();
 
   if (!config.stripe?.webhookSecret) {
-    throw new Error('Webhook secret not configured');
+    throw new Error("Webhook secret not configured");
   }
 
-  return s.webhooks.constructEvent(
-    payload,
-    signature,
-    config.stripe.webhookSecret
-  );
+  return s.webhooks.constructEvent(payload, signature, config.stripe.webhookSecret);
 }
 
 /**
@@ -461,7 +454,7 @@ export function constructWebhookEvent(
 export async function handleWebhookEvent(event: Stripe.Event): Promise<void> {
   // Check idempotency
   if (await isEventProcessed(event.id)) {
-    logger.debug({ eventId: event.id }, 'Event already processed');
+    logger.debug({ eventId: event.id }, "Event already processed");
     return;
   }
 
@@ -470,8 +463,8 @@ export async function handleWebhookEvent(event: Stripe.Event): Promise<void> {
 
   // Handle event by type
   switch (event.type) {
-    case 'customer.subscription.created':
-    case 'customer.subscription.updated': {
+    case "customer.subscription.created":
+    case "customer.subscription.updated": {
       const subscription = event.data.object as Stripe.Subscription;
       // Check if this is an org subscription
       if (subscription.metadata.keyway_org_id) {
@@ -482,7 +475,7 @@ export async function handleWebhookEvent(event: Stripe.Event): Promise<void> {
       break;
     }
 
-    case 'customer.subscription.deleted': {
+    case "customer.subscription.deleted": {
       const subscription = event.data.object as Stripe.Subscription;
       // Check if this is an org subscription
       if (subscription.metadata.keyway_org_id) {
@@ -493,12 +486,12 @@ export async function handleWebhookEvent(event: Stripe.Event): Promise<void> {
       break;
     }
 
-    case 'invoice.payment_failed':
+    case "invoice.payment_failed":
       await handlePaymentFailed(event.data.object as Stripe.Invoice);
       break;
 
     default:
-      logger.debug({ eventType: event.type }, 'Unhandled event type');
+      logger.debug({ eventType: event.type }, "Unhandled event type");
   }
 }
 
@@ -579,11 +572,11 @@ export async function createOrgCheckoutSession(
 
   // Validate that the price is a Team plan price
   if (!config.stripe) {
-    throw new Error('Stripe is not configured');
+    throw new Error("Stripe is not configured");
   }
   const teamPrices = [config.stripe.prices.teamMonthly, config.stripe.prices.teamYearly];
   if (!teamPrices.includes(priceId)) {
-    throw new Error('Organizations can only subscribe to the Team plan');
+    throw new Error("Organizations can only subscribe to the Team plan");
   }
 
   // Get or create customer
@@ -592,7 +585,7 @@ export async function createOrgCheckoutSession(
   // Create checkout session
   const session = await s.checkout.sessions.create({
     customer: customerId,
-    mode: 'subscription',
+    mode: "subscription",
     line_items: [
       {
         price: priceId,
@@ -614,7 +607,7 @@ export async function createOrgCheckoutSession(
   });
 
   if (!session.url) {
-    throw new Error('Failed to create checkout session');
+    throw new Error("Failed to create checkout session");
   }
 
   return session.url;
@@ -623,10 +616,7 @@ export async function createOrgCheckoutSession(
 /**
  * Create a Stripe Customer Portal session for organization
  */
-export async function createOrgPortalSession(
-  orgId: string,
-  returnUrl: string
-): Promise<string> {
+export async function createOrgPortalSession(orgId: string, returnUrl: string): Promise<string> {
   const s = getStripe();
 
   // Get org's Stripe customer ID
@@ -637,7 +627,7 @@ export async function createOrgPortalSession(
     .limit(1);
 
   if (!org?.stripeCustomerId) {
-    throw new Error('No billing account found for organization');
+    throw new Error("No billing account found for organization");
   }
 
   const session = await s.billingPortal.sessions.create({
@@ -662,31 +652,31 @@ export async function handleOrgSubscriptionChange(
 
   const priceId = subscription.items.data[0]?.price.id;
   if (!priceId) {
-    logger.warn({ subscriptionId: subscription.id }, 'Org subscription missing price');
+    logger.warn({ subscriptionId: subscription.id }, "Org subscription missing price");
     return;
   }
 
   const plan = getPlanFromPriceId(priceId);
   if (!plan) {
-    logger.warn({ priceId }, 'Unknown price ID for org');
+    logger.warn({ priceId }, "Unknown price ID for org");
     return;
   }
 
   // Check if org was on trial and convert it
   const org = await getOrganizationById(orgId);
-  if (org && hasHadTrial(org) && !org.trialConvertedAt && subscription.status === 'active') {
+  if (org && hasHadTrial(org) && !org.trialConvertedAt && subscription.status === "active") {
     await convertTrial({
       orgId,
       userId: orgId, // System action - use org ID as actor
-      platform: 'api',
+      platform: "api",
       stripeCustomerId: subscription.customer as string,
     });
-    logger.info({ orgId }, 'Converted trial to paid subscription');
+    logger.info({ orgId }, "Converted trial to paid subscription");
   }
 
   // Update organization plan
   await updateOrganizationPlan(orgId, plan);
-  logger.info({ orgId, plan }, 'Updated organization plan');
+  logger.info({ orgId, plan }, "Updated organization plan");
 }
 
 /**
@@ -702,8 +692,8 @@ export async function handleOrgSubscriptionDeleted(
   }
 
   // Downgrade org to free plan
-  await updateOrganizationPlan(orgId, 'free');
-  logger.info({ orgId }, 'Downgraded organization to free plan (subscription deleted)');
+  await updateOrganizationPlan(orgId, "free");
+  logger.info({ orgId }, "Downgraded organization to free plan (subscription deleted)");
 }
 
 /**
