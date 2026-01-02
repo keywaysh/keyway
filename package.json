@@ -1,7 +1,7 @@
 {
   "name": "@keywaysh/mcp",
   "version": "1.0.0",
-  "description": "MCP server for Keyway secrets management",
+  "description": "MCP server for Keyway secrets management - let AI manage your secrets securely",
   "type": "module",
   "bin": {
     "keyway-mcp": "./dist/index.js"
@@ -20,8 +20,18 @@
     "lint:fix": "eslint src __tests__ --fix",
     "format": "prettier --write 'src/**/*.ts' '__tests__/**/*.ts'",
     "format:check": "prettier --check 'src/**/*.ts' '__tests__/**/*.ts'",
-    "validate": "pnpm run type-check && pnpm run lint && pnpm run test"
+    "validate": "pnpm run type-check && pnpm run lint && pnpm run test",
+    "prepublishOnly": "pnpm run validate && pnpm run build"
   },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/keywaysh/keyway-mcp.git"
+  },
+  "homepage": "https://keyway.sh",
+  "bugs": {
+    "url": "https://github.com/keywaysh/keyway-mcp/issues"
+  },
+  "author": "Nicolas Ritouet <hello@keyway.sh>",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.25.1",
     "conf": "^13.0.1",
