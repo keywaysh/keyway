@@ -149,7 +149,7 @@ brew uninstall keyway
 
 ```bash
 rm /usr/local/bin/keyway
-rm -rf ~/.config/keyway  # Remove config (optional)
+rm -rf ~/.config/keyway-nodejs ~/.keyway  # Remove config (optional)
 ```
 
 ## Next Steps

@@ -22,20 +22,16 @@ npx @keywaysh/cli pull
 
 ```
 docs/
-├── intro.md              # What is Keyway?
-├── quickstart/           # Getting started guides
-│   ├── install.md
-│   ├── first-vault.md
-│   └── team-sharing.md
-├── guides/               # How-to guides
-│   ├── environments.md
-│   ├── ci-cd.md
-│   └── security.md
-├── api/                  # API reference
-│   └── endpoints.md
-└── reference/            # CLI & config reference
-    ├── cli.md
-    └── env-files.md
+├── intro.md              # Getting started
+├── installation.md       # Installation guide
+├── cli.md                # CLI reference
+├── api.md                # API reference
+├── ci-cd.md              # CI/CD integration
+├── mcp.md                # MCP Server for AI tools
+├── ai-agents.md          # AI agents integration
+├── security.md           # Security & permissions
+├── organizations.md      # Organizations & billing
+└── integrations.md       # Provider integrations
 ```
 
 ## Local Development
@@ -70,9 +66,10 @@ pnpm serve
 | Repo | Description |
 |------|-------------|
 | [keyway-backend](https://github.com/keywaysh/keyway-backend) | Fastify API server |
-| [keyway-cli](https://github.com/keywaysh/keyway-cli) | CLI tool (`@keywaysh/cli`) |
-| [keyway-site](https://github.com/keywaysh/keyway-site) | Marketing site & dashboard |
-| [keyway-crypto](https://github.com/NicolasRitouet/keyway-crypto) | Go encryption microservice |
+| [cli](https://github.com/keywaysh/cli) | CLI tool (`@keywaysh/cli`) |
+| [keyway-dashboard](https://github.com/keywaysh/keyway-dashboard) | Web dashboard |
+| [keyway-landing](https://github.com/keywaysh/keyway-landing) | Marketing site |
+| [keyway-crypto](https://github.com/keywaysh/keyway-crypto) | Go encryption microservice |
 
 ## License
 

@@ -1,5 +1,5 @@
 ---
-sidebar_position: 3
+sidebar_position: 4
 title: API Reference
 ---
 
@@ -18,7 +18,7 @@ Authorization: Bearer <token>
 | Token Type | Source | Use Case |
 |------------|--------|----------|
 | Keyway API Key | Dashboard -> API Keys | CI/CD, automation (recommended) |
-| Keyway JWT | `keyway login` -> `~/.config/keyway/config.json` | CLI, scripts |
+| Keyway JWT | `keyway login` -> `~/.config/keyway-nodejs/config.json` | CLI, scripts |
 | GitHub PAT | [Fine-grained PAT](https://github.com/settings/tokens?type=beta) | Legacy CI/CD |
 
 ---

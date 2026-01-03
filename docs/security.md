@@ -1,5 +1,5 @@
 ---
-sidebar_position: 6
+sidebar_position: 8
 title: Security
 ---
 
@@ -278,7 +278,7 @@ Security alerts are informational. Investigate any unexpected alerts and rotate 
 2. User approves in browser
 3. CLI receives token (30 days)
 
-Token stored in `~/.config/keyway/config.json` (mode 600).
+Token stored in `~/.config/keyway-nodejs/config.json` (Linux) or `~/Library/Preferences/keyway-nodejs/config.json` (macOS), mode 600.
 
 ### API Keys (Recommended for CI/CD)
 

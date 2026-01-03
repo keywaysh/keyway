@@ -146,7 +146,7 @@ keyway login           # OAuth (opens browser)
 keyway login --token   # Use fine-grained PAT
 ```
 
-Token stored in `~/.config/keyway/config.json`
+Token stored in `~/.config/keyway-nodejs/config.json` (Linux), `~/Library/Preferences/keyway-nodejs/config.json` (macOS)
 
 ---
 
