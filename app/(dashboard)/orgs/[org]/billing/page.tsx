@@ -37,9 +37,9 @@ const teamFeatures = [
 const freeFeatures = [
   'Unlimited public repositories',
   '1 private repository',
-  '4 environments per vault',
-  'Unlimited secrets',
-  '2 provider integrations',
+  '3 environments per vault',
+  '15 collaborators per repo',
+  'CLI & Dashboard access',
 ]
 
 export default function OrganizationBillingPage() {

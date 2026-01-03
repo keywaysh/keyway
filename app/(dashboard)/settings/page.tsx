@@ -17,7 +17,7 @@ import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
 
 type UsageData = {
-  plan: 'free' | 'pro' | 'team'
+  plan: 'free' | 'pro' | 'team' | 'startup'
   limits: {
     maxPublicRepos: string | number
     maxPrivateRepos: string | number
@@ -39,7 +39,7 @@ type SubscriptionData = {
     currentPeriodEnd: string
     cancelAtPeriodEnd: boolean
   } | null
-  plan: 'free' | 'pro' | 'team'
+  plan: 'free' | 'pro' | 'team' | 'startup'
   billingStatus: 'active' | 'past_due' | 'canceled' | 'trialing'
   stripeCustomerId: string | null
 }
@@ -238,7 +238,7 @@ export default function SettingsPage() {
                     </div>
                     {billingData.plan !== 'free' && (
                       <Badge variant="outline" className="text-primary">
-                        {billingData.plan === 'pro' ? '$9/mo' : '$29/mo'}
+                        {billingData.plan === 'pro' ? '$4/mo' : billingData.plan === 'team' ? '$15/mo' : '$39/mo'}
                       </Badge>
                     )}
                   </div>

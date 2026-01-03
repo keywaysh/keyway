@@ -20,6 +20,10 @@ type PriceData = {
       monthly: { id: string; price: number; interval: string }
       yearly: { id: string; price: number; interval: string }
     }
+    startup?: {
+      monthly: { id: string; price: number; interval: string }
+      yearly: { id: string; price: number; interval: string }
+    }
   }
 }
 
@@ -30,7 +34,7 @@ type SubscriptionData = {
     currentPeriodEnd: string
     cancelAtPeriodEnd: boolean
   } | null
-  plan: 'free' | 'pro' | 'team'
+  plan: 'free' | 'pro' | 'team' | 'startup'
   billingStatus: 'active' | 'past_due' | 'canceled' | 'trialing'
   stripeCustomerId: string | null
 }
@@ -39,21 +43,29 @@ const planFeatures = {
   free: [
     'Unlimited public repos',
     '1 private repo',
-    'Unlimited secrets',
-    'CLI & Dashboard access',
+    '3 environments',
+    '2 provider integrations',
+    '15 collaborators per repo',
   ],
   pro: [
-    'Unlimited vaults',
-    'Unlimited secrets per vault',
-    'Unlimited team members',
-    'CLI & Dashboard access',
-    'Priority support',
+    '5 private repos',
+    'Unlimited environments',
+    'Unlimited providers',
+    '15 collaborators per repo',
   ],
   team: [
-    'Everything in Pro',
+    '10 private repos',
+    'Unlimited environments',
+    'Unlimited providers',
     'Audit logs',
-    'SSO (coming soon)',
-    'Dedicated support',
+    'Member management',
+  ],
+  startup: [
+    '40 private repos',
+    '30 collaborators per repo',
+    'Unlimited providers',
+    'Priority support',
+    'Everything in Team',
   ],
 }
 
@@ -62,7 +74,7 @@ export default function UpgradePage() {
   const [prices, setPrices] = useState<PriceData | null>(null)
   const [subscription, setSubscription] = useState<SubscriptionData | null>(null)
   const [loading, setLoading] = useState(true)
-  const [checkoutLoading, setCheckoutLoading] = useState<'pro' | 'team' | null>(null)
+  const [checkoutLoading, setCheckoutLoading] = useState<'pro' | 'team' | 'startup' | null>(null)
   const [isLoggedIn, setIsLoggedIn] = useState<boolean | null>(null) // null = loading
   const hasFiredView = useRef(false)
 
@@ -106,7 +118,7 @@ export default function UpgradePage() {
     fetchData()
   }, [])
 
-  const handleCheckout = async (priceId: string, plan: 'pro' | 'team') => {
+  const handleCheckout = async (priceId: string, plan: 'pro' | 'team' | 'startup') => {
     trackEvent(AnalyticsEvents.UPGRADE_CLICK, {
       plan,
       interval,
@@ -135,7 +147,7 @@ export default function UpgradePage() {
   }
 
   const getProPrice = () => {
-    if (!prices) return { display: '$9', monthly: 9 }
+    if (!prices) return { display: '$4', monthly: 4 }
     const priceObj = interval === 'monthly' ? prices.prices.pro.monthly : prices.prices.pro.yearly
     const amount = priceObj.price / 100 // Convert cents to dollars
     if (interval === 'yearly') {
@@ -151,7 +163,7 @@ export default function UpgradePage() {
   }
 
   const getTeamPrice = () => {
-    if (!prices || !prices.prices.team) return { display: '$29', monthly: 29 }
+    if (!prices || !prices.prices.team) return { display: '$15', monthly: 15 }
     const priceObj = interval === 'monthly' ? prices.prices.team.monthly : prices.prices.team.yearly
     const amount = priceObj.price / 100 // Convert cents to dollars
     if (interval === 'yearly') {
@@ -166,10 +178,28 @@ export default function UpgradePage() {
     return interval === 'monthly' ? prices.prices.team.monthly.id : prices.prices.team.yearly.id
   }
 
+  const getStartupPrice = () => {
+    if (!prices || !prices.prices.startup) return { display: '$39', monthly: 39 }
+    const priceObj = interval === 'monthly' ? prices.prices.startup.monthly : prices.prices.startup.yearly
+    const amount = priceObj.price / 100 // Convert cents to dollars
+    if (interval === 'yearly') {
+      const monthly = Math.round(amount / 12)
+      return { display: `$${monthly}`, monthly, yearly: amount }
+    }
+    return { display: `$${amount}`, monthly: amount }
+  }
+
+  const getStartupPriceId = () => {
+    if (!prices || !prices.prices.startup) return null
+    return interval === 'monthly' ? prices.prices.startup.monthly.id : prices.prices.startup.yearly.id
+  }
+
   const proPrice = getProPrice()
   const proPriceId = getProPriceId()
   const teamPrice = getTeamPrice()
   const teamPriceId = getTeamPriceId()
+  const startupPrice = getStartupPrice()
+  const startupPriceId = getStartupPriceId()
 
   // Check current subscription status
   // Consider 'active' and 'trialing' as having an active subscription
@@ -177,6 +207,7 @@ export default function UpgradePage() {
   const hasActiveSubscription = isSubscriptionActive && subscription?.plan !== 'free'
   const isCurrentPlanPro = subscription?.plan === 'pro' && isSubscriptionActive
   const isCurrentPlanTeam = subscription?.plan === 'team' && isSubscriptionActive
+  const isCurrentPlanStartup = subscription?.plan === 'startup' && isSubscriptionActive
   const isCurrentPlanFree = !subscription || subscription.plan === 'free' || subscription.billingStatus === 'canceled'
 
   // Disable upgrade buttons if user has any active paid subscription
@@ -186,7 +217,7 @@ export default function UpgradePage() {
     <div className="min-h-dvh bg-gray-950 flex flex-col">
       {/* Header */}
       <header className="border-b border-gray-800">
-        <div className="max-w-5xl mx-auto px-4 py-4 flex items-center justify-between">
+        <div className="max-w-6xl mx-auto px-4 py-4 flex items-center justify-between">
           <Link href="/" className="flex items-center gap-2 text-white font-bold text-lg">
             <div className="w-6 h-6 text-primary">
               <svg viewBox="0 0 24 24" fill="currentColor">
@@ -218,7 +249,7 @@ export default function UpgradePage() {
 
       {/* Main content */}
       <main className="flex-1 px-4 py-16">
-        <div className="max-w-5xl mx-auto">
+        <div className="max-w-6xl mx-auto">
           {/* Header */}
           <div className="text-center mb-8">
             <h1 className="text-3xl md:text-4xl font-bold text-white mb-4">
@@ -278,7 +309,7 @@ export default function UpgradePage() {
           ) : (
             <>
               {/* Plans grid */}
-              <div className="grid md:grid-cols-3 gap-6 mb-12">
+              <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6 mb-12">
                 {/* Free Plan */}
                 <div className="rounded-2xl p-6 bg-gray-900 border border-gray-800">
                   <h2 className="text-xl font-bold text-white mb-1">Free</h2>
@@ -370,9 +401,9 @@ export default function UpgradePage() {
 
                 {/* Team Plan */}
                 <div className="rounded-2xl p-6 bg-gray-900 border border-gray-800">
-                  <div className="text-purple-400 text-sm font-medium mb-2">For organizations</div>
+                  <div className="text-purple-400 text-sm font-medium mb-2">Collaboration</div>
                   <h2 className="text-xl font-bold text-white mb-1">Team</h2>
-                  <p className="text-gray-400 text-sm mb-4">For growing teams</p>
+                  <p className="text-gray-400 text-sm mb-4">Audit logs & access control</p>
                   <div className="mb-6">
                     <span className="text-3xl font-bold text-white">{teamPrice.display}</span>
                     <span className="text-gray-400">/month</span>
@@ -429,12 +460,77 @@ export default function UpgradePage() {
                     </a>
                   )}
                 </div>
+
+                {/* Startup Plan */}
+                <div className="rounded-2xl p-6 bg-gray-900 border border-gray-800">
+                  <div className="text-amber-400 text-sm font-medium mb-2">Best value</div>
+                  <h2 className="text-xl font-bold text-white mb-1">Startup</h2>
+                  <p className="text-gray-400 text-sm mb-4">40 repos & priority support</p>
+                  <div className="mb-6">
+                    <span className="text-3xl font-bold text-white">{startupPrice.display}</span>
+                    <span className="text-gray-400">/month</span>
+                    {interval === 'yearly' && startupPrice.yearly && (
+                      <div className="text-sm text-gray-500 mt-1">
+                        Billed ${startupPrice.yearly}/year
+                      </div>
+                    )}
+                  </div>
+                  <ul className="space-y-3 mb-6">
+                    {planFeatures.startup.map((feature) => (
+                      <li key={feature} className="flex items-start gap-2 text-sm">
+                        <CheckIcon className="w-5 h-5 text-primary shrink-0" />
+                        <span className="text-gray-300">{feature}</span>
+                      </li>
+                    ))}
+                  </ul>
+                  {isCurrentPlanStartup ? (
+                    <div className="w-full py-2 px-4 rounded-lg bg-gray-800 text-gray-400 text-center text-sm">
+                      Current plan
+                    </div>
+                  ) : !canUpgrade ? (
+                    <Link
+                      href="/dashboard/settings"
+                      className="block w-full py-2 px-4 rounded-lg text-center text-sm font-medium transition-colors bg-gray-800 text-gray-400 hover:bg-gray-700"
+                    >
+                      Manage in Settings
+                    </Link>
+                  ) : isLoggedIn === false ? (
+                    <Link
+                      href="/login?redirect=/upgrade"
+                      className="block w-full py-2 px-4 rounded-lg text-center text-sm font-medium transition-colors bg-amber-600 hover:bg-amber-700 text-white"
+                    >
+                      Login to upgrade
+                    </Link>
+                  ) : startupPriceId && isLoggedIn ? (
+                    <button
+                      onClick={() => handleCheckout(startupPriceId, 'startup')}
+                      disabled={checkoutLoading !== null}
+                      className="block w-full py-2 px-4 rounded-lg text-center text-sm font-medium transition-colors bg-amber-600 hover:bg-amber-700 text-white disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {checkoutLoading === 'startup' ? (
+                        <Loader2 className="w-4 h-4 mx-auto animate-spin" />
+                      ) : (
+                        `Upgrade to Startup`
+                      )}
+                    </button>
+                  ) : (
+                    <a
+                      href="mailto:hello@keyway.sh?subject=Upgrade to Startup"
+                      className="block w-full py-2 px-4 rounded-lg text-center text-sm font-medium transition-colors bg-amber-600 hover:bg-amber-700 text-white"
+                    >
+                      Contact us to upgrade
+                    </a>
+                  )}
+                </div>
               </div>
 
               {/* FAQ / Info section */}
               <div className="bg-gray-900 border border-gray-800 rounded-xl p-6 text-center">
                 <p className="text-gray-400 mb-2">
                   Secure payments powered by Stripe
+                </p>
+                <p className="text-gray-500 text-sm mb-2">
+                  Plans are per-account. Organizations are billed separately.
                 </p>
                 <p className="text-gray-500 text-sm">
                   Cancel anytime. Questions?{' '}
@@ -450,7 +546,7 @@ export default function UpgradePage() {
 
       {/* Footer */}
       <footer className="border-t border-gray-800 py-6">
-        <div className="max-w-5xl mx-auto px-4 text-center text-sm text-gray-500">
+        <div className="max-w-6xl mx-auto px-4 text-center text-sm text-gray-500">
           <p>
             Questions?{' '}
             <a href="mailto:hello@keyway.sh" className="text-primary hover:underline">

@@ -58,13 +58,13 @@ type SubscriptionData = {
     currentPeriodEnd: string
     cancelAtPeriodEnd: boolean
   } | null
-  plan: 'free' | 'pro' | 'team'
+  plan: 'free' | 'pro' | 'team' | 'startup'
   billingStatus: 'active' | 'past_due' | 'canceled' | 'trialing'
   stripeCustomerId: string | null
 }
 
 type UsageData = {
-  plan: 'free' | 'pro' | 'team'
+  plan: 'free' | 'pro' | 'team' | 'startup'
   limits: {
     maxPublicRepos: string | number
     maxPrivateRepos: string | number
@@ -281,7 +281,7 @@ describe('SettingsPage', () => {
 
       expect(screen.getByText('pro Plan')).toBeInTheDocument()
       expect(screen.getByText('Active')).toBeInTheDocument()
-      expect(screen.getByText('$9/mo')).toBeInTheDocument()
+      expect(screen.getByText('$4/mo')).toBeInTheDocument()
     })
 
     it('should show Manage Billing button for paid users', () => {
@@ -349,7 +349,7 @@ describe('SettingsPage', () => {
       }
       render(<SettingsPage />)
 
-      expect(screen.getByText('$29/mo')).toBeInTheDocument()
+      expect(screen.getByText('$15/mo')).toBeInTheDocument()
     })
 
     it('should show Past Due badge when billing is past due', () => {

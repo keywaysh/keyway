@@ -31,12 +31,16 @@ vi.mock('../../lib/analytics', () => ({
 const mockPrices = {
   prices: {
     pro: {
-      monthly: { id: 'price_pro_monthly', price: 900, interval: 'month' },
-      yearly: { id: 'price_pro_yearly', price: 9000, interval: 'year' },
+      monthly: { id: 'price_pro_monthly', price: 400, interval: 'month' },
+      yearly: { id: 'price_pro_yearly', price: 4000, interval: 'year' },
     },
     team: {
-      monthly: { id: 'price_team_monthly', price: 2900, interval: 'month' },
-      yearly: { id: 'price_team_yearly', price: 29000, interval: 'year' },
+      monthly: { id: 'price_team_monthly', price: 1500, interval: 'month' },
+      yearly: { id: 'price_team_yearly', price: 15000, interval: 'year' },
+    },
+    startup: {
+      monthly: { id: 'price_startup_monthly', price: 3900, interval: 'month' },
+      yearly: { id: 'price_startup_yearly', price: 39000, interval: 'year' },
     },
   },
 }
@@ -141,8 +145,18 @@ describe('UpgradePage', () => {
 
       await waitFor(() => {
         expect(screen.getByText('Team')).toBeInTheDocument()
-        expect(screen.getByText('For growing teams')).toBeInTheDocument()
-        expect(screen.getByText('For organizations')).toBeInTheDocument()
+        expect(screen.getByText('Audit logs & access control')).toBeInTheDocument()
+        expect(screen.getByText('Collaboration')).toBeInTheDocument()
+      })
+    })
+
+    it('should render Startup plan card', async () => {
+      render(<UpgradePage />)
+
+      await waitFor(() => {
+        expect(screen.getByText('Startup')).toBeInTheDocument()
+        expect(screen.getByText('40 repos & priority support')).toBeInTheDocument()
+        expect(screen.getByText('Best value')).toBeInTheDocument()
       })
     })
 
@@ -152,6 +166,7 @@ describe('UpgradePage', () => {
       await waitFor(() => {
         expect(screen.getByText('Unlimited public repos')).toBeInTheDocument()
         expect(screen.getByText('1 private repo')).toBeInTheDocument()
+        expect(screen.getByText('2 provider integrations')).toBeInTheDocument()
       })
     })
 
@@ -159,8 +174,10 @@ describe('UpgradePage', () => {
       render(<UpgradePage />)
 
       await waitFor(() => {
-        expect(screen.getByText('Unlimited vaults')).toBeInTheDocument()
-        expect(screen.getByText('Priority support')).toBeInTheDocument()
+        expect(screen.getByText('5 private repos')).toBeInTheDocument()
+        // "Unlimited environments" and "Unlimited providers" appear in Pro, Team, and Startup plans
+        expect(screen.getAllByText('Unlimited environments').length).toBeGreaterThanOrEqual(1)
+        expect(screen.getAllByText('Unlimited providers').length).toBeGreaterThanOrEqual(1)
       })
     })
 
@@ -168,8 +185,18 @@ describe('UpgradePage', () => {
       render(<UpgradePage />)
 
       await waitFor(() => {
-        expect(screen.getByText('Everything in Pro')).toBeInTheDocument()
+        expect(screen.getByText('10 private repos')).toBeInTheDocument()
         expect(screen.getByText('Audit logs')).toBeInTheDocument()
+      })
+    })
+
+    it('should render Startup plan features', async () => {
+      render(<UpgradePage />)
+
+      await waitFor(() => {
+        expect(screen.getByText('40 private repos')).toBeInTheDocument()
+        expect(screen.getByText('30 collaborators per repo')).toBeInTheDocument()
+        expect(screen.getByText('Priority support')).toBeInTheDocument()
       })
     })
   })
@@ -179,8 +206,9 @@ describe('UpgradePage', () => {
       render(<UpgradePage />)
 
       await waitFor(() => {
-        expect(screen.getByText('$9')).toBeInTheDocument()
-        expect(screen.getByText('$29')).toBeInTheDocument()
+        expect(screen.getByText('$4')).toBeInTheDocument()
+        expect(screen.getByText('$15')).toBeInTheDocument()
+        expect(screen.getByText('$39')).toBeInTheDocument()
       })
     })
 
@@ -210,6 +238,14 @@ describe('UpgradePage', () => {
 
       await waitFor(() => {
         expect(screen.getByText('Upgrade to Team')).toBeInTheDocument()
+      })
+    })
+
+    it('should render upgrade to Startup button', async () => {
+      render(<UpgradePage />)
+
+      await waitFor(() => {
+        expect(screen.getByText('Upgrade to Startup')).toBeInTheDocument()
       })
     })
 
@@ -245,6 +281,14 @@ describe('UpgradePage', () => {
       await waitFor(() => {
         const contactLinks = screen.getAllByText('Contact us')
         expect(contactLinks.length).toBeGreaterThan(0)
+      })
+    })
+
+    it('should render billing scope clarification', async () => {
+      render(<UpgradePage />)
+
+      await waitFor(() => {
+        expect(screen.getByText(/Plans are per-account/)).toBeInTheDocument()
       })
     })
   })
