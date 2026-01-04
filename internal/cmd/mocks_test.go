@@ -160,6 +160,8 @@ type MockAPIClient struct {
 	InitError                          error
 	VaultExists                        bool
 	VaultExistsError                   error
+	VaultDetails                       *api.VaultDetails
+	VaultDetailsError                  error
 	ValidateTokenResponse              *api.ValidateTokenResponse
 	ValidateTokenError                 error
 	CheckGitHubAppInstallationResponse *api.GitHubAppInstallationStatus
@@ -186,6 +188,9 @@ func (m *MockAPIClient) InitVault(ctx context.Context, repoFullName string) (*ap
 }
 func (m *MockAPIClient) CheckVaultExists(ctx context.Context, repoFullName string) (bool, error) {
 	return m.VaultExists, m.VaultExistsError
+}
+func (m *MockAPIClient) GetVaultDetails(ctx context.Context, repoFullName string) (*api.VaultDetails, error) {
+	return m.VaultDetails, m.VaultDetailsError
 }
 func (m *MockAPIClient) GetVaultEnvironments(ctx context.Context, repoFullName string) ([]string, error) {
 	return m.VaultEnvs, m.VaultEnvsError

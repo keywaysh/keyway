@@ -19,6 +19,13 @@ type VaultInfo struct {
 	Environments []string `json:"environments"`
 }
 
+// VaultDetails contains detailed vault information including secret count
+type VaultDetails struct {
+	ID           string `json:"id"`
+	RepoFullName string `json:"repoFullName"`
+	SecretCount  int    `json:"secretCount"`
+}
+
 // InitVault creates a new vault for a repository
 func (c *Client) InitVault(ctx context.Context, repoFullName string) (*InitVaultResponse, error) {
 	body := map[string]string{
@@ -30,6 +37,26 @@ func (c *Client) InitVault(ctx context.Context, repoFullName string) (*InitVault
 	}
 	err := c.do(ctx, "POST", "/v1/vaults", body, &wrapper)
 	return &wrapper.Data, err
+}
+
+// GetVaultDetails returns detailed information about a vault including secret count
+func (c *Client) GetVaultDetails(ctx context.Context, repoFullName string) (*VaultDetails, error) {
+	owner, repo := splitRepo(repoFullName)
+	if owner == "" || repo == "" {
+		return nil, fmt.Errorf("invalid repository format: %s", repoFullName)
+	}
+
+	path := fmt.Sprintf("/v1/vaults/%s/%s", owner, repo)
+	var wrapper struct {
+		Data VaultDetails `json:"data"`
+	}
+
+	err := c.do(ctx, "GET", path, nil, &wrapper)
+	if err != nil {
+		return nil, err
+	}
+
+	return &wrapper.Data, nil
 }
 
 // CheckVaultExists checks if a vault exists for a repository

@@ -155,7 +155,7 @@ func TestRunInitWithDeps_VaultAlreadyExists(t *testing.T) {
 	// Setup
 	gitMock.Repo = "owner/repo"
 	gitMock.EnvInGitignore = true
-	apiMock.VaultExists = true
+	apiMock.VaultDetails = &api.VaultDetails{ID: "vault-123", RepoFullName: "owner/repo", SecretCount: 5}
 	apiMock.CheckGitHubAppInstallationResponse = &api.GitHubAppInstallationStatus{Installed: true}
 
 	opts := InitOptions{}
@@ -180,7 +180,7 @@ func TestRunInitWithDeps_CreateVaultSuccess(t *testing.T) {
 	// Setup
 	gitMock.Repo = "owner/repo"
 	gitMock.EnvInGitignore = true
-	apiMock.VaultExists = false
+	apiMock.VaultDetailsError = &api.APIError{StatusCode: 404, Detail: "vault not found"}
 	apiMock.InitResponse = &api.InitVaultResponse{VaultID: "vault-123"}
 	apiMock.CheckGitHubAppInstallationResponse = &api.GitHubAppInstallationStatus{Installed: true}
 
@@ -317,7 +317,7 @@ func TestRunInitWithDeps_GitignoreNotConfigured(t *testing.T) {
 	gitMock.Repo = "owner/repo"
 	gitMock.EnvInGitignore = false
 	uiMock.Interactive = false
-	apiMock.VaultExists = true
+	apiMock.VaultDetails = &api.VaultDetails{ID: "vault-123", RepoFullName: "owner/repo", SecretCount: 5}
 	apiMock.CheckGitHubAppInstallationResponse = &api.GitHubAppInstallationStatus{Installed: true}
 
 	opts := InitOptions{}
@@ -344,7 +344,7 @@ func TestRunInitWithDeps_GitignoreAddInteractive(t *testing.T) {
 	gitMock.EnvInGitignore = false
 	uiMock.Interactive = true
 	uiMock.ConfirmResult = true // User says yes to adding gitignore
-	apiMock.VaultExists = true
+	apiMock.VaultDetails = &api.VaultDetails{ID: "vault-123", RepoFullName: "owner/repo", SecretCount: 5}
 	apiMock.CheckGitHubAppInstallationResponse = &api.GitHubAppInstallationStatus{Installed: true}
 
 	opts := InitOptions{}
@@ -371,7 +371,7 @@ func TestRunInitWithDeps_EnvFilesFoundPushDeclined(t *testing.T) {
 	gitMock.EnvInGitignore = true
 	uiMock.Interactive = true
 	uiMock.ConfirmResult = false // User declines push
-	apiMock.VaultExists = false
+	apiMock.VaultDetailsError = &api.APIError{StatusCode: 404, Detail: "vault not found"}
 	apiMock.InitResponse = &api.InitVaultResponse{VaultID: "vault-123"}
 	apiMock.CheckGitHubAppInstallationResponse = &api.GitHubAppInstallationStatus{Installed: true}
 
@@ -403,7 +403,7 @@ func TestRunInitWithDeps_NoEnvFilesCreateDeclined(t *testing.T) {
 	gitMock.EnvInGitignore = true
 	uiMock.Interactive = true
 	uiMock.ConfirmResult = false // User declines creating .env
-	apiMock.VaultExists = false
+	apiMock.VaultDetailsError = &api.APIError{StatusCode: 404, Detail: "vault not found"}
 	apiMock.InitResponse = &api.InitVaultResponse{VaultID: "vault-123"}
 	apiMock.CheckGitHubAppInstallationResponse = &api.GitHubAppInstallationStatus{Installed: true}
 
@@ -426,7 +426,7 @@ func TestRunInitWithDeps_NoEnvFilesCreateAccepted(t *testing.T) {
 	gitMock.EnvInGitignore = true
 	uiMock.Interactive = true
 	uiMock.ConfirmResult = true // User accepts creating .env
-	apiMock.VaultExists = false
+	apiMock.VaultDetailsError = &api.APIError{StatusCode: 404, Detail: "vault not found"}
 	apiMock.InitResponse = &api.InitVaultResponse{VaultID: "vault-123"}
 	apiMock.CheckGitHubAppInstallationResponse = &api.GitHubAppInstallationStatus{Installed: true}
 
@@ -452,7 +452,7 @@ func TestRunInitWithDeps_VaultCreationError(t *testing.T) {
 	// Setup
 	gitMock.Repo = "owner/repo"
 	gitMock.EnvInGitignore = true
-	apiMock.VaultExists = false
+	apiMock.VaultDetailsError = &api.APIError{StatusCode: 404, Detail: "vault not found"}
 	apiMock.InitError = errors.New("vault creation failed")
 	apiMock.CheckGitHubAppInstallationResponse = &api.GitHubAppInstallationStatus{Installed: true}
 
@@ -477,7 +477,7 @@ func TestRunInitWithDeps_VaultAlreadyExistsConflict(t *testing.T) {
 	// Setup - vault creation returns 409 conflict
 	gitMock.Repo = "owner/repo"
 	gitMock.EnvInGitignore = true
-	apiMock.VaultExists = false
+	apiMock.VaultDetailsError = &api.APIError{StatusCode: 404, Detail: "vault not found"}
 	apiMock.InitError = &api.APIError{
 		StatusCode: 409,
 		Detail:     "vault already exists",
@@ -506,7 +506,7 @@ func TestRunInitWithDeps_NonInteractiveNoEnvFiles(t *testing.T) {
 	gitMock.Repo = "owner/repo"
 	gitMock.EnvInGitignore = true
 	uiMock.Interactive = false
-	apiMock.VaultExists = false
+	apiMock.VaultDetailsError = &api.APIError{StatusCode: 404, Detail: "vault not found"}
 	apiMock.InitResponse = &api.InitVaultResponse{VaultID: "vault-123"}
 	apiMock.CheckGitHubAppInstallationResponse = &api.GitHubAppInstallationStatus{Installed: true}
 
@@ -523,5 +523,79 @@ func TestRunInitWithDeps_NonInteractiveNoEnvFiles(t *testing.T) {
 	// Check message about running push was shown
 	if len(uiMock.MessageCalls) == 0 {
 		t.Error("expected UI.Message to be called")
+	}
+}
+
+func TestRunInitWithDeps_VaultExistsButEmpty(t *testing.T) {
+	deps, gitMock, _, uiMock, _, apiMock := NewTestDeps()
+
+	// Setup - vault exists but has no secrets
+	gitMock.Repo = "owner/repo"
+	gitMock.EnvInGitignore = true
+	uiMock.Interactive = false
+	apiMock.VaultDetails = &api.VaultDetails{
+		ID:           "vault-123",
+		RepoFullName: "owner/repo",
+		SecretCount:  0, // Empty vault
+	}
+	apiMock.CheckGitHubAppInstallationResponse = &api.GitHubAppInstallationStatus{Installed: true}
+
+	opts := InitOptions{}
+
+	// Execute
+	err := runInitWithDeps(opts, deps)
+
+	// Assert
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	// Should show "Vault ready!" for empty vault (goes to push flow)
+	foundVaultReady := false
+	for _, msg := range uiMock.SuccessCalls {
+		if msg == "Vault ready!" {
+			foundVaultReady = true
+			break
+		}
+	}
+	if !foundVaultReady {
+		t.Errorf("expected 'Vault ready!' success message, got: %v", uiMock.SuccessCalls)
+	}
+}
+
+func TestRunInitWithDeps_VaultExistsWithSecrets(t *testing.T) {
+	deps, gitMock, _, uiMock, _, apiMock := NewTestDeps()
+
+	// Setup - vault exists with secrets
+	gitMock.Repo = "owner/repo"
+	gitMock.EnvInGitignore = true
+	uiMock.Interactive = false
+	apiMock.VaultDetails = &api.VaultDetails{
+		ID:           "vault-123",
+		RepoFullName: "owner/repo",
+		SecretCount:  5, // Has secrets
+	}
+	apiMock.CheckGitHubAppInstallationResponse = &api.GitHubAppInstallationStatus{Installed: true}
+
+	opts := InitOptions{}
+
+	// Execute
+	err := runInitWithDeps(opts, deps)
+
+	// Assert
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	// Should show "Already initialized!" for vault with secrets
+	foundAlreadyInit := false
+	for _, msg := range uiMock.SuccessCalls {
+		if msg == "Already initialized!" {
+			foundAlreadyInit = true
+			break
+		}
+	}
+	if !foundAlreadyInit {
+		t.Errorf("expected 'Already initialized!' success message, got: %v", uiMock.SuccessCalls)
 	}
 }

@@ -17,6 +17,7 @@ type MockClient struct {
 	// Vault mocks
 	InitVaultFn            func(ctx context.Context, repoFullName string) (*InitVaultResponse, error)
 	CheckVaultExistsFn     func(ctx context.Context, repoFullName string) (bool, error)
+	GetVaultDetailsFn      func(ctx context.Context, repoFullName string) (*VaultDetails, error)
 	GetVaultEnvironmentsFn func(ctx context.Context, repoFullName string) ([]string, error)
 
 	// Secrets mocks
@@ -132,6 +133,18 @@ func (m *MockClient) CheckVaultExists(ctx context.Context, repoFullName string) 
 		return m.CheckVaultExistsFn(ctx, repoFullName)
 	}
 	return true, nil
+}
+
+func (m *MockClient) GetVaultDetails(ctx context.Context, repoFullName string) (*VaultDetails, error) {
+	m.track("GetVaultDetails")
+	if m.GetVaultDetailsFn != nil {
+		return m.GetVaultDetailsFn(ctx, repoFullName)
+	}
+	return &VaultDetails{
+		ID:           "vault-123",
+		RepoFullName: repoFullName,
+		SecretCount:  5,
+	}, nil
 }
 
 func (m *MockClient) GetVaultEnvironments(ctx context.Context, repoFullName string) ([]string, error) {

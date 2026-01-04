@@ -101,24 +101,48 @@ func runActionMenu(cmd *cobra.Command, token string) error {
 
 	ui.Step(fmt.Sprintf("Repository: %s", ui.Value(repo)))
 
-	// Check if vault exists for this repo
+	// Check vault status (single API call)
 	client := api.NewClient(token)
-	vaultExists, err := client.CheckVaultExists(context.Background(), repo)
+	ctx := context.Background()
+	vaultDetails, err := client.GetVaultDetails(ctx, repo)
+
 	if err != nil {
-		// If we can't check (network error, etc.), assume vault doesn't exist
-		// and let the user try init
-		vaultExists = false
+		// Check error type
+		if apiErr, ok := err.(*api.APIError); ok {
+			switch apiErr.StatusCode {
+			case 401:
+				// Token expired: clear and prompt re-login
+				store := auth.NewStore()
+				_ = store.ClearAuth()
+				ui.Warn("Session expired")
+				ui.Message(ui.Dim("Run: keyway login"))
+				return err
+			case 403:
+				ui.Error("Permission denied")
+				ui.Message(ui.Dim("You don't have access to this repository's vault."))
+				return err
+			case 404:
+				// Vault doesn't exist: run init flow
+				ui.Message("")
+				ui.Message("No vault found for this repository. Let's set one up!")
+				ui.Message("")
+				return runInit(initCmd, nil)
+			}
+		}
+		// Other errors (network, server, etc.)
+		ui.Error(fmt.Sprintf("Failed to check vault: %s", err.Error()))
+		return err
 	}
 
-	if !vaultExists {
-		// Vault doesn't exist: run init flow
+	if vaultDetails.SecretCount == 0 {
+		// Vault exists but is empty: run init flow to push secrets
 		ui.Message("")
-		ui.Message("No vault found for this repository. Let's set one up!")
+		ui.Message("Vault found but empty. Let's add some secrets!")
 		ui.Message("")
 		return runInit(initCmd, nil)
 	}
 
-	// Vault exists: show action menu
+	// Vault exists with secrets: show action menu
 	options := []string{
 		"Pull secrets from vault",
 		"Push secrets to vault",

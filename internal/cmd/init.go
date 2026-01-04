@@ -79,8 +79,8 @@ func runInitWithDeps(opts InitOptions, deps *Dependencies) error {
 	client := deps.APIFactory.NewClient(token)
 	ctx := context.Background()
 
-	// Check if vault already exists
-	exists, err := client.CheckVaultExists(ctx, repo)
+	// Check if vault already exists (single API call)
+	vaultDetails, err := client.GetVaultDetails(ctx, repo)
 	if err != nil {
 		// Handle auth errors (expired token)
 		if isAuthError(err) {
@@ -89,12 +89,21 @@ func runInitWithDeps(opts InitOptions, deps *Dependencies) error {
 				return authErr
 			}
 			// Retry with new token
-			token = newToken
-			client = deps.APIFactory.NewClient(token)
-			exists, err = client.CheckVaultExists(ctx, repo)
+			client = deps.APIFactory.NewClient(newToken)
+			vaultDetails, err = client.GetVaultDetails(ctx, repo)
 		}
 	}
-	if err == nil && exists {
+
+	// Check if vault exists based on error type
+	if err == nil {
+		// Vault exists - check if empty
+		if vaultDetails != nil && vaultDetails.SecretCount == 0 {
+			// Vault exists but is empty: continue to push flow
+			deps.UI.Success("Vault ready!")
+			goto vaultCreated
+		}
+
+		// Vault has secrets
 		deps.UI.Success("Already initialized!")
 
 		// Still try to add badge if not present
@@ -112,6 +121,15 @@ func runInitWithDeps(opts InitOptions, deps *Dependencies) error {
 		deps.UI.Outro(fmt.Sprintf("Dashboard: %s", deps.UI.Link(config.GetDashboardURL()+"/vaults/"+repo)))
 		return nil
 	}
+
+	// Vault doesn't exist (404) or other error - check if we should create it
+	if apiErr, ok := err.(*api.APIError); ok && apiErr.StatusCode != 404 {
+		// Non-404 error (403, 500, etc.) - don't try to create
+		deps.UI.Error(err.Error())
+		return err
+	}
+
+	// 404 or non-API error: vault doesn't exist, proceed to create it
 
 	// Track init event
 	analytics.Track(analytics.EventInit, map[string]interface{}{
