@@ -8,6 +8,7 @@ const sidebars: SidebarsConfig = {
     'api',
     'ci-cd',
     'mcp',
+    'ai-agents',
     'security',
     'organizations',
     'integrations',

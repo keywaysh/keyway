@@ -98,16 +98,15 @@ keyway pull -e staging
 
 ## Plans
 
-| | Free | Pro ($9/mo) | Team ($29/mo) |
-|--|:--:|:--:|:--:|
-| Public repos | Unlimited | Unlimited | Unlimited |
-| Private repos | 1 | Unlimited | Unlimited |
-| Private org repos | - | - | Unlimited |
-| Providers | 2 | Unlimited | Unlimited |
-| Environments | 2 | Unlimited | Unlimited |
-| Secret versions | - | 30 days | 30 days |
-| Activity logs | 7 days | 30 days | 90 days |
-| Permission overrides | - | - | ✓ |
+| | Free | Pro ($4/mo) | Team ($15/mo) | Startup ($39/mo) |
+|--|:--:|:--:|:--:|:--:|
+| Public repos | Unlimited | Unlimited | Unlimited | Unlimited |
+| Private repos | 1 | 5 | 10 | 40 |
+| Environments | 3 | Unlimited | Unlimited | Unlimited |
+| Collaborators/repo | 15 | 15 | 15 | 30 |
+| Providers | 2 | Unlimited | Unlimited | Unlimited |
+| Audit logs | - | - | ✓ | ✓ |
+| Priority support | - | - | - | ✓ |
 
 Upgrade: [keyway.sh/settings](https://keyway.sh/settings)
 

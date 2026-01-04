@@ -85,14 +85,14 @@ POST /v1/orgs/:org/members/sync
 
 ### Plans
 
-| Feature | Free | Team |
-|---------|------|------|
-| Private repos | 1 | Unlimited |
-| Secrets per repo | 20 | Unlimited |
-| Environments | 2 | Unlimited |
-| Provider syncs | 2 | Unlimited |
-| Secret versions | - | 30 days |
-| Audit logs | - | 90 days |
+| Feature | Free | Pro ($4/mo) | Team ($15/mo) | Startup ($39/mo) |
+|---------|:--:|:--:|:--:|:--:|
+| Private repos | 1 | 5 | 10 | 40 |
+| Environments | 3 | Unlimited | Unlimited | Unlimited |
+| Collaborators/repo | 15 | 15 | 15 | 30 |
+| Provider syncs | 2 | Unlimited | Unlimited | Unlimited |
+| Audit logs | - | - | ✓ | ✓ |
+| Priority support | - | - | - | ✓ |
 
 ### Starting a Subscription
 

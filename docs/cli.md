@@ -120,6 +120,80 @@ This is the most secure way to use secrets locally or in CI/CD, as no `.env` fil
 
 ---
 
+### keyway set
+
+Set a single secret in the vault.
+
+```bash
+keyway set <KEY> [VALUE] [options]
+```
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `-e, --env <name>` | `development` | Target environment |
+| `-y, --yes` | `false` | Skip confirmation |
+
+```bash
+keyway set API_KEY                     # Prompt for value (masked)
+keyway set API_KEY=sk_live_xxx         # Set with inline value
+keyway set API_KEY -e production       # Set in specific environment
+```
+
+:::tip Quick updates
+Use `keyway set` for quick, single-secret updates without touching your `.env` file. Perfect for rotating a single key.
+:::
+
+---
+
+### keyway diff
+
+Compare secrets between two environments.
+
+```bash
+keyway diff [env1] [env2] [options]
+```
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--show-values` | `false` | Show actual value differences (sensitive!) |
+| `--keys-only` | `false` | Only show key names |
+| `--json` | `false` | Output as JSON |
+
+```bash
+keyway diff                              # Interactive selection
+keyway diff production staging           # Compare two environments
+keyway diff dev prod --show-values       # Show value differences
+```
+
+---
+
+### keyway scan
+
+Scan files for potential secret leaks (API keys, tokens, passwords).
+
+```bash
+keyway scan [path] [options]
+```
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `-e, --exclude <pattern>` | - | Additional directories to exclude |
+| `--json` | `false` | Output as JSON (for CI) |
+| `--show-all` | `false` | Show all matches including potential false positives |
+
+```bash
+keyway scan                        # Scan current directory
+keyway scan ./src                  # Scan specific directory
+keyway scan --json                 # For CI/CD integration
+keyway scan -e test -e fixtures    # Exclude directories
+```
+
+:::caution Pre-commit hook
+Consider adding `keyway scan` to your pre-commit hooks to catch leaks before they reach git history.
+:::
+
+---
+
 ### keyway doctor
 
 Run diagnostic checks.
@@ -146,7 +220,7 @@ keyway login           # OAuth (opens browser)
 keyway login --token   # Use fine-grained PAT
 ```
 
-Token stored in `~/.config/keyway-nodejs/config.json` (Linux), `~/Library/Preferences/keyway-nodejs/config.json` (macOS)
+Token stored securely in the system keyring (macOS Keychain, Linux Secret Service, Windows Credential Manager).
 
 ---
 
@@ -168,10 +242,11 @@ Connect to an external provider.
 keyway connect <provider>
 ```
 
-Providers: `vercel`, `netlify`, `railway`
+Supported providers: `vercel`, `railway`, `netlify`
 
 ```bash
-keyway connect vercel   # Opens browser for OAuth
+keyway connect vercel    # Opens browser for Vercel OAuth
+keyway connect railway   # Prompts for Railway API token
 ```
 
 ---
