@@ -8,6 +8,9 @@ import { getOrganizationById } from "./organization.service";
 import { getEffectivePlanWithTrial } from "./trial.service";
 import { inferEnvironmentType } from "../utils/permissions";
 
+// Reason why a vault is read-only
+export type ReadonlyReason = "plan_limit_exceeded" | "org_free_plan" | null;
+
 // Helper to get GitHub avatar URL for a repo owner
 function getGitHubAvatarUrl(owner: string): string {
   return `https://github.com/${owner}.png`;
@@ -53,6 +56,7 @@ export interface VaultListItem {
   permission: string | null;
   isPrivate: boolean;
   isReadOnly: boolean;
+  readonlyReason: ReadonlyReason;
   syncs: VaultSyncInfo[];
   updatedAt: string;
 }
@@ -69,6 +73,7 @@ export interface VaultDetails {
   permission: string | null;
   isPrivate: boolean;
   isReadOnly: boolean;
+  readonlyReason: ReadonlyReason;
   syncs: VaultSyncInfo[];
   createdAt: string;
   updatedAt: string;
@@ -165,8 +170,9 @@ export async function getVaultsForUser(
       // Fetch user's permission for this repo using GitHub App token
       const permission = await getUserRoleWithApp(vault.repoFullName, username);
 
-      // Determine isReadOnly based on vault type (org vs personal)
+      // Determine isReadOnly and reason based on vault type (org vs personal)
       let isReadOnly = false;
+      let readonlyReason: ReadonlyReason = null;
       if (vault.isPrivate) {
         if (vault.orgId) {
           // Org vault: check org's effective plan
@@ -177,10 +183,16 @@ export async function getVaultsForUser(
             orgPlanCache.set(vault.orgId, orgPlan);
           }
           // Org vaults are read-only only if org is on free plan
-          isReadOnly = orgPlan === "free";
+          if (orgPlan === "free") {
+            isReadOnly = true;
+            readonlyReason = "org_free_plan";
+          }
         } else {
           // Personal vault: check if it's in the excess list
-          isReadOnly = excessVaultIds.has(vault.id);
+          if (excessVaultIds.has(vault.id)) {
+            isReadOnly = true;
+            readonlyReason = "plan_limit_exceeded";
+          }
         }
       }
 
@@ -208,6 +220,7 @@ export async function getVaultsForUser(
         permission,
         isPrivate: vault.isPrivate,
         isReadOnly,
+        readonlyReason,
         syncs,
         updatedAt: vault.updatedAt.toISOString(),
       };
@@ -251,17 +264,24 @@ export async function getVaultByRepo(
   // Get environments from vault_environments table
   const environments = await getVaultEnvironments(vault.id);
 
-  // Determine if vault is read-only based on plan limits
+  // Determine if vault is read-only and reason based on plan limits
   let isReadOnly = false;
+  let readonlyReason: ReadonlyReason = null;
   if (vault.isPrivate) {
     if (vault.orgId) {
       // Org vault: read-only only if org is on free plan
       // Note: plan parameter is already the org's effective plan when called from route
-      isReadOnly = plan === "free";
+      if (plan === "free") {
+        isReadOnly = true;
+        readonlyReason = "org_free_plan";
+      }
     } else {
       // Personal vault: check if it's in the excess list
       const excessVaultIds = await getExcessPrivateVaultIds(vault.ownerId, plan);
-      isReadOnly = excessVaultIds.has(vault.id);
+      if (excessVaultIds.has(vault.id)) {
+        isReadOnly = true;
+        readonlyReason = "plan_limit_exceeded";
+      }
     }
   }
 
@@ -291,6 +311,7 @@ export async function getVaultByRepo(
       permission: role,
       isPrivate: vault.isPrivate,
       isReadOnly,
+      readonlyReason,
       syncs,
       createdAt: vault.createdAt.toISOString(),
       updatedAt: vault.updatedAt.toISOString(),

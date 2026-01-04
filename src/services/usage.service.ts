@@ -232,9 +232,13 @@ export async function canWriteToVault(
   const { excessVaultIds } = await getPrivateVaultAccess(userId, plan);
 
   if (excessVaultIds.has(vaultId)) {
+    const limit = PLANS[plan].maxPrivateRepos;
+    const nextPlan =
+      plan === "free" ? "Pro" : plan === "pro" ? "Team" : plan === "team" ? "Startup" : null;
+    const upgradeHint = nextPlan ? ` Upgrade to ${nextPlan} to unlock more.` : "";
     return {
       allowed: false,
-      reason: "This private vault is read-only on the Free plan. Upgrade to Pro to unlock editing.",
+      reason: `You've exceeded your ${plan} plan limit of ${limit} private vault${limit === 1 ? "" : "s"}.${upgradeHint}`,
     };
   }
 
