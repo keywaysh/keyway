@@ -105,9 +105,12 @@ func RunDeviceLogin() (string, error) {
 
 	ui.Step(fmt.Sprintf("Code: %s", ui.Bold(start.UserCode)))
 	ui.Message(ui.Dim(fmt.Sprintf("Open: %s", verifyURL)))
+	ui.Message(ui.Dim("If the browser doesn't open, copy the URL above and paste it in your browser."))
 
-	// Try to open browser
-	_ = browser.OpenURL(verifyURL)
+	// Try to open browser (in goroutine to avoid blocking in headless/CLI environments)
+	go func() {
+		_ = browser.OpenURL(verifyURL)
+	}()
 
 	pollInterval := time.Duration(start.Interval) * time.Second
 	if pollInterval < 3*time.Second {
@@ -131,7 +134,7 @@ func RunDeviceLogin() (string, error) {
 
 			result, err := client.PollDeviceLogin(ctx, start.DeviceCode)
 			if err != nil {
-				// Continue polling on errors
+				// Continue polling on errors (network issues, etc.)
 				continue
 			}
 
