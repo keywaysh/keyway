@@ -183,4 +183,4 @@ make clean         # Remove build artifacts
 
 ## License
 
-Private - Keyway
+MIT
