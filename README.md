@@ -18,10 +18,10 @@ brew install keywaysh/tap/keyway
 keyway login
 
 # Push secrets from current repo
-keyway push .env
+keyway push
 
 # Pull on another machine
-keyway pull > .env
+keyway pull
 ```
 
 > Full documentation at [docs.keyway.sh](https://docs.keyway.sh)
@@ -82,7 +82,7 @@ keyway-backend/
 
 - Node.js 22+
 - PostgreSQL (Neon recommended)
-- GitHub OAuth App
+- GitHub App
 - [keyway-crypto](../keyway-crypto) service running
 
 ## Setup
@@ -408,13 +408,13 @@ pnpm dev
 pnpm build
 
 # Type check
-ppnpm run type-check
+pnpm run type-check
 
 # Generate database migrations
-ppnpm run db:generate
+pnpm run db:generate
 
 # Run database migrations
-ppnpm run db:migrate
+pnpm run db:migrate
 ```
 
 ## Deployment
@@ -434,11 +434,11 @@ Quick steps:
 
 **Always run before pushing:**
 ```bash
-ppnpm run validate  # Type check + build + env validation
+pnpm run validate  # Type check + build + env validation
 ```
 
 Railway will automatically:
-- Run migrations (`ppnpm run db:migrate`)
+- Run migrations (`pnpm run db:migrate`)
 - Build the app (`pnpm build`)
 - Start the server (`node dist/index.js`)
 - Health check on `/health`
