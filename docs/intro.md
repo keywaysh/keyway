@@ -10,23 +10,44 @@ title: Getting Started
 
 ## Quick Start
 
-**1. Initialize**
+**1. Install**
+
+```bash
+brew install keywaysh/tap/keyway
+```
+
+<details>
+<summary>Other install methods (Linux, Windows, npm)</summary>
+
+```bash
+# Shell script (Linux/macOS)
+curl -fsSL https://keyway.sh/install.sh | sh
+
+# npm (requires Node.js)
+npm install -g @keywaysh/cli
+```
+
+Windows: Download from [GitHub Releases](https://github.com/keywaysh/cli/releases/latest)
+
+</details>
+
+**2. Initialize**
 
 ```bash
 cd your-project
-npx @keywaysh/cli init    # Opens browser for GitHub auth + syncs your .env
+keyway init    # Opens browser for GitHub auth + syncs your .env
 ```
 
-**2. Pull (on another machine or teammate)**
+**3. Pull (on another machine or teammate)**
 
 ```bash
-npx @keywaysh/cli pull
+keyway pull
 ```
 
-**3. Sync with a provider (optional)**
+**4. Sync with a provider (optional)**
 
 ```bash
-npx @keywaysh/cli sync vercel
+keyway sync vercel
 ```
 
 That's it. Your team members with repo access can immediately pull secrets.

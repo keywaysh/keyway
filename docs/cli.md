@@ -6,18 +6,10 @@ title: CLI Reference
 # CLI Reference
 
 ```bash
-npx @keywaysh/cli init
-```
-
-Or install globally:
-
-```bash npm2yarn
-npm install -g @keywaysh/cli
-```
-
-```bash title="Homebrew (macOS/Linux)"
 brew install keywaysh/tap/keyway
 ```
+
+See [Installation](/installation) for other methods (Linux, Windows, npm).
 
 ## Commands
 
@@ -45,16 +37,18 @@ keyway push [options]
 |--------|---------|-------------|
 | `-e, --env <name>` | `development` | Target environment |
 | `-f, --file <path>` | `.env` | Source file |
+| `--prune` | `false` | Remove secrets from vault not in local file |
 | `-y, --yes` | `false` | Skip confirmation |
 
 ```bash
 keyway push                              # Push .env to development
 keyway push -e production                # Push to production
 keyway push -f .env.prod -e production   # Custom file
+keyway push --prune                      # Remove secrets not in local file
 ```
 
-:::caution Full sync
-Push replaces all secrets in the environment. If a secret exists in Keyway but not in your local file, it will be **deleted**.
+:::tip Additive by default
+Push is additive — existing secrets not in your local file are preserved. Use `--prune` to remove them.
 :::
 
 ---
@@ -271,6 +265,18 @@ keyway disconnect <provider>
 
 ---
 
+### keyway readme
+
+Add a Keyway badge to your project's README.
+
+```bash
+keyway readme
+```
+
+Automatically adds a badge showing your vault status to your README.md file.
+
+---
+
 ### keyway sync
 
 Sync secrets with a provider.
@@ -281,9 +287,10 @@ keyway sync <provider> [options]
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `-e, --environment <env>` | `production` | Keyway environment |
+| `-e, --env <env>` | `production` | Keyway environment |
 | `--provider-env <env>` | `production` | Provider environment |
 | `--project <name>` | - | Provider project |
+| `--team <name>` | - | Filter by team/organization |
 | `--pull` | `false` | Import from provider |
 | `--allow-delete` | `false` | Delete missing secrets |
 | `-y, --yes` | `false` | Skip confirmation |

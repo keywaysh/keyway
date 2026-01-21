@@ -206,6 +206,8 @@ Returns `{ "value": "...", "preview": "post••••2/db" }`. Rate limited (1
 GET /v1/secrets/view?repo=owner/repo&environment=local&key=DATABASE_URL
 ```
 
+**Scope required:** `read:secrets`
+
 Returns single secret value. Logged in audit trail.
 
 ---
@@ -308,13 +310,21 @@ POST /v1/secrets/push
 }
 ```
 
-Full sync: secrets not in payload are moved to **trash**.
+**Scope required:** `write:secrets`
+
+:::caution Full replacement
+The API replaces all secrets in the environment. Secrets not in the payload are moved to trash.
+
+The CLI handles this differently: without `--prune`, it merges vault secrets into the payload before sending, so nothing is deleted. Use the CLI for additive pushes.
+:::
 
 ### Pull secrets
 
 ```http
 GET /v1/secrets/pull?repo=owner/repo&environment=local
 ```
+
+**Scope required:** `read:secrets`
 
 Returns `.env` format in `data.content`.
 

@@ -75,8 +75,10 @@ Then enter `npx -y @keywaysh/mcp` when prompted.
 Login with the Keyway CLI:
 
 ```bash
-npx @keywaysh/cli login
+keyway login
 ```
+
+See [Installation](/installation) if you haven't installed the CLI yet.
 
 ---
 
@@ -125,6 +127,15 @@ Run a command with secrets as env vars.
   "timeout": 300000
 }
 ```
+
+| Parameter | Required | Description |
+|-----------|----------|-------------|
+| `command` | Yes | Executable to run |
+| `args` | No | Array of arguments |
+| `environment` | No | Vault environment (default: `development`) |
+| `timeout` | No | Max runtime in milliseconds (default: 300000 = 5min) |
+
+The command runs with `shell: false` to prevent shell injection. Secret values are masked in the output.
 
 ### keyway_list_environments
 

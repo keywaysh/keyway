@@ -5,99 +5,55 @@ title: Installation
 
 # Installation
 
-Multiple ways to install Keyway CLI depending on your preferences.
-
-## Quick Start (No Install)
-
-Run directly with npx - no installation required:
-
-```bash
-npx @keywaysh/cli init
-```
-
-This is the fastest way to get started. Works anywhere Node.js is installed.
-
-## Package Managers
-
-### npm
-
-```bash
-npm install -g @keywaysh/cli
-```
-
-### pnpm
-
-```bash
-pnpm add -g @keywaysh/cli
-```
-
-### yarn
-
-```bash
-yarn global add @keywaysh/cli
-```
-
-### bun
-
-```bash
-bun add -g @keywaysh/cli
-```
-
-After installing globally, use `keyway` directly:
-
-```bash
-keyway init
-keyway pull
-keyway sync vercel
-```
-
-## Homebrew (macOS & Linux)
+## Homebrew (Recommended)
 
 ```bash
 brew install keywaysh/tap/keyway
 ```
 
-This installs a native binary - faster startup, no Node.js required.
+Native binary — fast startup, no dependencies.
 
-## Shell Script (Linux & macOS)
+Works on **macOS** and **Linux**.
+
+## Shell Script
 
 ```bash
 curl -fsSL https://keyway.sh/install.sh | sh
 ```
 
-Downloads the latest binary to `/usr/local/bin/keyway`.
+Downloads the binary to `/usr/local/bin/keyway`.
 
-## Manual Download (All Platforms)
+## Windows
 
-Download pre-built binaries from [GitHub Releases](https://github.com/keywaysh/cli/releases/latest):
+Download `keyway-win-x64.exe` from [GitHub Releases](https://github.com/keywaysh/cli/releases/latest), rename to `keyway.exe`, and add to your PATH.
+
+## npm
+
+If you prefer npm (requires Node.js):
+
+```bash
+npm install -g @keywaysh/cli
+```
+
+Also works with pnpm, yarn, or bun.
+
+:::tip Why Homebrew over npm?
+The Homebrew version is a native Go binary — no Node.js required, ~10x faster startup. Use npm only if you don't have Homebrew.
+:::
+
+## Manual Download
+
+Pre-built binaries for all platforms:
 
 | Platform | Architecture | Download |
 |----------|--------------|----------|
-| macOS | Apple Silicon (M1/M2/M3) | `keyway-darwin-arm64` |
+| macOS | Apple Silicon | `keyway-darwin-arm64` |
 | macOS | Intel | `keyway-darwin-x64` |
 | Linux | x64 | `keyway-linux-x64` |
 | Linux | ARM64 | `keyway-linux-arm64` |
 | Windows | x64 | `keyway-win-x64.exe` |
 
-### Windows Installation
-
-1. Download `keyway-win-x64.exe` from [releases](https://github.com/keywaysh/cli/releases/latest)
-2. Rename to `keyway.exe`
-3. Move to a folder in your PATH (e.g., `C:\Windows\System32` or create `C:\keyway`)
-4. Run `keyway init` in your project
-
-### Linux/macOS Manual Installation
-
-```bash
-# Download (replace URL with your platform)
-curl -L -o keyway https://github.com/keywaysh/cli/releases/latest/download/keyway-linux-x64
-
-# Make executable
-chmod +x keyway
-
-# Move to PATH
-sudo mv keyway /usr/local/bin/
-```
+Download from [GitHub Releases](https://github.com/keywaysh/cli/releases/latest).
 
 ## Verify Installation
 
@@ -105,51 +61,14 @@ sudo mv keyway /usr/local/bin/
 keyway --version
 ```
 
-## CI/CD
-
-For CI/CD environments, see [CI/CD Integration](/ci-cd) for GitHub Actions, GitLab CI, and more.
-
-:::tip npx in CI
-Using `npx @keywaysh/cli` in CI works but adds ~2s for package resolution. For faster builds, pre-install or use the binary.
-:::
-
 ## Updating
 
-### npm/pnpm/yarn/bun
-
 ```bash
-npm update -g @keywaysh/cli
-```
-
-### Homebrew
-
-```bash
+# Homebrew
 brew upgrade keyway
-```
 
-### Manual
-
-Re-download the latest binary from [releases](https://github.com/keywaysh/cli/releases/latest).
-
-## Uninstalling
-
-### npm
-
-```bash
-npm uninstall -g @keywaysh/cli
-```
-
-### Homebrew
-
-```bash
-brew uninstall keyway
-```
-
-### Manual
-
-```bash
-rm /usr/local/bin/keyway
-rm -rf ~/.config/keyway-nodejs ~/.keyway  # Remove config (optional)
+# npm
+npm update -g @keywaysh/cli
 ```
 
 ## Next Steps

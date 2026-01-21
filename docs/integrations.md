@@ -14,7 +14,6 @@ Sync secrets with Vercel, Netlify, and Railway.
 | Vercel | Available |
 | Netlify | Available |
 | Railway | Available |
-| Fly.io | Coming soon |
 
 ---
 
@@ -109,6 +108,7 @@ DELETE /v1/integrations/connections/:id
 | `production` | `production` | `production` | `production` |
 | `staging` | `preview` | `deploy-preview` | `staging` |
 | `development` | `development` | `local` | `development` |
+| `dev` | `development` | `local` | `development` |
 
 Override with `--provider-env`:
 

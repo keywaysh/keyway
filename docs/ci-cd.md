@@ -57,19 +57,14 @@ The action pulls secrets, exports them as env vars, and masks values in logs.
 | Input | Default | Description |
 |-------|---------|-------------|
 | `token` | required | Keyway API key or PAT |
-| `environment` | `production` | Vault environment |
+| `environment` | `cicd` | Vault environment |
 | `export-env` | `true` | Export as env vars |
 | `env-file` | - | Write to .env file |
 | `mask-values` | `true` | Mask in logs |
 
-### Quick Setup
-
-```bash
-# Create an API key and add it as a GitHub secret
-keyway ci setup
-```
-
-This creates a `KEYWAY_TOKEN` secret in your repository.
+:::tip cicd environment
+The action defaults to `cicd` environment. Create this environment in your vault with the secrets needed for CI/CD, or override with `environment: production`.
+:::
 
 ### Write to File
 
