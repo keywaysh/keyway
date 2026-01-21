@@ -1,19 +1,57 @@
 # Keyway API
 
+[![CI](https://github.com/keywaysh/keyway-backend/actions/workflows/ci.yml/badge.svg)](https://github.com/keywaysh/keyway-backend/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.3-blue.svg)](https://www.typescriptlang.org/)
+[![Node.js](https://img.shields.io/badge/Node.js-22_LTS-green.svg)](https://nodejs.org/)
 [![Keyway Secrets](https://www.keyway.sh/badge.svg?repo=keywaysh/keyway-backend)](https://www.keyway.sh/vaults/keywaysh/keyway-backend)
 
-> GitHub-native secrets manager backend
+**Stop sharing secrets in Slack.** Keyway syncs `.env` files using GitHub repo permissions.
 
-A simple, secure API for managing team secrets with GitHub authentication and AES-256-GCM encryption.
+## Quick Start
+
+```bash
+# Install CLI
+brew install keywaysh/tap/keyway
+
+# Login with GitHub
+keyway login
+
+# Push secrets from current repo
+keyway push .env
+
+# Pull on another machine
+keyway pull > .env
+```
+
+> Full documentation at [docs.keyway.sh](https://docs.keyway.sh)
+
+## Architecture
+
+```
+┌─────────┐       ┌─────────────┐       ┌──────────────┐
+│   CLI   │──────▶│  Keyway API │◀─────▶│   Postgres   │
+└─────────┘       └──────┬──────┘       └──────────────┘
+                         │
+            ┌────────────┼────────────┐
+            ▼                         ▼
+   ┌─────────────────┐      ┌─────────────────┐
+   │   GitHub API    │      │  keyway-crypto  │
+   │  (permissions)  │      │  (Go + gRPC)    │
+   └─────────────────┘      └─────────────────┘
+```
+
+- **Keyway API** — Fastify 5, TypeScript, handles auth and vault operations
+- **keyway-crypto** — Go microservice, AES-256-GCM encryption, holds the encryption key
+- **GitHub API** — Verifies repo access (collaborator check)
+- **Postgres** — Stores encrypted secrets, user data, audit logs
 
 ## Features
 
-- **🔐 Secure**: AES-256-GCM encryption for all secrets
-- **👥 GitHub Auth**: OAuth Device Flow + Fine-grained PAT support
-- **🗄️ PostgreSQL**: Reliable storage with Drizzle ORM
-- **📊 Analytics**: Privacy-first PostHog integration
-- **🚀 Production-ready**: Fastify 5, TypeScript, strict validation
-- **🔒 Privacy-first**: Metadata-only access, no code reading
+- **Encrypted at rest** — AES-256-GCM with random IV per secret, key isolated in Go service
+- **GitHub auth** — OAuth Device Flow or fine-grained PAT, no new credentials to manage
+- **Permission-based** — If you have repo access, you get secret access. That's it.
+- **CI-ready** — GitHub Action for injecting secrets into workflows
 
 ## Project Structure
 
@@ -36,17 +74,16 @@ keyway-backend/
 │   └── index.ts         # Fastify server entry point
 ├── drizzle/             # Generated migrations
 ├── Dockerfile           # Production Docker image
-├── fly.toml             # Fly.io configuration
 ├── railway.json         # Railway configuration
 └── package.json
 ```
 
 ## Prerequisites
 
-- Node.js 18+
-- PostgreSQL database (Neon recommended)
+- Node.js 22+
+- PostgreSQL (Neon recommended)
 - GitHub OAuth App
-- PostHog account (optional, for analytics)
+- [keyway-crypto](../keyway-crypto) service running
 
 ## Setup
 
@@ -64,39 +101,49 @@ Create `.env` from the example:
 cp .env.example .env
 ```
 
-Edit `.env`:
+Edit `.env` with the required variables:
 
 ```env
 # Server
 PORT=3000
 NODE_ENV=development
 
-# Database (use Neon connection string)
+# Database
 DATABASE_URL=postgresql://user:password@host/database
 
-# Crypto Service (gRPC encryption service)
+# Crypto Service (keyway-crypto gRPC address)
 CRYPTO_SERVICE_URL=localhost:50051
 
-# JWT Secret for Keyway tokens (min 32 chars)
+# JWT Secret (min 32 chars)
 JWT_SECRET=your-32-character-minimum-secret-here
 
-# GitHub OAuth
-GITHUB_CLIENT_ID=your_github_client_id
-GITHUB_CLIENT_SECRET=your_github_client_secret
+# GitHub App (not OAuth App)
+GITHUB_APP_ID=123456
+GITHUB_APP_CLIENT_ID=Iv1.xxxxxxxxxxxxxxxx
+GITHUB_APP_CLIENT_SECRET=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+GITHUB_APP_PRIVATE_KEY=<base64-encoded .pem file>
+GITHUB_APP_WEBHOOK_SECRET=<optional in dev, required in prod>
+GITHUB_APP_NAME=keyway
 
 # PostHog (optional)
-POSTHOG_API_KEY=your_posthog_api_key
+POSTHOG_API_KEY=
 POSTHOG_HOST=https://app.posthog.com
 ```
 
-### 3. Create GitHub OAuth App
+### 3. Create GitHub App
 
-1. Go to GitHub Settings → Developer settings → OAuth Apps → New OAuth App
-2. Fill in:
-   - **Application name**: Keyway
-   - **Homepage URL**: `http://localhost:3000`
-   - **Authorization callback URL**: `http://localhost:3000/auth/github/callback`
-3. Save the Client ID and Client Secret
+1. Go to [GitHub Settings → Developer settings → GitHub Apps → New GitHub App](https://github.com/settings/apps/new)
+2. Configure:
+   - **GitHub App name**: `keyway` (or your app name)
+   - **Homepage URL**: `https://keyway.sh`
+   - **Callback URL**: `http://localhost:3000/v1/auth/callback`
+   - **Enable Device Flow**: ✓
+   - **Webhook URL**: `http://localhost:3000/v1/webhooks/github` (or disable in dev)
+3. Permissions:
+   - **Repository → Metadata**: Read-only
+   - **Repository → Administration**: Read-only
+   - **Account → Email addresses**: Read-only
+4. Save the App ID, Client ID, Client Secret, and generate a Private Key
 
 ### 4. Start the Crypto Service
 
@@ -111,21 +158,21 @@ ENCRYPTION_KEY=$(openssl rand -hex 32) go run .
 
 ```bash
 # Generate migrations from schema
-npm run db:generate
+pnpm run db:generate
 
 # Run migrations
-npm run db:migrate
+pnpm run db:migrate
 ```
 
 ### 6. Start the Server
 
 ```bash
 # Development mode (with auto-reload)
-npm run dev
+pnpm run dev
 
 # Production mode
-npm run build
-npm start
+pnpm run build
+pnpm start
 ```
 
 The API will be available at `http://localhost:3000`.
@@ -361,13 +408,13 @@ pnpm dev
 pnpm build
 
 # Type check
-pnpm run type-check
+ppnpm run type-check
 
 # Generate database migrations
-pnpm run db:generate
+ppnpm run db:generate
 
 # Run database migrations
-pnpm run db:migrate
+ppnpm run db:migrate
 ```
 
 ## Deployment
@@ -387,11 +434,11 @@ Quick steps:
 
 **Always run before pushing:**
 ```bash
-pnpm run validate  # Type check + build + env validation
+ppnpm run validate  # Type check + build + env validation
 ```
 
 Railway will automatically:
-- Run migrations (`pnpm run db:migrate`)
+- Run migrations (`ppnpm run db:migrate`)
 - Build the app (`pnpm build`)
 - Start the server (`node dist/index.js`)
 - Health check on `/health`
@@ -484,48 +531,7 @@ See [POSTHOG_CHECKLIST.md](./POSTHOG_CHECKLIST.md) for details.
 }
 ```
 
-## Scripts
-
-| Command | Description |
-|---------|-------------|
-| `pnpm dev` | Start development server with auto-reload |
-| `pnpm build` | Build for production |
-| `pnpm start` | Start production server |
-| `pnpm run type-check` | Run TypeScript type checking |
-| `pnpm run db:generate` | Generate database migrations |
-| `pnpm run db:migrate` | Run database migrations |
-
-## Environment Variables
-
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `PORT` | No | Server port (default: 3000) |
-| `NODE_ENV` | No | Environment (development/production) |
-| `DATABASE_URL` | Yes | PostgreSQL connection string |
-| `CRYPTO_SERVICE_URL` | Yes | gRPC crypto service address (e.g., localhost:50051) |
-| `JWT_SECRET` | Yes | Secret for Keyway JWT tokens (min 32 chars) |
-| `GITHUB_CLIENT_ID` | Yes | GitHub OAuth client ID |
-| `GITHUB_CLIENT_SECRET` | Yes | GitHub OAuth client secret |
-| `POSTHOG_API_KEY` | No | PostHog API key for analytics |
-| `POSTHOG_HOST` | No | PostHog host (default: app.posthog.com) |
-| `RESEND_API_KEY` | No | Resend API key for welcome emails |
-
 ## Troubleshooting
-
-### CLI Token Storage Locations
-
-The CLI stores credentials locally. Useful for debugging auth issues:
-
-**Config file** (via `conf` package):
-- macOS: `~/Library/Preferences/keyway-nodejs/config.json`
-- Linux: `~/.config/keyway-nodejs/config.json`
-- Windows: `%APPDATA%/keyway-nodejs/Config/config.json`
-
-**Encryption key**:
-- All platforms: `~/.keyway/.key`
-
-`keyway logout` clears the `auth` key but keeps the encryption key.
-For complete cleanup: `rm -rf ~/.keyway ~/Library/Preferences/keyway-nodejs` (macOS)
 
 ### "DATABASE_URL is not defined"
 
@@ -561,6 +567,6 @@ MIT
 
 ## Support
 
+- **Docs**: https://docs.keyway.sh
 - **Status**: https://status.keyway.sh
-- **Issues**: Create an issue on GitHub
-- **Documentation**: See [DEPLOYMENT_RAILWAY.md](./DEPLOYMENT_RAILWAY.md) and [POSTHOG_CHECKLIST.md](./POSTHOG_CHECKLIST.md)
+- **Issues**: [GitHub Issues](https://github.com/keywaysh/keyway-backend/issues)

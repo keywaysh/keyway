@@ -33,7 +33,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
           cache: 'pnpm'
 
       - name: Install dependencies
@@ -45,23 +45,8 @@ jobs:
       - name: Build
         run: pnpm run build
 
-      - name: Run migrations
-        env:
-          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/keyway_test
-          ENCRYPTION_KEY: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
-          JWT_SECRET: test_jwt_secret_for_ci_only_32_chars_min
-          GITHUB_CLIENT_ID: test
-          GITHUB_CLIENT_SECRET: test
-        run: pnpm run db:migrate
+      - name: Lint
+        run: pnpm run lint
 
       - name: Run tests
         run: pnpm test
-
-  deploy:
-    needs: test
-    runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main'
-
-    steps:
-      - name: Deploy to Railway
-        run: echo "✅ CI passed - Railway will auto-deploy"
