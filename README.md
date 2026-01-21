@@ -16,7 +16,7 @@
 ## Features
 
 - 🔐 **Visual secret management** — Create, edit, and organize secrets across environments
-- 🔄 **Provider sync** — Push secrets to Vercel, Railway, Netlify, Fly.io
+- 🔄 **Provider sync** — Push secrets to Vercel, Railway, Netlify
 - 👥 **Team collaboration** — GitHub-based permissions, no separate access control
 - 📊 **Audit trail** — See who accessed what, when, and from where
 - 🚨 **Security alerts** — Get notified of suspicious access patterns
@@ -31,7 +31,7 @@
 2. Sign in with GitHub
 3. Create your first vault from any repo you have access to
 
-> **Prefer the CLI?** Run `npx @keywaysh/cli init` in your project
+> **Prefer the CLI?** Run `brew install keywaysh/tap/keyway && keyway init`
 
 ---
 
