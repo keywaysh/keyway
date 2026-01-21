@@ -38,10 +38,11 @@ Traditional secret management with AI is risky: copying secrets into chat expose
 
 ### Prerequisites
 
-First, authenticate with Keyway CLI:
+First, install and authenticate with Keyway CLI:
 
 ```bash
-npx @keywaysh/cli login
+brew install keywaysh/tap/keyway
+keyway login
 ```
 
 ### Claude Code
