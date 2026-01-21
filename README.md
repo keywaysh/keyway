@@ -40,7 +40,7 @@ brew install keywaysh/tap/keyway
 ### Install Script
 
 ```bash
-curl -fsSL https://get.keyway.sh | sh
+curl -fsSL https://keyway.sh/install.sh | sh
 ```
 
 ### npx (no install)
@@ -85,7 +85,7 @@ Never write secrets to disk. Inject them directly into your process:
 
 ```bash
 keyway run -- npm start
-keyway run --env production -- ./my-app
+keyway run -e production -- ./my-app
 ```
 
 Secrets exist only in memory. When the process exits, they're gone.
@@ -135,7 +135,7 @@ We can't read your secrets. Even if our database leaks, attackers get encrypted 
 
 | Variable | Description |
 |----------|-------------|
-| `KEYWAY_TOKEN` | Auth token for CI/CD (use `keyway login --ci`) |
+| `KEYWAY_TOKEN` | Auth token for CI/CD (create in Dashboard > API Keys) |
 | `KEYWAY_API_URL` | Custom API endpoint |
 | `KEYWAY_DISABLE_TELEMETRY=1` | Disable anonymous analytics |
 
@@ -163,7 +163,7 @@ Use an API key for automation:
 # GitHub Actions example
 env:
   KEYWAY_TOKEN: ${{ secrets.KEYWAY_TOKEN }}
-run: keyway pull --env production
+run: keyway pull -e production
 ```
 
 Or use the [GitHub Action](https://github.com/keywaysh/keyway-action):
