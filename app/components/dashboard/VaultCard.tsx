@@ -1,3 +1,4 @@
+import { memo } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
 import { Trash2, MoreVertical, RefreshCw } from 'lucide-react'
@@ -56,7 +57,7 @@ function getVaultWarning(vault: Vault): string | null {
   return null
 }
 
-export function VaultCard({ vault, onDelete }: VaultCardProps) {
+export const VaultCard = memo(function VaultCard({ vault, onDelete }: VaultCardProps) {
   const effectivePermission = vault.permission || 'read'
   const canDelete = effectivePermission === 'admin'
   const warning = getVaultWarning(vault)
@@ -170,7 +171,7 @@ export function VaultCard({ vault, onDelete }: VaultCardProps) {
       </Card>
     </Link>
   )
-}
+})
 
 export function VaultCardSkeleton() {
   return (

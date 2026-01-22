@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import Image from 'next/image'
 import { Eye, EyeOff, Copy, Loader2, History, RotateCcw, ChevronDown, ChevronUp } from 'lucide-react'
 import { toast } from 'sonner'
 import type { Secret, SecretVersion } from '@/lib/types'
@@ -326,9 +327,11 @@ export function ViewSecretModal({
                         {version.created_by && (
                           <div className="flex items-center gap-1 mt-1 text-xs text-muted-foreground">
                             {version.created_by.avatar_url && (
-                              <img
+                              <Image
                                 src={version.created_by.avatar_url}
                                 alt={version.created_by.username}
+                                width={16}
+                                height={16}
                                 className="size-4 rounded-full"
                               />
                             )}

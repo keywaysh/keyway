@@ -10,6 +10,9 @@ const nextConfig = {
     // Disable optimization when running behind local HTTPS proxy (Caddy)
     unoptimized: process.env.NEXT_PUBLIC_DISABLE_IMAGE_OPTIMIZATION === 'true',
   },
+  experimental: {
+    optimizePackageImports: ['@/app/components/dashboard'],
+  },
 };
 
 export default withSentryConfig(nextConfig, {

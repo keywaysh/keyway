@@ -1,7 +1,8 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { useParams } from 'next/navigation'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import Link from 'next/link'
 import {
   Building2,
@@ -15,7 +16,7 @@ import {
 } from 'lucide-react'
 import { api } from '@/lib/api'
 import type { OrganizationDetails } from '@/lib/types'
-import { DashboardLayout, ErrorState, LoadingSpinner } from '@/app/components/dashboard'
+import { DashboardLayout, ErrorState } from '@/app/components/dashboard'
 import { TrialBanner, TrialExpiredBanner } from '@/app/components/dashboard/TrialBanner'
 import { OnboardingBanner } from '@/app/components/dashboard/OnboardingBanner'
 import { Card, CardContent } from '@/components/ui/card'
@@ -62,25 +63,20 @@ function StatCard({
 export default function OrganizationDashboardPage() {
   const params = useParams()
   const orgLogin = params.org as string
-
-  const [org, setOrg] = useState<OrganizationDetails | null>(null)
-  const [isLoading, setIsLoading] = useState(true)
+  const queryClient = useQueryClient()
   const [isStartingTrial, setIsStartingTrial] = useState(false)
-  const [error, setError] = useState<string | null>(null)
 
-  useEffect(() => {
-    async function loadOrganization() {
-      try {
-        const orgData = await api.getOrganization(orgLogin)
-        setOrg(orgData)
-      } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to load organization')
-      } finally {
-        setIsLoading(false)
-      }
-    }
-    loadOrganization()
-  }, [orgLogin])
+  const {
+    data: org,
+    isLoading,
+    error,
+    refetch,
+  } = useQuery<OrganizationDetails, Error>({
+    queryKey: ['organization', orgLogin],
+    queryFn: () => api.getOrganization(orgLogin),
+  })
+
+  const errorMessage = error?.message ?? null
 
   const handleStartTrial = async () => {
     if (!org) return
@@ -90,8 +86,7 @@ export default function OrganizationDashboardPage() {
       const result = await api.startOrganizationTrial(orgLogin)
       toast.success(result.message)
       // Refresh org data
-      const orgData = await api.getOrganization(orgLogin)
-      setOrg(orgData)
+      await queryClient.invalidateQueries({ queryKey: ['organization', orgLogin] })
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Failed to start trial')
     } finally {
@@ -120,13 +115,13 @@ export default function OrganizationDashboardPage() {
     )
   }
 
-  if (error || !org) {
+  if (errorMessage || !org) {
     return (
       <DashboardLayout>
         <ErrorState
           title="Failed to load organization"
-          message={error || 'Organization not found'}
-          onRetry={() => window.location.reload()}
+          message={errorMessage || 'Organization not found'}
+          onRetry={() => refetch()}
         />
       </DashboardLayout>
     )

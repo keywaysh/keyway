@@ -1,6 +1,7 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, memo } from 'react'
+import Image from 'next/image'
 import { Pencil, Trash2, Eye } from 'lucide-react'
 import type { Secret } from '@/lib/types'
 import { getEnvironmentColor } from '@/lib/environment-colors'
@@ -33,7 +34,7 @@ function formatDate(dateString: string): string {
   })
 }
 
-export function SecretRow({
+export const SecretRow = memo(function SecretRow({
   secret,
   onView,
   onEdit,
@@ -74,9 +75,11 @@ export function SecretRow({
               <>
                 <span>by</span>
                 {secret.last_modified_by.avatar_url && (
-                  <img
+                  <Image
                     src={secret.last_modified_by.avatar_url}
                     alt={secret.last_modified_by.username}
+                    width={16}
+                    height={16}
                     className="size-4 rounded-full"
                   />
                 )}
@@ -150,7 +153,7 @@ export function SecretRow({
       </AlertDialog>
     </>
   )
-}
+})
 
 export function SecretRowSkeleton() {
   return (

@@ -210,3 +210,9 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* Optimize rendering for long lists - skip paint for off-screen items */
+.content-visibility-auto {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 60px;
+}

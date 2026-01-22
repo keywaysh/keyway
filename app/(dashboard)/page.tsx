@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState, useRef, useMemo } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import Image from 'next/image'
 import Link from 'next/link'
 import { User, Building2, AlertTriangle } from 'lucide-react'
@@ -61,11 +62,21 @@ function groupVaultsByOwner(vaults: Vault[], currentUsername?: string): VaultGro
 
 export default function DashboardPage() {
   const { user } = useAuth()
-  const [vaults, setVaults] = useState<Vault[]>([])
-  const [isLoading, setIsLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  const queryClient = useQueryClient()
   const [vaultToDelete, setVaultToDelete] = useState<Vault | null>(null)
   const hasFiredView = useRef(false)
+
+  const {
+    data: vaults = [],
+    isLoading,
+    error,
+    refetch,
+  } = useQuery<Vault[], Error>({
+    queryKey: ['vaults'],
+    queryFn: () => api.getVaults(),
+  })
+
+  const errorMessage = error?.message ?? null
 
   const vaultGroups = useMemo(
     () => groupVaultsByOwner(vaults, user?.github_username),
@@ -84,27 +95,12 @@ export default function DashboardPage() {
     }
   }, [])
 
-  const fetchVaults = async () => {
-    setIsLoading(true)
-    setError(null)
-    try {
-      const data = await api.getVaults()
-      setVaults(data)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load vaults')
-    } finally {
-      setIsLoading(false)
-    }
-  }
-
-  useEffect(() => {
-    fetchVaults()
-  }, [])
-
   const handleDeleteVault = async () => {
     if (!vaultToDelete) return
     await api.deleteVault(vaultToDelete.repo_owner, vaultToDelete.repo_name)
-    setVaults((prev) => prev.filter((v) => v.id !== vaultToDelete.id))
+    queryClient.setQueryData<Vault[]>(['vaults'], (old) =>
+      old?.filter((v) => v.id !== vaultToDelete.id)
+    )
   }
 
   return (
@@ -124,10 +120,10 @@ export default function DashboardPage() {
               </div>
             </div>
           </div>
-        ) : error?.includes('GitHub App not installed') ? (
-          <GitHubAppNotInstalledState error={error} onRetry={fetchVaults} />
-        ) : error ? (
-          <ErrorState message={error} onRetry={fetchVaults} />
+        ) : errorMessage?.includes('GitHub App not installed') ? (
+          <GitHubAppNotInstalledState error={errorMessage} onRetry={() => refetch()} />
+        ) : errorMessage ? (
+          <ErrorState message={errorMessage} onRetry={() => refetch()} />
         ) : vaults.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-16 px-4">
             <div className="relative mb-6">

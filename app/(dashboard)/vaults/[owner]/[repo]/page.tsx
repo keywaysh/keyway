@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useRef, useMemo } from 'react'
+import { useEffect, useState, useRef, useMemo, useTransition } from 'react'
 import { useParams } from 'next/navigation'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import Link from 'next/link'
@@ -34,6 +34,7 @@ import { Input } from '@/components/ui/input'
 import { toast } from 'sonner'
 import { getEnvironmentColor } from '@/lib/environment-colors'
 import { formatLastSynced } from '@/lib/date-utils'
+import { cn } from '@/lib/utils'
 
 // GitHub role config with Keyway-specific descriptions
 const permissionConfig: Record<VaultPermission, {
@@ -105,6 +106,7 @@ export default function VaultDetailPage() {
   const [selectedEnvironment, setSelectedEnvironment] = useState<string>('all')
   const [showAllIncomplete, setShowAllIncomplete] = useState(false)
   const hasFiredView = useRef(false)
+  const [isPending, startTransition] = useTransition()
 
   // Fetch vault data with TanStack Query
   const {
@@ -172,7 +174,9 @@ export default function VaultDetailPage() {
 
   const handleEnvironmentFilter = (env: string) => {
     const newEnv = env === selectedEnvironment ? 'all' : env
-    setSelectedEnvironment(newEnv)
+    startTransition(() => {
+      setSelectedEnvironment(newEnv)
+    })
     if (newEnv !== 'all') {
       trackEvent(AnalyticsEvents.ENVIRONMENT_FILTER, {
         repo: `${owner}/${repo}`,
@@ -342,28 +346,37 @@ export default function VaultDetailPage() {
 
   // Get unique environments from vault config + actual secrets
   // We prioritize vault.environments order, then add any extra from secrets
-  const allEnvironments = vault
-    ? Array.from(new Set([...vault.environments, ...secrets.map((s) => s.environment)]))
-    : []
+  const allEnvironments = useMemo(() => {
+    if (!vault) return []
+    return Array.from(new Set([...vault.environments, ...secrets.map((s) => s.environment)]))
+  }, [vault, secrets])
 
-  // Count secrets per environment
-  const secretsByEnv = useMemo(() => {
+  // Compute all derived data from secrets in a single pass
+  const { secretsByEnv, secretsByName, existingSecretNames } = useMemo(() => {
     const counts: Record<string, number> = {}
-    for (const env of allEnvironments) {
-      counts[env] = secrets.filter(s => s.environment === env).length
-    }
-    return counts
-  }, [secrets, allEnvironments])
+    const nameMap = new Map<string, Set<string>>()
+    const names = new Set<string>()
 
-  // Group secrets by name to find coverage
-  const secretsByName = useMemo(() => {
-    const map = new Map<string, Set<string>>()
-    for (const secret of secrets) {
-      if (!map.has(secret.name)) map.set(secret.name, new Set())
-      map.get(secret.name)!.add(secret.environment)
+    // Initialize counts for all environments
+    for (const env of allEnvironments) {
+      counts[env] = 0
     }
-    return map
-  }, [secrets])
+
+    // Single pass through secrets
+    for (const secret of secrets) {
+      // Count by environment
+      counts[secret.environment] = (counts[secret.environment] || 0) + 1
+
+      // Group by name
+      if (!nameMap.has(secret.name)) nameMap.set(secret.name, new Set())
+      nameMap.get(secret.name)!.add(secret.environment)
+
+      // Collect names for duplicate detection
+      names.add(secret.name)
+    }
+
+    return { secretsByEnv: counts, secretsByName: nameMap, existingSecretNames: names }
+  }, [secrets, allEnvironments])
 
   // Find incomplete secrets (not in all environments)
   const incompleteSecrets = useMemo(() => {
@@ -381,9 +394,6 @@ export default function VaultDetailPage() {
     })
     return result.sort((a, b) => b.missingIn.length - a.missingIn.length)
   }, [secretsByName, allEnvironments])
-
-  // Get existing secret names for duplicate detection
-  const existingSecretNames = secrets.map(s => s.name)
 
   // Handle restoring a secret from trash
   const handleRestoreSecret = async (trashedSecret: TrashedSecret) => {
@@ -718,7 +728,7 @@ export default function VaultDetailPage() {
                 )}
               </CardHeader>
 
-              <CardContent className="pt-0">
+              <CardContent className={cn("pt-0 transition-opacity", isPending && "opacity-60")}>
                 {isLoading ? (
                   <>
                     {[...Array(5)].map((_, i) => (

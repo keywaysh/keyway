@@ -62,37 +62,23 @@ export function OrgSwitcher({ onContextChange, className }: OrgSwitcherProps) {
 
   const [organizations, setOrganizations] = useState<Organization[]>([])
   const [isLoading, setIsLoading] = useState(true)
-  const [context, setContext] = useState<OrgContext>({ type: 'personal', id: null, login: null })
+  // Lazy initialization: read from localStorage only once
+  const [context, setContext] = useState<OrgContext>(() => getStoredContext() ?? { type: 'personal', id: null, login: null })
   const [isOpen, setIsOpen] = useState(false)
 
-  // Load organizations on mount
+  // Load organizations on mount (only once)
   useEffect(() => {
     async function loadOrgs() {
       try {
         const orgs = await api.getOrganizations()
         setOrganizations(orgs)
 
-        // Restore context from storage or detect from URL
+        // Validate stored context still exists
         const stored = getStoredContext()
-        const urlOrgMatch = pathname.match(/\/orgs\/([^/]+)/)
-
-        if (urlOrgMatch) {
-          const orgLogin = urlOrgMatch[1]
-          const org = orgs.find(o => o.login === orgLogin)
-          if (org) {
-            const ctx: OrgContext = { type: 'organization', id: org.id, login: org.login }
-            setContext(ctx)
-            setStoredContext(ctx)
-          }
-        } else if (stored) {
-          // Validate stored context still exists
-          if (stored.type === 'organization') {
-            const exists = orgs.some(o => o.id === stored.id)
-            if (exists) {
-              setContext(stored)
-            }
-          } else {
-            setContext(stored)
+        if (stored?.type === 'organization') {
+          const exists = orgs.some(o => o.id === stored.id)
+          if (!exists) {
+            setContext({ type: 'personal', id: null, login: null })
           }
         }
       } catch (err) {
@@ -102,7 +88,23 @@ export function OrgSwitcher({ onContextChange, className }: OrgSwitcherProps) {
       }
     }
     loadOrgs()
-  }, [pathname])
+  }, [])
+
+  // Detect context from URL (separate from data loading)
+  useEffect(() => {
+    if (organizations.length === 0) return
+
+    const urlOrgMatch = pathname.match(/\/orgs\/([^/]+)/)
+    if (urlOrgMatch) {
+      const orgLogin = urlOrgMatch[1]
+      const org = organizations.find(o => o.login === orgLogin)
+      if (org && context.login !== orgLogin) {
+        const ctx: OrgContext = { type: 'organization', id: org.id, login: org.login }
+        setContext(ctx)
+        setStoredContext(ctx)
+      }
+    }
+  }, [pathname, organizations, context.login])
 
   const handleSelect = (ctx: OrgContext) => {
     setContext(ctx)

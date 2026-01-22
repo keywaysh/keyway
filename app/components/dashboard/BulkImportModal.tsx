@@ -34,7 +34,7 @@ interface BulkImportModalProps {
   onClose: () => void
   onImport: (secrets: { name: string; value: string; environment: string }[]) => Promise<void>
   environments: string[]
-  existingSecretNames: string[]
+  existingSecretNames: Set<string>
 }
 
 function parseEnvContent(content: string): ParsedSecret[] {
@@ -108,7 +108,7 @@ export function BulkImportModal({
       const parsed = parseEnvContent(content)
       // Mark duplicates
       const withDuplicates = parsed.map(secret => {
-        if (secret.valid && existingSecretNames.includes(secret.name)) {
+        if (secret.valid && existingSecretNames.has(secret.name)) {
           return {
             ...secret,
             error: 'Already exists (will be skipped)',

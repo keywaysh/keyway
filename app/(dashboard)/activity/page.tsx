@@ -1,6 +1,7 @@
 'use client'
 
-import { useEffect, useState, useRef, useMemo } from 'react'
+import { useEffect, useState, useRef, useMemo, memo } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import {
   Terminal,
   Globe,
@@ -178,7 +179,7 @@ function ActivityRowSkeleton() {
   )
 }
 
-function ActivityRow({ group }: { group: GroupedActivity }) {
+const ActivityRow = memo(function ActivityRow({ group }: { group: GroupedActivity }) {
   const [expanded, setExpanded] = useState(false)
   const actionLabel = actionLabels[group.action] || group.action.replace(/_/g, ' ')
 
@@ -309,34 +310,29 @@ function ActivityRow({ group }: { group: GroupedActivity }) {
       )}
     </div>
   )
-}
+})
 
 export default function ActivityPage() {
-  const [events, setEvents] = useState<ActivityEvent[]>([])
-  const [isLoading, setIsLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
   const [selectedCategory, setSelectedCategory] = useState<ActivityCategory>('all')
   const hasFiredView = useRef(false)
 
-  const fetchActivity = async () => {
-    setIsLoading(true)
-    setError(null)
-    try {
-      const data = await api.getActivity()
-      setEvents(data)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load activity')
-    } finally {
-      setIsLoading(false)
-    }
-  }
+  const {
+    data: events = [],
+    isLoading,
+    error,
+    refetch,
+  } = useQuery<ActivityEvent[], Error>({
+    queryKey: ['activity'],
+    queryFn: () => api.getActivity(),
+  })
+
+  const errorMessage = error?.message ?? null
 
   useEffect(() => {
     if (!hasFiredView.current) {
       hasFiredView.current = true
       trackEvent(AnalyticsEvents.ACTIVITY_VIEW)
     }
-    fetchActivity()
   }, [])
 
   // Filter events by category
@@ -406,8 +402,8 @@ export default function ActivityPage() {
           ))}
         </div>
 
-        {error ? (
-          <ErrorState message={error} onRetry={fetchActivity} />
+        {errorMessage ? (
+          <ErrorState message={errorMessage} onRetry={() => refetch()} />
         ) : isLoading ? (
           <Card>
             <CardContent className="pt-6">
