@@ -6,11 +6,14 @@
 
 # Cloned repositories (setup.sh clones these)
 keyway-backend/
-keyway-site/
-keyway-cli/
+keyway-dashboard/
+keyway-landing/
+cli/
 keyway-crypto/
 keyway-docs/
-keyway-e2e/
+keyway-action/
+keyway-mcp/
+keyway-admin/
 
 # Docker volumes (if any local state)
 caddy_data/

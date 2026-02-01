@@ -19,8 +19,9 @@ services:
     build: ./keyway-crypto
     environment:
       - ENCRYPTION_KEY=${ENCRYPTION_KEY}
+      - GRPC_PORT=${GRPC_PORT:-50051}
     healthcheck:
-      test: ["CMD-SHELL", "nc -z localhost 50051 || exit 1"]
+      test: ["CMD-SHELL", "nc -z localhost ${GRPC_PORT:-50051} || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 3
@@ -31,8 +32,8 @@ services:
     environment:
       - PORT=8080
       - NODE_ENV=production
-      - DATABASE_URL=postgresql://keyway:keyway@db:5432/keyway
-      - CRYPTO_SERVICE_URL=crypto:50051
+      - DATABASE_URL=${DATABASE_URL:-postgresql://keyway:keyway@db:5432/keyway}
+      - CRYPTO_SERVICE_URL=${CRYPTO_SERVICE_URL:-crypto:50051}
       - ENCRYPTION_KEY=${ENCRYPTION_KEY}
       - JWT_SECRET=${JWT_SECRET}
       # GitHub App (unified auth + repo access)
@@ -41,11 +42,22 @@ services:
       - GITHUB_APP_CLIENT_SECRET=${GITHUB_APP_CLIENT_SECRET}
       - GITHUB_APP_PRIVATE_KEY=${GITHUB_APP_PRIVATE_KEY}
       - GITHUB_APP_WEBHOOK_SECRET=${GITHUB_APP_WEBHOOK_SECRET}
-      - GITHUB_APP_NAME=${GITHUB_APP_NAME:-keyway-local-dev}
-      # Frontend URLs
-      - FRONTEND_URL=https://keyway.local
-      - DASHBOARD_URL=https://app.keyway.local
-      - ALLOWED_ORIGINS=https://keyway.local,https://app.keyway.local,https://api.keyway.local
+      - GITHUB_APP_NAME=${GITHUB_APP_NAME:-keyway-app}
+      # GitHub Enterprise (optional)
+      - GITHUB_BASE_URL=${GITHUB_BASE_URL:-}
+      # Frontend URLs (derived from DOMAIN)
+      - FRONTEND_URL=${FRONTEND_URL:-https://${DOMAIN:-keyway.sh}}
+      - DASHBOARD_URL=${DASHBOARD_URL:-https://app.${DOMAIN:-keyway.sh}}
+      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-https://${DOMAIN:-keyway.sh},https://app.${DOMAIN:-keyway.sh},https://api.${DOMAIN:-keyway.sh}}
+      # Optional: Billing
+      - BILLING_ENABLED=${BILLING_ENABLED:-false}
+      - STRIPE_SECRET_KEY=${STRIPE_SECRET_KEY:-}
+      - STRIPE_WEBHOOK_SECRET=${STRIPE_WEBHOOK_SECRET:-}
+      # Optional: Email
+      - RESEND_API_KEY=${RESEND_API_KEY:-}
+      # Optional: Analytics
+      - POSTHOG_API_KEY=${POSTHOG_API_KEY:-}
+      - POSTHOG_HOST=${POSTHOG_HOST:-}
     depends_on:
       db:
         condition: service_healthy
@@ -56,7 +68,9 @@ services:
     build:
       context: ./keyway-dashboard
       args:
-        - NEXT_PUBLIC_KEYWAY_API_URL=https://api.keyway.local
+        - NEXT_PUBLIC_KEYWAY_API_URL=https://api.${DOMAIN:-keyway.sh}
+        - NEXT_PUBLIC_POSTHOG_KEY=${NEXT_PUBLIC_POSTHOG_KEY:-}
+        - NEXT_PUBLIC_POSTHOG_HOST=${NEXT_PUBLIC_POSTHOG_HOST:-}
         - NEXT_PUBLIC_SENTRY_DSN=${NEXT_PUBLIC_SENTRY_DSN:-}
         - NEXT_PUBLIC_CRISP_WEBSITE_ID=${NEXT_PUBLIC_CRISP_WEBSITE_ID:-}
         - NEXT_PUBLIC_DISABLE_IMAGE_OPTIMIZATION=true
@@ -67,7 +81,9 @@ services:
     build:
       context: ./keyway-landing
       args:
-        - NEXT_PUBLIC_DASHBOARD_URL=https://app.keyway.local
+        - NEXT_PUBLIC_DASHBOARD_URL=https://app.${DOMAIN:-keyway.sh}
+        - NEXT_PUBLIC_POSTHOG_KEY=${NEXT_PUBLIC_POSTHOG_KEY:-}
+        - NEXT_PUBLIC_POSTHOG_HOST=${NEXT_PUBLIC_POSTHOG_HOST:-}
         - NEXT_PUBLIC_SENTRY_DSN=${NEXT_PUBLIC_SENTRY_DSN:-}
         - NEXT_PUBLIC_CRISP_WEBSITE_ID=${NEXT_PUBLIC_CRISP_WEBSITE_ID:-}
         - NEXT_PUBLIC_DISABLE_IMAGE_OPTIMIZATION=true
@@ -77,9 +93,11 @@ services:
     ports:
       - "80:80"
       - "443:443"
+    environment:
+      - DOMAIN=${DOMAIN:-keyway.sh}
     volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      - ./certs:/etc/certs:ro
+      - ${CADDYFILE:-./Caddyfile.production}:/etc/caddy/Caddyfile:ro
+      - ${CADDY_CERTS:-./certs}:/etc/certs:ro
       - caddy_data:/data
       - caddy_config:/config
     depends_on:

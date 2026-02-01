@@ -1,0 +1,24 @@
+# Production Caddyfile
+# Uses {$DOMAIN} environment variable for dynamic domain configuration.
+# Caddy automatically provisions Let's Encrypt TLS certificates.
+#
+# Usage:
+#   DOMAIN=example.com docker compose up
+#
+# For local development with mkcert certificates, use Caddyfile instead:
+#   CADDYFILE=./Caddyfile docker compose up
+
+# Landing page (marketing)
+{$DOMAIN} {
+	reverse_proxy landing:3000
+}
+
+# Dashboard app (authenticated)
+app.{$DOMAIN} {
+	reverse_proxy dashboard:3000
+}
+
+# API
+api.{$DOMAIN} {
+	reverse_proxy backend:8080
+}
