@@ -114,7 +114,12 @@ func main() {
 	log.Printf("Loaded %d encryption key(s), current version: %d, available versions: %v",
 		len(keys), engine.CurrentVersion(), engine.AvailableVersions())
 
-	lis, err := net.Listen("tcp", ":50051")
+	port := os.Getenv("GRPC_PORT")
+	if port == "" {
+		port = "50051"
+	}
+
+	lis, err := net.Listen("tcp", ":"+port)
 	if err != nil {
 		log.Fatalf("Failed to listen: %v", err)
 	}
@@ -125,7 +130,7 @@ func main() {
 	// Health check for k8s/docker
 	grpc_health_v1.RegisterHealthServer(s, health.NewServer())
 
-	log.Printf("Crypto service listening on :50051")
+	log.Printf("Crypto service listening on :%s", port)
 	if err := s.Serve(lis); err != nil {
 		log.Fatalf("Failed to serve: %v", err)
 	}
