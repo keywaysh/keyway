@@ -68,7 +68,7 @@ jobs:
 
   publish-npm:
     needs: release
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-2vcpu-ubuntu-2404
     environment: npm
     steps:
       - name: Checkout
