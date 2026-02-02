@@ -3,6 +3,15 @@ import type {Config} from '@docusaurus/types';
 import type * as Preset from '@docusaurus/preset-classic';
 import npm2yarn from '@docusaurus/remark-plugin-npm2yarn';
 
+// Centralized URLs — self-hosters can override via environment variables
+const LANDING_URL = process.env.KEYWAY_LANDING_URL || 'https://keyway.sh';
+const DASHBOARD_URL = process.env.KEYWAY_DASHBOARD_URL || 'https://app.keyway.sh';
+const DOCS_URL = process.env.KEYWAY_DOCS_URL || 'https://docs.keyway.sh';
+const API_BASE_URL = process.env.KEYWAY_API_URL || 'https://api.keyway.sh';
+const STATUS_URL = process.env.KEYWAY_STATUS_URL || 'https://status.keyway.sh';
+const GITHUB_ORG_URL = process.env.KEYWAY_GITHUB_ORG_URL || 'https://github.com/keywaysh';
+const CLI_INSTALL_URL = process.env.KEYWAY_CLI_INSTALL_URL || `${LANDING_URL}/install.sh`;
+
 const config: Config = {
   title: 'Keyway Documentation',
   tagline: 'GitHub-native secrets management for teams',
@@ -12,13 +21,23 @@ const config: Config = {
     v4: true,
   },
 
-  url: 'https://docs.keyway.sh',
+  url: DOCS_URL,
   baseUrl: '/',
 
   organizationName: 'keywaysh',
   projectName: 'keyway-docs',
 
   onBrokenLinks: 'throw',
+
+  customFields: {
+    apiBaseUrl: API_BASE_URL,
+    dashboardUrl: DASHBOARD_URL,
+    landingUrl: LANDING_URL,
+    docsUrl: DOCS_URL,
+    statusUrl: STATUS_URL,
+    githubOrgUrl: GITHUB_ORG_URL,
+    cliInstallUrl: CLI_INSTALL_URL,
+  },
 
   i18n: {
     defaultLocale: 'en',
@@ -31,7 +50,7 @@ const config: Config = {
       {
         docs: {
           sidebarPath: './sidebars.ts',
-          editUrl: 'https://github.com/keywaysh/keyway-docs/tree/main/',
+          editUrl: `${GITHUB_ORG_URL}/keyway-docs/tree/main/`,
           routeBasePath: '/', // Docs at root
           remarkPlugins: [[npm2yarn, {sync: true, converters: ['pnpm', 'yarn']}]],
         },
@@ -68,12 +87,12 @@ const config: Config = {
           position: 'left',
         },
         {
-          href: 'https://keyway.sh',
+          href: LANDING_URL,
           label: 'Website',
           position: 'right',
         },
         {
-          href: 'https://github.com/keywaysh/keyway-cli',
+          href: `${GITHUB_ORG_URL}/keyway-cli`,
           label: 'GitHub',
           position: 'right',
         },
@@ -104,11 +123,11 @@ const config: Config = {
             },
             {
               label: 'GitHub',
-              href: 'https://github.com/keywaysh',
+              href: GITHUB_ORG_URL,
             },
             {
               label: 'Status',
-              href: 'https://status.keyway.sh',
+              href: STATUS_URL,
             },
           ],
         },
@@ -117,11 +136,11 @@ const config: Config = {
           items: [
             {
               label: 'Website',
-              href: 'https://keyway.sh',
+              href: LANDING_URL,
             },
             {
               label: 'Terms of Service',
-              href: 'https://keyway.sh/terms',
+              href: `${LANDING_URL}/terms`,
             },
           ],
         },
