@@ -10,11 +10,11 @@ import (
 var testBadge = GenerateBadge("acme/backend")
 
 func TestGenerateBadge_CorrectFormat(t *testing.T) {
-	result := GenerateBadge("NicolasRitouet/guideeco.fr")
-	if !strings.Contains(result, "https://www.keyway.sh/badge.svg?repo=NicolasRitouet/guideeco.fr") {
+	result := GenerateBadge("acme/my-project")
+	if !strings.Contains(result, "/badge.svg?repo=acme/my-project") {
 		t.Error("badge should contain correct badge URL")
 	}
-	if !strings.Contains(result, "https://www.keyway.sh/vaults/NicolasRitouet/guideeco.fr") {
+	if !strings.Contains(result, "/vaults/acme/my-project") {
 		t.Error("badge should contain correct vault URL")
 	}
 }

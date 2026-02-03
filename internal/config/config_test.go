@@ -130,3 +130,128 @@ func TestDefaultAPIURL(t *testing.T) {
 		t.Errorf("DefaultAPIURL = %v, want https://api.keyway.sh", DefaultAPIURL)
 	}
 }
+
+func TestGetGitHubURL_Default(t *testing.T) {
+	os.Unsetenv("KEYWAY_GITHUB_URL")
+
+	url := GetGitHubURL()
+	if url != DefaultGitHubBaseURL {
+		t.Errorf("GetGitHubURL() = %v, want %v", url, DefaultGitHubBaseURL)
+	}
+}
+
+func TestGetGitHubURL_FromEnv(t *testing.T) {
+	os.Setenv("KEYWAY_GITHUB_URL", "https://github.example.com")
+	defer os.Unsetenv("KEYWAY_GITHUB_URL")
+
+	url := GetGitHubURL()
+	if url != "https://github.example.com" {
+		t.Errorf("GetGitHubURL() = %v, want https://github.example.com", url)
+	}
+}
+
+func TestGetGitHubURL_TrimsTrailingSlash(t *testing.T) {
+	os.Setenv("KEYWAY_GITHUB_URL", "https://github.example.com/")
+	defer os.Unsetenv("KEYWAY_GITHUB_URL")
+
+	url := GetGitHubURL()
+	if url != "https://github.example.com" {
+		t.Errorf("GetGitHubURL() = %v, want https://github.example.com", url)
+	}
+}
+
+func TestGetGitHubAPIURL_Default(t *testing.T) {
+	os.Unsetenv("KEYWAY_GITHUB_API_URL")
+	os.Unsetenv("KEYWAY_GITHUB_URL")
+
+	url := GetGitHubAPIURL()
+	if url != DefaultGitHubAPIURL {
+		t.Errorf("GetGitHubAPIURL() = %v, want %v", url, DefaultGitHubAPIURL)
+	}
+}
+
+func TestGetGitHubAPIURL_FromEnv(t *testing.T) {
+	os.Setenv("KEYWAY_GITHUB_API_URL", "https://api.github.example.com")
+	defer os.Unsetenv("KEYWAY_GITHUB_API_URL")
+
+	url := GetGitHubAPIURL()
+	if url != "https://api.github.example.com" {
+		t.Errorf("GetGitHubAPIURL() = %v, want https://api.github.example.com", url)
+	}
+}
+
+func TestGetGitHubAPIURL_DerivedFromGHE(t *testing.T) {
+	os.Unsetenv("KEYWAY_GITHUB_API_URL")
+	os.Setenv("KEYWAY_GITHUB_URL", "https://github.example.com")
+	defer os.Unsetenv("KEYWAY_GITHUB_URL")
+
+	url := GetGitHubAPIURL()
+	if url != "https://github.example.com/api/v3" {
+		t.Errorf("GetGitHubAPIURL() = %v, want https://github.example.com/api/v3", url)
+	}
+}
+
+func TestGetGitHubAPIURL_ExplicitOverridesGHE(t *testing.T) {
+	os.Setenv("KEYWAY_GITHUB_API_URL", "https://custom-api.example.com")
+	os.Setenv("KEYWAY_GITHUB_URL", "https://github.example.com")
+	defer os.Unsetenv("KEYWAY_GITHUB_API_URL")
+	defer os.Unsetenv("KEYWAY_GITHUB_URL")
+
+	url := GetGitHubAPIURL()
+	if url != "https://custom-api.example.com" {
+		t.Errorf("GetGitHubAPIURL() = %v, want https://custom-api.example.com", url)
+	}
+}
+
+func TestGetGitHubBaseURL_DelegatesToGetGitHubURL(t *testing.T) {
+	os.Unsetenv("KEYWAY_GITHUB_URL")
+
+	if GetGitHubBaseURL() != GetGitHubURL() {
+		t.Error("GetGitHubBaseURL() should delegate to GetGitHubURL()")
+	}
+}
+
+func TestGetDocsURL_Default(t *testing.T) {
+	os.Unsetenv("KEYWAY_DOCS_URL")
+
+	url := GetDocsURL()
+	if url != DefaultDocsURL {
+		t.Errorf("GetDocsURL() = %v, want %v", url, DefaultDocsURL)
+	}
+}
+
+func TestGetDocsURL_FromEnv(t *testing.T) {
+	os.Setenv("KEYWAY_DOCS_URL", "https://docs.example.com")
+	defer os.Unsetenv("KEYWAY_DOCS_URL")
+
+	url := GetDocsURL()
+	if url != "https://docs.example.com" {
+		t.Errorf("GetDocsURL() = %v, want https://docs.example.com", url)
+	}
+}
+
+func TestIsCustomAPIURL_NotSet(t *testing.T) {
+	os.Unsetenv("KEYWAY_API_URL")
+
+	if IsCustomAPIURL() {
+		t.Error("IsCustomAPIURL() should return false when not set")
+	}
+}
+
+func TestIsCustomAPIURL_SetToDefault(t *testing.T) {
+	os.Setenv("KEYWAY_API_URL", DefaultAPIURL)
+	defer os.Unsetenv("KEYWAY_API_URL")
+
+	if IsCustomAPIURL() {
+		t.Error("IsCustomAPIURL() should return false when set to default")
+	}
+}
+
+func TestIsCustomAPIURL_SetToCustom(t *testing.T) {
+	os.Setenv("KEYWAY_API_URL", "https://api.example.com")
+	defer os.Unsetenv("KEYWAY_API_URL")
+
+	if !IsCustomAPIURL() {
+		t.Error("IsCustomAPIURL() should return true when set to custom URL")
+	}
+}

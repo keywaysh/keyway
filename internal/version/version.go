@@ -5,6 +5,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/keywaysh/cli/internal/config"
 )
 
 const (
@@ -27,6 +29,11 @@ type UpdateInfo struct {
 // Returns nil if no update is available, check is disabled, or on any error
 func CheckForUpdate(ctx context.Context, currentVersion string) *UpdateInfo {
 	if IsUpdateCheckDisabled() {
+		return nil
+	}
+
+	// Skip update check for self-hosted instances
+	if config.IsCustomAPIURL() {
 		return nil
 	}
 
@@ -79,8 +86,14 @@ func buildUpdateInfo(current, latest string, method InstallMethod) *UpdateInfo {
 	}
 }
 
-// GetUpdateCommand returns the update command for the given install method
+// GetUpdateCommand returns the update command for the given install method.
+// Returns an empty string for self-hosted instances where standard update
+// commands do not apply.
 func GetUpdateCommand(method InstallMethod) string {
+	if config.IsCustomAPIURL() {
+		return ""
+	}
+
 	switch method {
 	case InstallMethodNPM:
 		return "npm update -g @keywaysh/cli"

@@ -1,16 +1,17 @@
 package config
 
-import "os"
+import (
+	"os"
+	"strings"
+)
 
 const (
-	// DefaultAPIURL is the production API URL
-	DefaultAPIURL = "https://api.keyway.sh"
-
-	// DefaultDashboardURL is the production dashboard URL
-	DefaultDashboardURL = "https://app.keyway.sh"
-
-	// DefaultPostHogHost is the PostHog host
-	DefaultPostHogHost = "https://eu.i.posthog.com"
+	DefaultAPIURL        = "https://api.keyway.sh"
+	DefaultDashboardURL  = "https://app.keyway.sh"
+	DefaultPostHogHost   = "https://eu.i.posthog.com"
+	DefaultGitHubAPIURL  = "https://api.github.com"
+	DefaultGitHubBaseURL = "https://github.com"
+	DefaultDocsURL       = "https://docs.keyway.sh"
 )
 
 // Blank by default - set via build or env
@@ -65,4 +66,46 @@ func IsCI() bool {
 // GetToken returns the KEYWAY_TOKEN from env (for CI use)
 func GetToken() string {
 	return os.Getenv("KEYWAY_TOKEN")
+}
+
+// GetGitHubURL returns the GitHub base URL from env or default
+func GetGitHubURL() string {
+	if url := os.Getenv("KEYWAY_GITHUB_URL"); url != "" {
+		return strings.TrimSuffix(url, "/")
+	}
+	return DefaultGitHubBaseURL
+}
+
+// GetGitHubAPIURL returns the GitHub API URL from env or default
+func GetGitHubAPIURL() string {
+	if url := os.Getenv("KEYWAY_GITHUB_API_URL"); url != "" {
+		return strings.TrimSuffix(url, "/")
+	}
+	// If KEYWAY_GITHUB_URL is set (GHE), derive API URL from it
+	if ghURL := os.Getenv("KEYWAY_GITHUB_URL"); ghURL != "" {
+		ghURL = strings.TrimSuffix(ghURL, "/")
+		// For GHE: https://github.example.com -> https://github.example.com/api/v3
+		return ghURL + "/api/v3"
+	}
+	return DefaultGitHubAPIURL
+}
+
+// GetGitHubBaseURL returns the GitHub base URL from env or default
+// Deprecated: Use GetGitHubURL instead
+func GetGitHubBaseURL() string {
+	return GetGitHubURL()
+}
+
+// GetDocsURL returns the docs URL from env or default
+func GetDocsURL() string {
+	if url := os.Getenv("KEYWAY_DOCS_URL"); url != "" {
+		return url
+	}
+	return DefaultDocsURL
+}
+
+// IsCustomAPIURL returns true if using a non-default API URL (self-hosted)
+func IsCustomAPIURL() bool {
+	apiURL := os.Getenv("KEYWAY_API_URL")
+	return apiURL != "" && apiURL != DefaultAPIURL
 }

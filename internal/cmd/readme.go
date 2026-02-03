@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/keywaysh/cli/internal/config"
 	"github.com/keywaysh/cli/internal/git"
 	"github.com/keywaysh/cli/internal/ui"
 	"github.com/spf13/cobra"
@@ -32,7 +33,8 @@ var readmeCmd = &cobra.Command{
 
 // GenerateBadge creates the markdown badge for a repository
 func GenerateBadge(repo string) string {
-	return fmt.Sprintf("[![Keyway Secrets](https://www.keyway.sh/badge.svg?repo=%s)](https://www.keyway.sh/vaults/%s)", repo, repo)
+	dashboardURL := config.GetDashboardURL()
+	return fmt.Sprintf("[![Keyway Secrets](%s/badge.svg?repo=%s)](%s/vaults/%s)", dashboardURL, repo, dashboardURL, repo)
 }
 
 // FindReadmePath looks for README.md in the given directory
@@ -85,8 +87,8 @@ func findLastBadgeEnd(line string) int {
 
 // InsertBadgeIntoReadme inserts the badge into README content
 func InsertBadgeIntoReadme(content, badge string) string {
-	// Check if badge already exists
-	if strings.Contains(content, "keyway.sh/badge.svg") {
+	// Check if badge already exists (check for both default and custom dashboard URLs)
+	if strings.Contains(content, "badge.svg?repo=") {
 		return content
 	}
 

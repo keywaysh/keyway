@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+
+	"github.com/keywaysh/cli/internal/config"
 )
 
 // DeviceStartResponse is the response from starting device login
@@ -80,7 +82,7 @@ func (c *Client) GetRepoIdsFromBackend(ctx context.Context, repoFullName string)
 // GetRepoIdsFromGitHub fetches repo IDs from GitHub public API
 // Only works for public repos (no auth required)
 func GetRepoIdsFromGitHub(ctx context.Context, owner, repo string) (*RepoIds, error) {
-	url := fmt.Sprintf("https://api.github.com/repos/%s/%s", owner, repo)
+	url := fmt.Sprintf("%s/repos/%s/%s", config.GetGitHubAPIURL(), owner, repo)
 
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {

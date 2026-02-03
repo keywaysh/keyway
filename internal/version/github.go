@@ -5,19 +5,28 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+
+	"github.com/keywaysh/cli/internal/config"
 )
 
 const (
-	githubReleasesURL = "https://api.github.com/repos/keywaysh/cli/releases/latest"
+	defaultGitHubReleasesURL = "https://api.github.com/repos/keywaysh/cli/releases/latest"
 )
 
 type githubRelease struct {
 	TagName string `json:"tag_name"`
 }
 
-// FetchLatestVersion fetches the latest version from GitHub Releases
+// FetchLatestVersion fetches the latest version from GitHub Releases.
+// Returns an error if using a custom (self-hosted) API URL, since update
+// checks only apply to the official Keyway distribution.
 func FetchLatestVersion(ctx context.Context) (string, error) {
-	req, err := http.NewRequestWithContext(ctx, "GET", githubReleasesURL, nil)
+	// Skip update checks for self-hosted instances
+	if config.IsCustomAPIURL() {
+		return "", fmt.Errorf("update checks disabled for self-hosted instances")
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "GET", defaultGitHubReleasesURL, nil)
 	if err != nil {
 		return "", err
 	}

@@ -1,6 +1,10 @@
 package version
 
-import "testing"
+import (
+	"context"
+	"os"
+	"testing"
+)
 
 func TestIsNewerVersion(t *testing.T) {
 	tests := []struct {
@@ -92,6 +96,9 @@ func TestParseVersion(t *testing.T) {
 }
 
 func TestGetUpdateCommand(t *testing.T) {
+	// Ensure default API URL for these tests
+	os.Unsetenv("KEYWAY_API_URL")
+
 	tests := []struct {
 		method   InstallMethod
 		expected string
@@ -109,5 +116,40 @@ func TestGetUpdateCommand(t *testing.T) {
 					tt.method, result, tt.expected)
 			}
 		})
+	}
+}
+
+func TestGetUpdateCommand_SelfHosted(t *testing.T) {
+	os.Setenv("KEYWAY_API_URL", "https://api.example.com")
+	defer os.Unsetenv("KEYWAY_API_URL")
+
+	methods := []InstallMethod{InstallMethodNPM, InstallMethodHomebrew, InstallMethodBinary}
+	for _, method := range methods {
+		result := GetUpdateCommand(method)
+		if result != "" {
+			t.Errorf("GetUpdateCommand(%q) with self-hosted = %q, want empty", method, result)
+		}
+	}
+}
+
+func TestCheckForUpdate_SelfHosted(t *testing.T) {
+	os.Setenv("KEYWAY_API_URL", "https://api.example.com")
+	defer os.Unsetenv("KEYWAY_API_URL")
+
+	ctx := context.Background()
+	result := CheckForUpdate(ctx, "1.0.0")
+	if result != nil {
+		t.Error("CheckForUpdate() should return nil for self-hosted instances")
+	}
+}
+
+func TestFetchLatestVersion_SelfHosted(t *testing.T) {
+	os.Setenv("KEYWAY_API_URL", "https://api.example.com")
+	defer os.Unsetenv("KEYWAY_API_URL")
+
+	ctx := context.Background()
+	_, err := FetchLatestVersion(ctx)
+	if err == nil {
+		t.Error("FetchLatestVersion() should return error for self-hosted instances")
 	}
 }

@@ -209,7 +209,7 @@ func printCustomHelp(cmd *cobra.Command) {
 
 	// Footer
 	fmt.Printf("  %s %s\n", dim("Run"), fmt.Sprintf("%s %s", cyan("keyway <command> --help"), dim("for details")))
-	fmt.Printf("  %s %s\n", dim("Docs:"), "https://docs.keyway.sh")
+	fmt.Printf("  %s %s\n", dim("Docs:"), config.GetDocsURL())
 
 	// Version
 	if cmd.Version != "" {
@@ -257,6 +257,11 @@ func Execute(ver string) error {
 }
 
 func displayUpdateNotice(info *version.UpdateInfo) {
+	// Skip update notice for self-hosted instances (no update command)
+	if info.UpdateCommand == "" {
+		return
+	}
+
 	yellow := color.New(color.FgYellow).SprintFunc()
 	fmt.Println()
 	fmt.Printf("  %s Update available: %s → %s\n",
