@@ -6,12 +6,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Keyway is a GitHub-native secrets management platform. It provides a simple way to sync team secrets using GitHub authentication - if you have repo access, you get secret access.
 
-This is a monorepo containing five packages:
+This is a monorepo containing these packages:
 - **keyway-backend**: Fastify 5 API with PostgreSQL, AES-256-GCM encryption, OAuth device flow
-- **keyway-cli**: npm-published CLI (`@keywaysh/cli`) using Commander.js
-- **keyway-site**: Next.js 15 marketing and dashboard frontend
+- **cli**: Go CLI (`@keywaysh/cli`) using Cobra, distributed via Homebrew and npm
+- **keyway-dashboard**: Next.js 15 authenticated dashboard (app.keyway.sh)
+- **keyway-landing**: Next.js 15 marketing site (keyway.sh)
 - **keyway-docs**: Docusaurus 3 documentation site (docs.keyway.sh)
 - **keyway-action**: GitHub Action for injecting secrets into CI workflows
+- **keyway-crypto**: Go gRPC microservice for AES-256-GCM encryption
+- **keyway-mcp**: MCP server for AI assistants to manage secrets
 
 ## Development Commands
 
@@ -27,23 +30,30 @@ pnpm run db:migrate   # Run migrations
 pnpm run validate     # Pre-push checks (type-check + build)
 ```
 
-### CLI (keyway-cli)
+### CLI (cli)
 ```bash
-cd keyway-cli
-pnpm install
-pnpm run dev          # Run via tsx
-pnpm run build        # Bundle with tsup
-pnpm run test         # Vitest
-pnpm run test:watch   # Watch mode
+cd cli
+make build            # Build binary
+make test             # Run tests
+make lint             # Run golangci-lint
 ```
 
-### Site (keyway-site)
+### Dashboard (keyway-dashboard)
 ```bash
-cd keyway-site
+cd keyway-dashboard
 pnpm install
-pnpm run dev          # Next.js dev server
-pnpm run build        # Production build
-pnpm run lint         # ESLint
+pnpm dev              # Next.js dev server
+pnpm build            # Production build
+pnpm lint             # ESLint
+```
+
+### Landing (keyway-landing)
+```bash
+cd keyway-landing
+pnpm install
+pnpm dev              # Next.js dev server
+pnpm build            # Production build
+pnpm lint             # ESLint
 ```
 
 ### Docs (keyway-docs)
@@ -66,20 +76,23 @@ pnpm run serve        # Serve built site locally
 - `utils/github.ts` - GitHub API client for repo access checks
 - `middleware/auth.ts` - JWT authentication middleware
 
-### CLI (`keyway-cli/src/`)
-- `cli.ts` - Commander.js entry point
-- `cmds/` - Command implementations (login, init, push, pull, doctor)
-- `core/doctor.ts` - Environment diagnostic checks
-- `utils/auth.ts` - Token storage via `conf`
-- `utils/api.ts` - Keyway API client
-- `utils/git.ts` - Git repo detection
+### CLI (`cli/internal/`)
+- `cmd/` - Cobra commands (login, init, push, pull, run, diff, scan, sync)
+- `api/` - Keyway API client
+- `auth/` - Token storage via keyring
+- `git/` - Git repository detection
+- `env/` - Env file parsing and diffing
+- `ui/` - Terminal UI helpers
 
-### Site (`keyway-site/app/`)
-- `(marketing)/` - Landing page and terms
-- `(app)/dashboard/` - User dashboard with vault management
+### Dashboard (`keyway-dashboard/app/`)
+- `(dashboard)/` - Authenticated dashboard routes
 - `auth/callback/` - OAuth callback handling
-- `badge.svg/route.ts` - SVG badge with PostHog analytics
 - `components/dashboard/` - Vault cards, secret rows, modals
+
+### Landing (`keyway-landing/app/`)
+- `(marketing)/` - Homepage, security, pricing
+- `articles/` - MDX blog posts
+- `badge.svg/` - Dynamic SVG badge
 
 ## Key Patterns
 
@@ -93,9 +106,11 @@ pnpm run serve        # Serve built site locally
 
 Backend requires: `DATABASE_URL`, `ENCRYPTION_KEY` (32-byte hex), `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`
 
-Site requires: `NEXT_PUBLIC_KEYWAY_AUTH_URL`, PostHog keys for analytics
+Dashboard/Landing require: `NEXT_PUBLIC_KEYWAY_API_URL`, PostHog keys for analytics
 
 CLI can use: `KEYWAY_API_URL` (defaults to production), `KEYWAY_DISABLE_TELEMETRY=1`
+
+Crypto requires: `ENCRYPTION_KEY` (32-byte hex)
 
 
 

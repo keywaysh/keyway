@@ -105,10 +105,14 @@ keyway/                    ← You are here (keyway-infra repo)
 ├── Caddyfile              ← HTTPS reverse proxy
 ├── .env                   ← Your local config (git-ignored)
 ├── setup.sh               ← Setup script
-├── keyway-backend/        ← Cloned repos (git-ignored)
-├── keyway-site/
-├── keyway-cli/
-└── keyway-crypto/
+├── keyway-backend/        ← Fastify API
+├── keyway-dashboard/      ← Next.js dashboard (app.keyway.sh)
+├── keyway-landing/        ← Next.js marketing site (keyway.sh)
+├── keyway-docs/           ← Docusaurus docs (docs.keyway.sh)
+├── cli/                   ← Go CLI
+├── keyway-crypto/         ← Go encryption microservice
+├── keyway-action/         ← GitHub Action
+└── keyway-mcp/            ← MCP server for AI
 ```
 
 Each `keyway-*` folder is an independent Git repo. Changes in those folders are committed to their respective repos, not to `keyway-infra`.

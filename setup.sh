@@ -1,6 +1,31 @@
 #!/bin/bash
 set -e
 
+# Parse arguments
+GITHUB_ORG="${GITHUB_ORG:-keywaysh}"
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --org|-o)
+            GITHUB_ORG="$2"
+            shift 2
+            ;;
+        --org=*)
+            GITHUB_ORG="${1#*=}"
+            shift
+            ;;
+        -*)
+            echo "Unknown option: $1"
+            echo "Usage: ./setup.sh [--org|-o <github-org>]"
+            exit 1
+            ;;
+        *)
+            # Positional argument fallback for backward compatibility
+            GITHUB_ORG="$1"
+            shift
+            ;;
+    esac
+done
+
 # Colors
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -43,11 +68,11 @@ for repo in "${REPOS[@]}"; do
         echo -e "  ${GREEN}✓${NC} $repo (already exists)"
     else
         echo -e "  ${YELLOW}→${NC} Cloning $repo..."
-        if git clone "git@github.com:keywaysh/$repo.git" 2>/dev/null; then
+        if git clone "git@github.com:$GITHUB_ORG/$repo.git" 2>/dev/null; then
             echo -e "  ${GREEN}✓${NC} $repo"
         else
             echo -e "  ${RED}✗${NC} Failed to clone $repo"
-            echo -e "    Try: ${BLUE}git clone git@github.com:keywaysh/$repo.git${NC}"
+            echo -e "    Try: ${BLUE}git clone git@github.com:$GITHUB_ORG/$repo.git${NC}"
             exit 1
         fi
     fi

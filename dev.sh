@@ -11,8 +11,8 @@ ROOT_DIR="$(dirname "$SCRIPT_DIR")"
 
 CRYPTO_DIR="$ROOT_DIR/keyway-crypto"
 BACKEND_DIR="$ROOT_DIR/keyway-backend"
-SITE_DIR="$ROOT_DIR/keyway-site"
-CLI_DIR="$ROOT_DIR/keyway-cli"
+SITE_DIR="$ROOT_DIR/keyway-landing"
+CLI_DIR="$ROOT_DIR/cli"
 ENV_FILE="$ROOT_DIR/.env"
 
 # Colors
@@ -76,8 +76,8 @@ install_deps() {
     fi
 
     if [ -d "$CLI_DIR" ]; then
-        echo -e "${GREEN}-> CLI${NC}"
-        (cd "$CLI_DIR" && pnpm install --silent)
+        echo -e "${GREEN}-> CLI (Go modules)${NC}"
+        (cd "$CLI_DIR" && go mod download)
     fi
 
     if [ -d "$CRYPTO_DIR" ]; then
@@ -169,7 +169,7 @@ show_help() {
     echo "  backend    Start backend only"
     echo "  site       Start site only"
     echo "  crypto     Start crypto service only"
-    echo "  cli        Start CLI watch mode"
+    echo "  cli        Build CLI binary"
     echo "  help       Show this help"
     echo ""
     echo "Environment:"
@@ -203,8 +203,8 @@ case "${1:-}" in
         (cd "$CRYPTO_DIR" && ENCRYPTION_KEY="$ENCRYPTION_KEY" go run .)
         ;;
     cli)
-        echo -e "${BLUE}Starting CLI watch mode...${NC}"
-        (cd "$CLI_DIR" && pnpm build:watch)
+        echo -e "${BLUE}Building CLI...${NC}"
+        (cd "$CLI_DIR" && go build -o keyway .)
         ;;
     help|--help|-h)
         show_help
