@@ -6,25 +6,7 @@
 [![Node.js](https://img.shields.io/badge/Node.js-22_LTS-green.svg)](https://nodejs.org/)
 [![Keyway Secrets](https://www.keyway.sh/badge.svg?repo=keywaysh/keyway-backend)](https://www.keyway.sh/vaults/keywaysh/keyway-backend)
 
-**Stop sharing secrets in Slack.** Keyway syncs `.env` files using GitHub repo permissions.
-
-## Quick Start
-
-```bash
-# Install CLI
-brew install keywaysh/tap/keyway
-
-# Login with GitHub
-keyway login
-
-# Push secrets from current repo
-keyway push
-
-# Pull on another machine
-keyway pull
-```
-
-> Full documentation at [docs.keyway.sh](https://docs.keyway.sh)
+**The API behind [Keyway](https://keyway.sh)** — GitHub-native secrets management.
 
 ## Architecture
 
@@ -568,5 +550,7 @@ MIT
 ## Support
 
 - **Docs**: https://docs.keyway.sh
+- **CLI**: https://github.com/keywaysh/cli
+- **MCP Server**: https://github.com/keywaysh/keyway-mcp
 - **Status**: https://status.keyway.sh
 - **Issues**: [GitHub Issues](https://github.com/keywaysh/keyway-backend/issues)
