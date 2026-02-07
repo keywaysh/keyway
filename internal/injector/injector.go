@@ -8,6 +8,8 @@ import (
 	"syscall"
 )
 
+// signals is defined in signals_unix.go and signals_windows.go
+
 // RunCommand executes a command with the provided secrets injected into the environment.
 // It handles signal forwarding and exit code propagation.
 func RunCommand(command string, args []string, secrets map[string]string) error {
@@ -33,8 +35,7 @@ func RunCommand(command string, args []string, secrets map[string]string) error 
 
 	// Handle signals
 	sigs := make(chan os.Signal, 1)
-	// Notify on all common signals
-	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
+	signal.Notify(sigs, signals...)
 
 	// Start the command
 	if err := cmd.Start(); err != nil {
