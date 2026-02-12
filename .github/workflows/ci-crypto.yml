@@ -1,0 +1,45 @@
+name: "CI: Crypto"
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "packages/crypto/**"
+      - "proto/**"
+      - ".github/workflows/ci-crypto.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "packages/crypto/**"
+      - "proto/**"
+      - ".github/workflows/ci-crypto.yml"
+
+defaults:
+  run:
+    working-directory: packages/crypto
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+
+      - name: Download dependencies
+        run: go mod download
+
+      - name: Run tests
+        run: go test -v -race -coverprofile=coverage.out ./...
+
+      - name: Show coverage
+        run: go tool cover -func=coverage.out | tail -1
+
+      - name: Vulnerability check
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          govulncheck ./... || echo "::warning::govulncheck found vulnerabilities — review output above"

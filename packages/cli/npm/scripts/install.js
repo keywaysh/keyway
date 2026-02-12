@@ -8,7 +8,7 @@ const os = require("os");
 const crypto = require("crypto");
 
 const VERSION = require("../package.json").version;
-const REPO = "keywaysh/cli";
+const REPO = "keywaysh/keyway";
 const BINARY_NAME = "keyway";
 
 const PLATFORMS = {
@@ -60,7 +60,7 @@ function fetch(url) {
 }
 
 async function downloadChecksum() {
-  const url = `https://github.com/${REPO}/releases/download/v${VERSION}/checksums.txt`;
+  const url = `https://github.com/${REPO}/releases/download/cli%2Fv${VERSION}/checksums.txt`;
   try {
     const data = await fetch(url);
     return data.toString();
@@ -149,7 +149,7 @@ async function install() {
   const isWindows = process.platform === "win32";
   const ext = isWindows ? "zip" : "tar.gz";
   const filename = `${BINARY_NAME}_${VERSION}_${target}.${ext}`;
-  const url = `https://github.com/${REPO}/releases/download/v${VERSION}/${filename}`;
+  const url = `https://github.com/${REPO}/releases/download/cli%2Fv${VERSION}/${filename}`;
 
   console.log(`Downloading keyway v${VERSION} for ${target}...`);
 

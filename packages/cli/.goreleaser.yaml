@@ -79,10 +79,10 @@ changelog:
 release:
   github:
     owner: keywaysh
-    name: cli
+    name: keyway
   draft: false
   prerelease: auto
-  name_template: "v{{.Version}}"
+  name_template: "cli/v{{.Version}}"
 
 brews:
   - name: keyway
