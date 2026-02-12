@@ -1,0 +1,5 @@
+packages:
+  - "packages/backend"
+  - "packages/dashboard"
+  - "packages/mcp"
+  - "packages/docs"

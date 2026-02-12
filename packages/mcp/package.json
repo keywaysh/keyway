@@ -25,11 +25,12 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/keywaysh/keyway-mcp.git"
+    "url": "git+https://github.com/keywaysh/keyway.git",
+    "directory": "packages/mcp"
   },
   "homepage": "https://keyway.sh",
   "bugs": {
-    "url": "https://github.com/keywaysh/keyway-mcp/issues"
+    "url": "https://github.com/keywaysh/keyway/issues"
   },
   "author": "Nicolas Ritouet <hello@keyway.sh>",
   "dependencies": {
@@ -52,12 +53,6 @@
   },
   "engines": {
     "node": ">=18.0.0"
-  },
-  "pnpm": {
-    "overrides": {
-      "qs": ">=6.14.1",
-      "hono": ">=4.11.4"
-    }
   },
   "keywords": [
     "mcp",

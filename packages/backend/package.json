@@ -22,12 +22,6 @@
     "deploy:check": "pnpm run type-check && pnpm run build",
     "prepare": "husky || true"
   },
-  "lint-staged": {
-    "src/**/*.ts": [
-      "eslint --fix",
-      "prettier --write"
-    ]
-  },
   "keywords": [
     "secrets",
     "github",
@@ -76,11 +70,5 @@
   },
   "engines": {
     "node": ">=22.0.0"
-  },
-  "pnpm": {
-    "overrides": {
-      "qs": ">=6.14.1",
-      "esbuild": ">=0.25.0"
-    }
   }
 }

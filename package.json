@@ -1,0 +1,31 @@
+{
+  "name": "keyway",
+  "version": "0.0.0",
+  "private": true,
+  "description": "GitHub-native secrets management platform",
+  "scripts": {
+    "build": "turbo run build",
+    "dev": "turbo run dev",
+    "lint": "turbo run lint",
+    "test": "turbo run test",
+    "type-check": "turbo run type-check",
+    "validate": "turbo run validate",
+    "format": "prettier --write \"packages/*/src/**/*.{ts,tsx}\"",
+    "format:check": "prettier --check \"packages/*/src/**/*.{ts,tsx}\""
+  },
+  "devDependencies": {
+    "prettier": "^3.7.4",
+    "turbo": "^2.5.4"
+  },
+  "packageManager": "pnpm@10.11.0",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "pnpm": {
+    "overrides": {
+      "qs": ">=6.14.1",
+      "esbuild": ">=0.25.0",
+      "hono": ">=4.11.4"
+    }
+  }
+}
