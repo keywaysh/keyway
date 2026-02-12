@@ -1,0 +1,5 @@
+Contact: mailto:security@keyway.sh
+Encryption: https://www.keyway.sh/.well-known/pgp.asc
+Preferred-Languages: en, fr
+Canonical: https://www.keyway.sh/.well-known/security.txt
+Policy: https://www.keyway.sh/security

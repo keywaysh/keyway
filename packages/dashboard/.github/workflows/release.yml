@@ -1,0 +1,61 @@
+name: Release
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get previous tag
+        id: previoustag
+        run: |
+          TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+
+      - name: Get next version
+        id: nextversion
+        run: |
+          PREV="${{ steps.previoustag.outputs.tag }}"
+          # Remove 'v' prefix
+          VERSION="${PREV#v}"
+          # Split into parts
+          IFS='.' read -r MAJOR MINOR PATCH <<< "$VERSION"
+          # Increment patch
+          PATCH=$((PATCH + 1))
+          NEXT="v${MAJOR}.${MINOR}.${PATCH}"
+          echo "version=$NEXT" >> $GITHUB_OUTPUT
+          echo "Next version: $NEXT"
+
+      - name: Check for changes since last tag
+        id: changes
+        run: |
+          PREV="${{ steps.previoustag.outputs.tag }}"
+          if [ "$PREV" = "v0.0.0" ]; then
+            echo "has_changes=true" >> $GITHUB_OUTPUT
+          else
+            CHANGES=$(git log ${PREV}..HEAD --oneline | wc -l)
+            if [ "$CHANGES" -gt 0 ]; then
+              echo "has_changes=true" >> $GITHUB_OUTPUT
+            else
+              echo "has_changes=false" >> $GITHUB_OUTPUT
+            fi
+          fi
+
+      - name: Create Release
+        if: steps.changes.outputs.has_changes == 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.nextversion.outputs.version }}
+          name: ${{ steps.nextversion.outputs.version }}
+          generate_release_notes: true
+          make_latest: true
