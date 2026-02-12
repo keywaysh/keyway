@@ -1,19 +1,18 @@
 #!/bin/bash
 
 # Keyway Dev Stack Launcher
-# Starts crypto service, backend, and frontend with hot reload
+# Starts crypto service, backend, and dashboard with hot reload
 
 set -e
 
-# Get the root directory (parent of keyway-infra)
+# All paths relative to this script (monorepo root)
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ROOT_DIR="$(dirname "$SCRIPT_DIR")"
 
-CRYPTO_DIR="$ROOT_DIR/keyway-crypto"
-BACKEND_DIR="$ROOT_DIR/keyway-backend"
-SITE_DIR="$ROOT_DIR/keyway-landing"
-CLI_DIR="$ROOT_DIR/cli"
-ENV_FILE="$ROOT_DIR/.env"
+CRYPTO_DIR="$SCRIPT_DIR/packages/crypto"
+BACKEND_DIR="$SCRIPT_DIR/packages/backend"
+DASHBOARD_DIR="$SCRIPT_DIR/packages/dashboard"
+CLI_DIR="$SCRIPT_DIR/packages/cli"
+ENV_FILE="$SCRIPT_DIR/.env"
 
 # Colors
 RED='\033[0;31m'
@@ -65,15 +64,8 @@ load_env() {
 install_deps() {
     echo -e "${YELLOW}Installing dependencies...${NC}"
 
-    if [ -d "$BACKEND_DIR" ]; then
-        echo -e "${GREEN}-> Backend${NC}"
-        (cd "$BACKEND_DIR" && pnpm install --silent)
-    fi
-
-    if [ -d "$SITE_DIR" ]; then
-        echo -e "${GREEN}-> Site${NC}"
-        (cd "$SITE_DIR" && pnpm install --silent)
-    fi
+    echo -e "${GREEN}-> TypeScript packages (pnpm)${NC}"
+    (cd "$SCRIPT_DIR" && pnpm install --silent)
 
     if [ -d "$CLI_DIR" ]; then
         echo -e "${GREEN}-> CLI (Go modules)${NC}"
@@ -117,11 +109,11 @@ start_services() {
         sleep 2  # Wait for backend to start
     fi
 
-    # Start frontend
-    if [ -d "$SITE_DIR" ]; then
-        echo -e "${GREEN}[Site]${NC} Starting on http://localhost:3001"
-        (cd "$SITE_DIR" && PORT=3001 pnpm dev) &
-        SITE_PID=$!
+    # Start dashboard
+    if [ -d "$DASHBOARD_DIR" ]; then
+        echo -e "${GREEN}[Dashboard]${NC} Starting on http://localhost:3001"
+        (cd "$DASHBOARD_DIR" && PORT=3001 pnpm dev) &
+        DASHBOARD_PID=$!
     fi
 
     echo ""
@@ -129,9 +121,9 @@ start_services() {
     echo -e "${GREEN}  All services running!${NC}"
     echo -e "${GREEN}================================${NC}"
     echo ""
-    echo -e "  Crypto:  ${CYAN}localhost:50051${NC} (gRPC)"
-    echo -e "  Backend: ${BLUE}http://localhost:3000${NC}"
-    echo -e "  Site:    ${GREEN}http://localhost:3001${NC}"
+    echo -e "  Crypto:    ${CYAN}localhost:50051${NC} (gRPC)"
+    echo -e "  Backend:   ${BLUE}http://localhost:3000${NC}"
+    echo -e "  Dashboard: ${GREEN}http://localhost:3001${NC}"
     echo ""
     echo -e "${YELLOW}Press Ctrl+C to stop all services${NC}"
     echo ""
@@ -143,38 +135,32 @@ start_services() {
 start_docker() {
     echo -e "${YELLOW}Starting with Docker Compose...${NC}"
 
-    # Check for docker-compose
-    if ! command -v docker-compose &> /dev/null && ! docker compose version &> /dev/null; then
-        echo -e "${RED}Error: docker-compose is not installed${NC}"
+    # Check for docker compose
+    if ! docker compose version &> /dev/null; then
+        echo -e "${RED}Error: docker compose is not installed${NC}"
         exit 1
     fi
 
     cd "$SCRIPT_DIR"
-
-    # Use docker compose (v2) if available, fall back to docker-compose
-    if docker compose version &> /dev/null; then
-        docker compose up --build
-    else
-        docker-compose up --build
-    fi
+    docker compose up --build
 }
 
 show_help() {
     echo "Usage: ./dev.sh [command]"
     echo ""
     echo "Commands:"
-    echo "  (none)     Start all services (crypto, backend, site)"
+    echo "  (none)     Start all services (crypto, backend, dashboard)"
     echo "  install    Install dependencies only"
     echo "  docker     Start with Docker Compose"
     echo "  backend    Start backend only"
-    echo "  site       Start site only"
+    echo "  dashboard  Start dashboard only"
     echo "  crypto     Start crypto service only"
     echo "  cli        Build CLI binary"
     echo "  help       Show this help"
     echo ""
     echo "Environment:"
     echo "  Loads variables from $ENV_FILE"
-    echo "  Required: ENCRYPTION_KEY, JWT_SECRET, GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET"
+    echo "  Required: ENCRYPTION_KEY, JWT_SECRET, GITHUB_APP_CLIENT_ID, GITHUB_APP_CLIENT_SECRET"
 }
 
 # Main
@@ -194,9 +180,9 @@ case "${1:-}" in
         echo -e "${BLUE}Starting backend only...${NC}"
         (cd "$BACKEND_DIR" && pnpm dev)
         ;;
-    site)
-        echo -e "${GREEN}Starting site only...${NC}"
-        (cd "$SITE_DIR" && pnpm dev)
+    dashboard)
+        echo -e "${GREEN}Starting dashboard only...${NC}"
+        (cd "$DASHBOARD_DIR" && pnpm dev)
         ;;
     crypto)
         echo -e "${CYAN}Starting crypto service only...${NC}"

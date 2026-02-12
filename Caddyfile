@@ -1,9 +1,9 @@
-# Landing page (marketing)
+# Root domain → redirect to dashboard
 keyway.local {
 	tls /etc/certs/local.pem /etc/certs/local-key.pem
 
 	handle {
-		reverse_proxy landing:3000
+		redir https://app.keyway.local{uri} permanent
 	}
 }
 

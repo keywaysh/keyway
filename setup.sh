@@ -1,31 +1,6 @@
 #!/bin/bash
 set -e
 
-# Parse arguments
-GITHUB_ORG="${GITHUB_ORG:-keywaysh}"
-while [[ $# -gt 0 ]]; do
-    case "$1" in
-        --org|-o)
-            GITHUB_ORG="$2"
-            shift 2
-            ;;
-        --org=*)
-            GITHUB_ORG="${1#*=}"
-            shift
-            ;;
-        -*)
-            echo "Unknown option: $1"
-            echo "Usage: ./setup.sh [--org|-o <github-org>]"
-            exit 1
-            ;;
-        *)
-            # Positional argument fallback for backward compatibility
-            GITHUB_ORG="$1"
-            shift
-            ;;
-    esac
-done
-
 # Colors
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -41,45 +16,15 @@ echo " | . \  __/ |_| |\ V  V / (_| | |_| |"
 echo " |_|\_\___|\__, | \_/\_/ \__,_|\__, |"
 echo "           |___/               |___/ "
 echo -e "${NC}"
-echo "Local Development Setup"
+echo "Setup"
 echo "========================"
 echo ""
 
-# Ensure we're in the keyway-infra directory
+# Ensure we're in the project root
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
-echo -e "${BLUE}Step 1: Cloning repositories...${NC}"
-echo ""
-
-REPOS=(
-    "keyway-backend"
-    "keyway-dashboard"
-    "keyway-landing"
-    "keyway-docs"
-    "cli"
-    "keyway-crypto"
-    "keyway-action"
-    "keyway-mcp"
-)
-
-for repo in "${REPOS[@]}"; do
-    if [ -d "$repo" ]; then
-        echo -e "  ${GREEN}✓${NC} $repo (already exists)"
-    else
-        echo -e "  ${YELLOW}→${NC} Cloning $repo..."
-        if git clone "git@github.com:$GITHUB_ORG/$repo.git" 2>/dev/null; then
-            echo -e "  ${GREEN}✓${NC} $repo"
-        else
-            echo -e "  ${RED}✗${NC} Failed to clone $repo"
-            echo -e "    Try: ${BLUE}git clone git@github.com:$GITHUB_ORG/$repo.git${NC}"
-            exit 1
-        fi
-    fi
-done
-
-echo ""
-echo -e "${BLUE}Step 2: Pulling secrets with Keyway...${NC}"
+echo -e "${BLUE}Step 1: Pulling secrets with Keyway...${NC}"
 echo ""
 
 KEYWAY_SUCCESS=false
@@ -99,22 +44,10 @@ fi
 # Try pulling secrets from Keyway
 if [ -n "$KEYWAY_CMD" ]; then
     echo ""
-    echo -e "  ${YELLOW}→${NC} Pulling secrets for keyway-infra..."
+    echo -e "  ${YELLOW}→${NC} Pulling secrets..."
     if $KEYWAY_CMD pull --yes --file .env 2>/dev/null; then
-        echo -e "  ${GREEN}✓${NC} keyway-infra"
+        echo -e "  ${GREEN}✓${NC} Secrets pulled"
         KEYWAY_SUCCESS=true
-
-        # Pull secrets for each sub-repo
-        for repo in "${REPOS[@]}"; do
-            if [ -d "$repo" ]; then
-                echo -e "  ${YELLOW}→${NC} Pulling secrets for $repo..."
-                if (cd "$repo" && $KEYWAY_CMD pull --yes --file .env 2>/dev/null); then
-                    echo -e "  ${GREEN}✓${NC} $repo"
-                else
-                    echo -e "  ${YELLOW}!${NC} $repo (no vault or no access)"
-                fi
-            fi
-        done
     else
         echo -e "  ${YELLOW}!${NC} Could not pull secrets"
         echo ""
@@ -122,13 +55,12 @@ if [ -n "$KEYWAY_CMD" ]; then
     fi
 fi
 
-
 # Fallback to manual setup if Keyway failed
 if [ "$KEYWAY_SUCCESS" = false ]; then
     echo ""
     echo -e "${YELLOW}Falling back to manual setup...${NC}"
     echo ""
-    echo -e "${BLUE}Step 3: Creating .env file...${NC}"
+    echo -e "${BLUE}Step 2: Creating .env file...${NC}"
     echo ""
 
     if [ -f ".env" ]; then
@@ -139,7 +71,7 @@ if [ "$KEYWAY_SUCCESS" = false ]; then
     fi
 
     echo ""
-    echo -e "${BLUE}Step 4: Generating secrets...${NC}"
+    echo -e "${BLUE}Step 3: Generating secrets...${NC}"
     echo ""
 
     # Generate ENCRYPTION_KEY if empty
@@ -159,7 +91,7 @@ if [ "$KEYWAY_SUCCESS" = false ]; then
     fi
 
     echo ""
-    echo -e "${BLUE}Step 5: Checking GitHub App configuration...${NC}"
+    echo -e "${BLUE}Step 4: Checking GitHub App configuration...${NC}"
     echo ""
 
     # Check if .env has required GitHub values
@@ -255,12 +187,11 @@ echo "Start the stack:"
 echo -e "   ${BLUE}docker compose up --build${NC}"
 echo ""
 echo "Access:"
-echo "   • Landing:   https://keyway.local"
 echo "   • Dashboard: https://app.keyway.local"
 echo "   • API:       https://api.keyway.local"
 echo ""
 echo "Use local CLI with local API:"
-echo -e "   ${BLUE}KEYWAY_API_URL=https://api.keyway.local pnpm --dir cli dev <command>${NC}"
+echo -e "   ${BLUE}KEYWAY_API_URL=https://api.keyway.local keyway <command>${NC}"
 echo ""
 echo -e "${YELLOW}GitHub App Configuration:${NC}"
 echo "   Callback URL: https://api.keyway.local/v1/auth/callback"

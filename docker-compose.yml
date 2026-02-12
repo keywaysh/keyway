@@ -16,7 +16,7 @@ services:
       retries: 5
 
   crypto:
-    build: ./keyway-crypto
+    build: ./packages/crypto
     environment:
       - ENCRYPTION_KEY=${ENCRYPTION_KEY}
       - GRPC_PORT=${GRPC_PORT:-50051}
@@ -28,7 +28,7 @@ services:
       start_period: 5s
 
   backend:
-    build: ./keyway-backend
+    build: ./packages/backend
     environment:
       - PORT=8080
       - NODE_ENV=production
@@ -66,7 +66,7 @@ services:
 
   dashboard:
     build:
-      context: ./keyway-dashboard
+      context: ./packages/dashboard
       args:
         - NEXT_PUBLIC_KEYWAY_API_URL=https://api.${DOMAIN:-keyway.sh}
         - NEXT_PUBLIC_POSTHOG_KEY=${NEXT_PUBLIC_POSTHOG_KEY:-}
@@ -76,17 +76,6 @@ services:
         - NEXT_PUBLIC_DISABLE_IMAGE_OPTIMIZATION=true
     depends_on:
       - backend
-
-  landing:
-    build:
-      context: ./keyway-landing
-      args:
-        - NEXT_PUBLIC_DASHBOARD_URL=https://app.${DOMAIN:-keyway.sh}
-        - NEXT_PUBLIC_POSTHOG_KEY=${NEXT_PUBLIC_POSTHOG_KEY:-}
-        - NEXT_PUBLIC_POSTHOG_HOST=${NEXT_PUBLIC_POSTHOG_HOST:-}
-        - NEXT_PUBLIC_SENTRY_DSN=${NEXT_PUBLIC_SENTRY_DSN:-}
-        - NEXT_PUBLIC_CRISP_WEBSITE_ID=${NEXT_PUBLIC_CRISP_WEBSITE_ID:-}
-        - NEXT_PUBLIC_DISABLE_IMAGE_OPTIMIZATION=true
 
   caddy:
     image: caddy:2-alpine
@@ -101,7 +90,6 @@ services:
       - caddy_data:/data
       - caddy_config:/config
     depends_on:
-      - landing
       - dashboard
       - backend
 
