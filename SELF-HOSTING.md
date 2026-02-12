@@ -12,31 +12,29 @@ This guide covers deploying Keyway on your own infrastructure using Docker Compo
 ## Quick Start
 
 ```bash
-# 1. Clone the infra repo
-git clone https://github.com/keywaysh/keyway-infra.git
-cd keyway-infra
+# 1. Clone the repo
+git clone https://github.com/keywaysh/keyway.git
+cd keyway
 
-# 2. Clone all sub-repos
-./setup.sh
-
-# 3. Configure
+# 2. Configure
 cp .env.example .env
 # Edit .env - fill in DOMAIN, ENCRYPTION_KEY, JWT_SECRET, and GitHub App values
 
-# 4. Deploy
+# 3. Deploy
 docker compose up --build -d
 ```
 
 Your instance will be available at:
-- **Landing:** `https://your-domain.com`
 - **Dashboard:** `https://app.your-domain.com`
 - **API:** `https://api.your-domain.com`
+
+The root domain (`https://your-domain.com`) redirects to the dashboard.
 
 ---
 
 ## Step 1: DNS Setup
 
-Create three DNS A records pointing to your server:
+Create DNS A records pointing to your server:
 
 | Record | Type | Value |
 |--------|------|-------|
@@ -123,15 +121,13 @@ By default, all URLs are derived from `DOMAIN`:
 
 | Service | URL |
 |---------|-----|
-| Landing | `https://<DOMAIN>` |
 | Dashboard | `https://app.<DOMAIN>` |
 | API | `https://api.<DOMAIN>` |
 
 Override individual URLs if needed:
 ```bash
-FRONTEND_URL=https://custom-landing.example.com
 DASHBOARD_URL=https://custom-dashboard.example.com
-ALLOWED_ORIGINS=https://custom-landing.example.com,https://custom-dashboard.example.com
+ALLOWED_ORIGINS=https://custom-dashboard.example.com
 ```
 
 ## Step 4: Deploy
@@ -148,7 +144,6 @@ This starts all services:
 | **crypto** | AES-256-GCM encryption gRPC service | 50051 |
 | **backend** | Fastify API | 8080 |
 | **dashboard** | Next.js dashboard | 3000 |
-| **landing** | Next.js marketing site | 3000 |
 | **caddy** | Reverse proxy with auto-HTTPS | 80, 443 |
 
 Database migrations run automatically on backend startup.
@@ -232,7 +227,7 @@ Usage metrics. Never tracks secret values.
 POSTHOG_API_KEY=phc_...
 POSTHOG_HOST=https://app.posthog.com
 
-# Client-side (dashboard/landing build args)
+# Client-side (dashboard build args)
 NEXT_PUBLIC_POSTHOG_KEY=phc_...
 NEXT_PUBLIC_POSTHOG_HOST=https://app.posthog.com
 ```
@@ -322,15 +317,15 @@ CADDYFILE=./Caddyfile docker compose up --build
 ```
 
 This gives you:
-- `https://keyway.local` (landing)
 - `https://app.keyway.local` (dashboard)
 - `https://api.keyway.local` (API)
 
 Alternatively, run services directly without Docker:
 ```bash
-./dev.sh          # Starts crypto, backend, and landing
-./dev.sh backend  # Backend only
-./dev.sh docker   # Via Docker Compose
+./dev.sh              # Starts crypto, backend, and dashboard
+./dev.sh backend      # Backend only
+./dev.sh dashboard    # Dashboard only
+./dev.sh docker       # Via Docker Compose
 ```
 
 ---
@@ -338,14 +333,7 @@ Alternatively, run services directly without Docker:
 ## Upgrading
 
 ```bash
-# Pull latest changes
 git pull
-cd keyway-backend && git pull && cd ..
-cd keyway-dashboard && git pull && cd ..
-cd keyway-landing && git pull && cd ..
-cd keyway-crypto && git pull && cd ..
-
-# Rebuild and restart
 docker compose up --build -d
 ```
 
@@ -362,19 +350,19 @@ Database migrations run automatically on backend startup.
                     │ proxy)   │
                     └────┬─────┘
                          │
-          ┌──────────────┼──────────────┐
-          │              │              │
-    ┌─────▼──────┐ ┌─────▼──────┐ ┌─────▼──────┐
-    │  Landing   │ │ Dashboard  │ │  Backend   │
-    │ (Next.js)  │ │ (Next.js)  │ │ (Fastify)  │
-    │  :3000     │ │  :3000     │ │  :8080     │
-    └────────────┘ └────────────┘ └──┬───┬─────┘
-                                     │   │
-                                ┌────▼┐ ┌▼────────┐
-                                │ DB  │ │ Crypto   │
-                                │(PG) │ │ (gRPC)   │
-                                │:5432│ │ :50051   │
-                                └─────┘ └──────────┘
+               ┌─────────┴─────────┐
+               │                   │
+         ┌─────▼──────┐     ┌─────▼──────┐
+         │ Dashboard  │     │  Backend   │
+         │ (Next.js)  │     │ (Fastify)  │
+         │  :3000     │     │  :8080     │
+         └────────────┘     └──┬───┬─────┘
+                                │   │
+                           ┌────▼┐ ┌▼────────┐
+                           │ DB  │ │ Crypto   │
+                           │(PG) │ │ (gRPC)   │
+                           │:5432│ │ :50051   │
+                           └─────┘ └──────────┘
 ```
 
 - **Caddy** handles TLS termination and reverse proxying

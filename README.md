@@ -1,25 +1,92 @@
-# Keyway Development Environment
+# Keyway
 
-[![Keyway Secrets](https://www.keyway.sh/badge.svg?repo=keywaysh/keyway-infra)](https://www.keyway.sh/vaults/keywaysh/keyway-infra)
+[![Keyway Secrets](https://www.keyway.sh/badge.svg?repo=keywaysh/keyway)](https://www.keyway.sh/vaults/keywaysh/keyway)
 
-Run the full Keyway stack locally with Docker.
+GitHub-native secrets management. If you have repo access, you get secret access.
 
 ## Quick Start
 
 ```bash
-# Clone and setup
-git clone git@github.com:keywaysh/keyway-infra.git keyway
+git clone git@github.com:keywaysh/keyway.git
 cd keyway
 ./setup.sh
-
-# Configure .env (see instructions below)
 nano .env
-
-# Start
 docker compose up --build
 ```
 
-That's it! Access the dashboard at **https://localhost**
+Dashboard: **https://app.keyway.local** | API: **https://api.keyway.local**
+
+> See [SELF-HOSTING.md](SELF-HOSTING.md) for production deployment.
+
+---
+
+## Project Structure
+
+```
+keyway/
+├── packages/
+│   ├── backend/       Fastify 5 API (TypeScript)
+│   ├── dashboard/     Next.js 15 dashboard (TypeScript)
+│   ├── crypto/        AES-256-GCM gRPC service (Go)
+│   ├── cli/           CLI tool (Go)
+│   ├── mcp/           MCP server for AI assistants (TypeScript)
+│   └── docs/          Docusaurus documentation (TypeScript)
+├── proto/             Shared protobuf definitions
+├── docker-compose.yml Self-hosting orchestration
+├── Caddyfile          Local dev reverse proxy (mkcert)
+├── Caddyfile.production  Production reverse proxy (Let's Encrypt)
+├── setup.sh           Local dev setup (secrets, hosts, certs)
+├── dev.sh             Dev server launcher (hot reload)
+├── turbo.json         Turborepo task config
+└── pnpm-workspace.yaml
+```
+
+---
+
+## Development
+
+### Prerequisites
+
+- [Node.js](https://nodejs.org/) >= 20
+- [pnpm](https://pnpm.io/) >= 10
+- [Go](https://go.dev/) >= 1.24
+- [Docker](https://www.docker.com/) (for self-hosting / full stack)
+
+### Install & Build
+
+```bash
+pnpm install              # Install all TypeScript dependencies
+pnpm build                # Build all TypeScript packages (via Turborepo)
+
+cd packages/cli && make build      # Build CLI binary
+cd packages/crypto && make build   # Build crypto service
+```
+
+### Dev Server (without Docker)
+
+```bash
+./dev.sh                  # Start crypto + backend + dashboard with hot reload
+./dev.sh backend          # Backend only
+./dev.sh dashboard        # Dashboard only
+./dev.sh crypto           # Crypto gRPC only
+```
+
+### Dev Server (with Docker)
+
+```bash
+docker compose up --build
+```
+
+### Per-Package Commands
+
+| Package | Dev | Build | Test | Lint |
+|---------|-----|-------|------|------|
+| backend | `pnpm --filter keyway-api dev` | `pnpm --filter keyway-api build` | `pnpm --filter keyway-api test` | `pnpm --filter keyway-api lint` |
+| dashboard | `pnpm --filter keyway-dashboard dev` | `pnpm --filter keyway-dashboard build` | `pnpm --filter keyway-dashboard test` | `pnpm --filter keyway-dashboard lint` |
+| mcp | `pnpm --filter @keywaysh/mcp dev` | `pnpm --filter @keywaysh/mcp build` | `pnpm --filter @keywaysh/mcp test` | `pnpm --filter @keywaysh/mcp lint` |
+| docs | `pnpm --filter keyway-docs start` | `pnpm --filter keyway-docs build` | - | - |
+| cli | `cd packages/cli && make build` | `cd packages/cli && make build` | `cd packages/cli && make test` | `cd packages/cli && make lint` |
+| crypto | `cd packages/crypto && go run .` | `cd packages/crypto && go build .` | `cd packages/crypto && go test ./...` | - |
 
 ---
 
@@ -40,19 +107,17 @@ Go to **https://github.com/settings/apps/new**
 |---------|-------|
 | App name | `keyway-dev` (must be unique) |
 | Homepage URL | `https://localhost` |
-| Callback URL | `https://localhost/auth/callback` |
+| Callback URL | `https://api.keyway.local/v1/auth/callback` |
 | Webhook | Uncheck "Active" (not needed locally) |
-| Permissions | Repository metadata → Read-only |
+| Permissions | Repository metadata: Read-only |
 
 After creating:
 1. Copy **App ID** and **Client ID**
 2. Generate a **Client secret**
-3. Generate a **Private key** (.pem file)
-
-Convert the private key to a single line:
-```bash
-awk 'NF {sub(/\r/, ""); printf "%s\\n",$0;}' your-app.pem
-```
+3. Generate a **Private key** (.pem file), convert to single line:
+   ```bash
+   awk 'NF {sub(/\r/, ""); printf "%s\\n",$0;}' your-app.pem
+   ```
 
 ### 3. Fill in .env
 
@@ -68,72 +133,24 @@ GITHUB_APP_NAME=keyway-dev
 
 ---
 
-## Usage
+## Docker Compose
 
 ```bash
-# Start (foreground)
-docker compose up --build
-
-# Start (background)
-docker compose up -d --build
-
-# View logs
-docker compose logs -f backend
-
-# Rebuild one service
-docker compose up -d --build site
-
-# Stop
-docker compose down
-
-# Full reset (wipes database)
-docker compose down -v
-
-# Access database
-docker compose exec db psql -U keyway -d keyway
+docker compose up --build         # Start (foreground)
+docker compose up -d --build      # Start (background)
+docker compose logs -f backend    # View logs
+docker compose up -d --build dashboard  # Rebuild one service
+docker compose down               # Stop
+docker compose down -v            # Full reset (wipes database)
+docker compose exec db psql -U keyway -d keyway  # Access database
 ```
-
----
-
-## Directory Structure
-
-After running `./setup.sh`:
-
-```
-keyway/                    ← You are here (keyway-infra repo)
-├── docker-compose.yml     ← Docker orchestration
-├── Caddyfile              ← HTTPS reverse proxy
-├── .env                   ← Your local config (git-ignored)
-├── setup.sh               ← Setup script
-├── keyway-backend/        ← Fastify API
-├── keyway-dashboard/      ← Next.js dashboard (app.keyway.sh)
-├── keyway-landing/        ← Next.js marketing site (keyway.sh)
-├── keyway-docs/           ← Docusaurus docs (docs.keyway.sh)
-├── cli/                   ← Go CLI
-├── keyway-crypto/         ← Go encryption microservice
-├── keyway-action/         ← GitHub Action
-└── keyway-mcp/            ← MCP server for AI
-```
-
-Each `keyway-*` folder is an independent Git repo. Changes in those folders are committed to their respective repos, not to `keyway-infra`.
 
 ---
 
 ## Troubleshooting
 
-### Certificate warning
-Expected. Caddy uses self-signed certs. Click "Advanced" → "Proceed".
+**Certificate warning** — Expected with mkcert. Click "Advanced" then "Proceed".
 
-### 401 errors
-Clear the `keyway_session` cookie for localhost.
+**401 errors** — Clear the `keyway_session` cookie for keyway.local.
 
-### Images not loading
-```bash
-docker compose up -d --build site
-```
-
-### Port already in use
-```bash
-docker compose down
-lsof -i :443  # Find what's using the port
-```
+**Port already in use** — `docker compose down && lsof -i :443`

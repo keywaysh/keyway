@@ -4,79 +4,103 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Keyway is a GitHub-native secrets management platform. It provides a simple way to sync team secrets using GitHub authentication - if you have repo access, you get secret access.
+Keyway is a GitHub-native secrets management platform. If you have repo access, you get secret access.
 
-This is a monorepo containing these packages:
-- **keyway-backend**: Fastify 5 API with PostgreSQL, AES-256-GCM encryption, OAuth device flow
-- **cli**: Go CLI (`@keywaysh/cli`) using Cobra, distributed via Homebrew and npm
-- **keyway-dashboard**: Next.js 15 authenticated dashboard (app.keyway.sh)
-- **keyway-landing**: Next.js 15 marketing site (keyway.sh)
-- **keyway-docs**: Docusaurus 3 documentation site (docs.keyway.sh)
-- **keyway-action**: GitHub Action for injecting secrets into CI workflows
-- **keyway-crypto**: Go gRPC microservice for AES-256-GCM encryption
-- **keyway-mcp**: MCP server for AI assistants to manage secrets
+This is a **monorepo** using pnpm workspaces + Turborepo, containing:
+
+| Package | Path | Language | Framework |
+|---------|------|----------|-----------|
+| Backend API | `packages/backend/` | TypeScript | Fastify 5, Drizzle ORM |
+| Dashboard | `packages/dashboard/` | TypeScript | Next.js 15 |
+| Crypto | `packages/crypto/` | Go 1.24 | gRPC |
+| CLI | `packages/cli/` | Go 1.24 | Cobra |
+| MCP Server | `packages/mcp/` | TypeScript | MCP SDK |
+| Docs | `packages/docs/` | TypeScript | Docusaurus 3 |
+
+**Separate repos** (not in this monorepo): `keyway-action` (GitHub Action), `keyway-admin` (private), `keyway-landing` (private).
+
+**Deployment**:
+- **Production SaaS**: Vercel (dashboard) + Railway (backend, crypto, db)
+- **Self-hosting**: Docker Compose + Caddy (this repo's docker-compose.yml)
 
 ## Development Commands
 
-### Backend (keyway-backend)
+### Root (Turborepo)
 ```bash
-cd keyway-backend
-pnpm install
-pnpm run dev          # Dev server with tsx watch
-pnpm run build        # TypeScript build
-pnpm run type-check   # Type checking only
-pnpm run db:generate  # Generate Drizzle migrations
-pnpm run db:migrate   # Run migrations
-pnpm run validate     # Pre-push checks (type-check + build)
+pnpm install          # Install all TS dependencies
+pnpm build            # Build all TS packages
+pnpm test             # Run all tests
+pnpm lint             # Lint all packages
+pnpm dev              # Dev servers (all TS packages)
 ```
 
-### CLI (cli)
+### Backend (`packages/backend/`)
 ```bash
-cd cli
+pnpm --filter keyway-api dev          # Dev server with tsx watch
+pnpm --filter keyway-api build        # TypeScript build
+pnpm --filter keyway-api type-check   # Type checking only
+pnpm --filter keyway-api test         # Run tests
+pnpm --filter keyway-api db:generate  # Generate Drizzle migrations
+pnpm --filter keyway-api db:migrate   # Run migrations
+pnpm --filter keyway-api validate     # Pre-push checks
+```
+
+### CLI (`packages/cli/`)
+```bash
+cd packages/cli
 make build            # Build binary
 make test             # Run tests
 make lint             # Run golangci-lint
 ```
 
-### Dashboard (keyway-dashboard)
+### Dashboard (`packages/dashboard/`)
 ```bash
-cd keyway-dashboard
-pnpm install
-pnpm dev              # Next.js dev server
-pnpm build            # Production build
-pnpm lint             # ESLint
+pnpm --filter keyway-dashboard dev    # Next.js dev server
+pnpm --filter keyway-dashboard build  # Production build
+pnpm --filter keyway-dashboard lint   # ESLint
+pnpm --filter keyway-dashboard test   # Run tests
 ```
 
-### Landing (keyway-landing)
+### Crypto (`packages/crypto/`)
 ```bash
-cd keyway-landing
-pnpm install
-pnpm dev              # Next.js dev server
-pnpm build            # Production build
-pnpm lint             # ESLint
+cd packages/crypto
+go run .              # Run dev server
+go test ./...         # Run tests
+go build .            # Build binary
 ```
 
-### Docs (keyway-docs)
+### MCP (`packages/mcp/`)
 ```bash
-cd keyway-docs
-pnpm install
-pnpm start            # Dev server at localhost:3000
-pnpm run build        # Production build
-pnpm run serve        # Serve built site locally
+pnpm --filter @keywaysh/mcp dev      # Dev server
+pnpm --filter @keywaysh/mcp build    # Build (tsup)
+pnpm --filter @keywaysh/mcp test     # Run tests
+```
+
+### Docs (`packages/docs/`)
+```bash
+pnpm --filter keyway-docs start      # Dev server at localhost:3000
+pnpm --filter keyway-docs build      # Production build
+```
+
+### Docker (self-hosting)
+```bash
+docker compose up --build             # Full stack
+./dev.sh                              # Dev servers without Docker
+./setup.sh                            # First-time setup (secrets, hosts, certs)
 ```
 
 ## Architecture
 
-### Backend (`keyway-backend/src/`)
+### Backend (`packages/backend/src/`)
 - `index.ts` - Fastify server entry point
-- `routes/auth.ts` - OAuth device flow and PAT validation endpoints
-- `routes/vaults.ts` - Vault init, push, pull operations
+- `api/v1/routes/` - Route handlers (auth, vaults, secrets, billing, integrations)
+- `services/` - Business logic (secret, vault, usage services)
 - `db/schema.ts` - Drizzle ORM schema (users, vaults, secrets tables)
 - `utils/encryption.ts` - AES-256-GCM encryption/decryption
 - `utils/github.ts` - GitHub API client for repo access checks
 - `middleware/auth.ts` - JWT authentication middleware
 
-### CLI (`cli/internal/`)
+### CLI (`packages/cli/internal/`)
 - `cmd/` - Cobra commands (login, init, push, pull, run, diff, scan, sync)
 - `api/` - Keyway API client
 - `auth/` - Token storage via keyring
@@ -84,33 +108,35 @@ pnpm run serve        # Serve built site locally
 - `env/` - Env file parsing and diffing
 - `ui/` - Terminal UI helpers
 
-### Dashboard (`keyway-dashboard/app/`)
+### Dashboard (`packages/dashboard/app/`)
 - `(dashboard)/` - Authenticated dashboard routes
 - `auth/callback/` - OAuth callback handling
 - `components/dashboard/` - Vault cards, secret rows, modals
-
-### Landing (`keyway-landing/app/`)
-- `(marketing)/` - Homepage, security, pricing
-- `articles/` - MDX blog posts
-- `badge.svg/` - Dynamic SVG badge
 
 ## Key Patterns
 
 - **Authentication flow**: Device code flow (CLI starts, user approves in browser) or fine-grained PAT
 - **Authorization**: All vault access verified via GitHub API collaborator checks
-- **Encryption**: Secrets encrypted at rest with AES-256-GCM, random IV per encryption
+- **Encryption**: Secrets encrypted at rest with AES-256-GCM via isolated crypto gRPC service
 - **Analytics**: PostHog for usage metrics; never tracks secret values, only metadata
 - **Environment detection**: CLI auto-detects GitHub remote from `.git/config`
 
 ## Environment Variables
 
-Backend requires: `DATABASE_URL`, `ENCRYPTION_KEY` (32-byte hex), `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`
+Backend requires: `DATABASE_URL`, `ENCRYPTION_KEY` (32-byte hex), `GITHUB_APP_CLIENT_ID`, `GITHUB_APP_CLIENT_SECRET`, `JWT_SECRET`
 
-Dashboard/Landing require: `NEXT_PUBLIC_KEYWAY_API_URL`, PostHog keys for analytics
+Dashboard requires: `NEXT_PUBLIC_KEYWAY_API_URL`, PostHog keys for analytics
 
 CLI can use: `KEYWAY_API_URL` (defaults to production), `KEYWAY_DISABLE_TELEMETRY=1`
 
 Crypto requires: `ENCRYPTION_KEY` (32-byte hex)
+
+## CI/CD
+
+Workflows in `.github/workflows/` with path-based triggers:
+- `ci-backend.yml`, `ci-dashboard.yml`, `ci-crypto.yml`, `ci-cli.yml`, `ci-mcp.yml`
+- `release-cli.yml` (triggered by `cli/v*` tags)
+- `release-mcp.yml` (triggered by `mcp/v*` tags)
 
 
 
