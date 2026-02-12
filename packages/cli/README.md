@@ -39,7 +39,7 @@ npx @keywaysh/cli init
 
 # Direct download
 # Grab the binary for your platform from Releases:
-# https://github.com/keywaysh/cli/releases/latest
+# https://github.com/keywaysh/keyway/releases
 ```
 
 </details>
@@ -112,7 +112,7 @@ Works with Claude Code, VS Code, Cursor, Windsurf, Warp, GitHub Copilot*, and Go
 
 *GitHub Copilot supports MCP tools only (not resources or prompts).
 
-[MCP Server docs →](https://github.com/keywaysh/keyway-mcp) · [AI agents guide →](https://docs.keyway.sh/ai-agents)
+[MCP Server docs →](https://github.com/keywaysh/keyway/tree/main/packages/mcp) · [AI agents guide →](https://docs.keyway.sh/ai-agents)
 
 ---
 
@@ -225,7 +225,7 @@ Releases are automated via GoReleaser on tag push.
 - [Documentation](https://docs.keyway.sh)
 - [Dashboard](https://keyway.sh)
 - [Security](https://keyway.sh/security)
-- [MCP Server](https://github.com/keywaysh/keyway-mcp)
+- [MCP Server](https://github.com/keywaysh/keyway/tree/main/packages/mcp)
 - [GitHub Action](https://github.com/keywaysh/keyway-action)
 <!-- TODO: add self-hosting guide link when docs page is live -->
 - [Status](https://status.keyway.sh)

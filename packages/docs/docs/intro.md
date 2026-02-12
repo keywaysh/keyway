@@ -27,7 +27,7 @@ curl -fsSL https://keyway.sh/install.sh | sh
 npm install -g @keywaysh/cli
 ```
 
-Windows: Download from [GitHub Releases](https://github.com/keywaysh/cli/releases/latest)
+Windows: Download from [GitHub Releases](https://github.com/keywaysh/keyway/releases)
 
 </details>
 

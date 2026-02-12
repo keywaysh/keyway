@@ -5,14 +5,20 @@ WORKDIR /app
 # Install pnpm
 RUN corepack enable && corepack prepare pnpm@latest --activate
 
-# Copy package files
-COPY package.json pnpm-lock.yaml ./
+# Copy workspace config for pnpm install
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY packages/backend/package.json ./packages/backend/
+COPY packages/dashboard/package.json ./packages/dashboard/
+COPY packages/mcp/package.json ./packages/mcp/
+COPY packages/docs/package.json ./packages/docs/
 
 # Install dependencies
 RUN pnpm install --frozen-lockfile
 
-# Copy source
-COPY . .
+# Copy dashboard source
+COPY packages/dashboard/ ./packages/dashboard/
+
+WORKDIR /app/packages/dashboard
 
 # Build args for Next.js public env vars
 ARG NEXT_PUBLIC_KEYWAY_API_URL=https://api.keyway.sh
@@ -53,14 +59,22 @@ RUN corepack enable && corepack prepare pnpm@latest --activate
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 
-# Copy package files
-COPY package.json pnpm-lock.yaml ./
+# Copy workspace config
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY packages/backend/package.json ./packages/backend/
+COPY packages/dashboard/package.json ./packages/dashboard/
+COPY packages/mcp/package.json ./packages/mcp/
+COPY packages/docs/package.json ./packages/docs/
 
 # Install production dependencies only (ignore prepare scripts like husky)
 RUN pnpm install --frozen-lockfile --prod --ignore-scripts
 
-# Copy built app
-COPY --from=builder /app/.next ./.next
+WORKDIR /app/packages/dashboard
+
+# Copy built app, config, and public assets
+COPY --from=builder /app/packages/dashboard/.next ./.next
+COPY --from=builder /app/packages/dashboard/public ./public
+COPY --from=builder /app/packages/dashboard/next.config.mjs ./
 
 # Expose port
 EXPOSE 3000

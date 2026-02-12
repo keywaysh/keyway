@@ -506,7 +506,7 @@ describe('Railway Provider', () => {
                             name: 'keyway-backend',
                             repoTriggers: {
                               edges: [
-                                { node: { repository: 'keywaysh/keyway-backend' } }
+                                { node: { repository: 'keywaysh/keyway' } }
                               ]
                             }
                           }
@@ -517,7 +517,7 @@ describe('Railway Provider', () => {
                             name: 'keyway-crypto',
                             repoTriggers: {
                               edges: [
-                                { node: { repository: 'keywaysh/keyway-crypto' } }
+                                { node: { repository: 'keywaysh/keyway' } }
                               ]
                             }
                           }
@@ -551,7 +551,7 @@ describe('Railway Provider', () => {
       expect(projects[0].name).toBe('Keyway');
       expect(projects[0].serviceId).toBe('svc-backend');
       expect(projects[0].serviceName).toBe('keyway-backend');
-      expect(projects[0].linkedRepo).toBe('keywaysh/keyway-backend');
+      expect(projects[0].linkedRepo).toBe('keywaysh/keyway');
       expect(projects[0].environments).toEqual(['dev', 'production']);
 
       // Second entry: keyway-crypto
@@ -559,7 +559,7 @@ describe('Railway Provider', () => {
       expect(projects[1].name).toBe('Keyway');
       expect(projects[1].serviceId).toBe('svc-crypto');
       expect(projects[1].serviceName).toBe('keyway-crypto');
-      expect(projects[1].linkedRepo).toBe('keywaysh/keyway-crypto');
+      expect(projects[1].linkedRepo).toBe('keywaysh/keyway');
       expect(projects[1].environments).toEqual(['dev', 'production']);
     });
   });

@@ -1,0 +1,42 @@
+.git
+.github
+.claude
+.turbo
+**/node_modules
+**/.next
+**/dist
+**/.env
+**/.env.*
+!**/.env.example
+**/*.log
+**/coverage
+**/.DS_Store
+.vscode
+.idea
+
+# Go packages (not needed for TS Docker builds)
+packages/cli/bin
+packages/cli/internal
+packages/cli/cmd
+packages/cli/npm
+packages/cli/scripts
+packages/cli/testdata
+packages/crypto/bin
+packages/crypto/pb
+packages/crypto/scripts
+
+# Docs (only package.json needed for workspace)
+packages/docs/docs
+packages/docs/build
+packages/docs/src
+packages/docs/static
+
+# Legacy cloned repos
+keyway-backend
+keyway-dashboard
+keyway-crypto
+keyway-docs
+keyway-mcp
+keyway-landing
+keyway-admin
+keyway-action

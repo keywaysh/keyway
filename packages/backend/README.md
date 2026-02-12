@@ -38,7 +38,7 @@
 ## Project Structure
 
 ```
-keyway-backend/
+backend/
 ├── src/
 │   ├── db/              # Database schema and migrations
 │   │   ├── schema.ts    # Drizzle schema (users, vaults, secrets)
@@ -550,7 +550,7 @@ MIT
 ## Support
 
 - **Docs**: https://docs.keyway.sh
-- **CLI**: https://github.com/keywaysh/cli
+- **CLI**: https://github.com/keywaysh/keyway/tree/main/packages/cli
 - **MCP Server**: https://github.com/keywaysh/keyway/tree/main/packages/mcp
 - **Status**: https://status.keyway.sh
 - **Issues**: [GitHub Issues](https://github.com/keywaysh/keyway/issues)

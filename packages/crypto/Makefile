@@ -1,7 +1,7 @@
 .PHONY: proto build run docker test clean
 
 proto:
-	protoc --go_out=. --go-grpc_out=. proto/crypto.proto
+	protoc --go_out=. --go-grpc_out=. -I../../proto ../../proto/crypto.proto
 
 build:
 	go build -o bin/keyway-crypto .

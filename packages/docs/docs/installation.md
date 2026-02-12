@@ -25,7 +25,7 @@ Downloads the binary to `/usr/local/bin/keyway`.
 
 ## Windows
 
-Download `keyway-win-x64.exe` from [GitHub Releases](https://github.com/keywaysh/cli/releases/latest), rename to `keyway.exe`, and add to your PATH.
+Download `keyway-win-x64.exe` from [GitHub Releases](https://github.com/keywaysh/keyway/releases), rename to `keyway.exe`, and add to your PATH.
 
 ## npm
 
@@ -53,7 +53,7 @@ Pre-built binaries for all platforms:
 | Linux | ARM64 | `keyway-linux-arm64` |
 | Windows | x64 | `keyway-win-x64.exe` |
 
-Download from [GitHub Releases](https://github.com/keywaysh/cli/releases/latest).
+Download from [GitHub Releases](https://github.com/keywaysh/keyway/releases).
 
 ## Verify Installation
 

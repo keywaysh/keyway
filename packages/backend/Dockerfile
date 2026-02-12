@@ -5,19 +5,24 @@ WORKDIR /app
 # Install pnpm
 RUN corepack enable && corepack prepare pnpm@latest --activate
 
-# Copy package files
-COPY package.json pnpm-lock.yaml ./
+# Copy workspace config for pnpm install
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY packages/backend/package.json ./packages/backend/
+COPY packages/dashboard/package.json ./packages/dashboard/
+COPY packages/mcp/package.json ./packages/mcp/
+COPY packages/docs/package.json ./packages/docs/
 
 # Install all dependencies
 RUN pnpm install --frozen-lockfile
 
-# Copy source code, proto, and migrations
-COPY src ./src
-COPY proto ./proto
-COPY drizzle ./drizzle
-COPY tsconfig.json ./
+# Copy backend source, proto, and migrations
+COPY packages/backend/src ./packages/backend/src
+COPY packages/backend/proto ./packages/backend/proto
+COPY packages/backend/drizzle ./packages/backend/drizzle
+COPY packages/backend/tsconfig.json ./packages/backend/
 
 # Build
+WORKDIR /app/packages/backend
 RUN pnpm run build
 
 # Production image
@@ -28,17 +33,23 @@ WORKDIR /app
 # Install pnpm
 RUN corepack enable && corepack prepare pnpm@latest --activate
 
-# Copy package files
-COPY package.json pnpm-lock.yaml ./
+# Copy workspace config
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY packages/backend/package.json ./packages/backend/
+COPY packages/dashboard/package.json ./packages/dashboard/
+COPY packages/mcp/package.json ./packages/mcp/
+COPY packages/docs/package.json ./packages/docs/
 
 # Install only production dependencies
 ENV NODE_ENV=production
 RUN pnpm install --frozen-lockfile --prod
 
+WORKDIR /app/packages/backend
+
 # Copy built files, proto, and migrations
-COPY --from=builder /app/dist ./dist
-COPY --from=builder /app/proto ./proto
-COPY --from=builder /app/drizzle ./drizzle
+COPY --from=builder /app/packages/backend/dist ./dist
+COPY --from=builder /app/packages/backend/proto ./proto
+COPY --from=builder /app/packages/backend/drizzle ./drizzle
 
 # Expose port
 EXPOSE 8080

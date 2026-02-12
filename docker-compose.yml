@@ -28,7 +28,9 @@ services:
       start_period: 5s
 
   backend:
-    build: ./packages/backend
+    build:
+      context: .
+      dockerfile: packages/backend/Dockerfile
     environment:
       - PORT=8080
       - NODE_ENV=production
@@ -66,9 +68,13 @@ services:
 
   dashboard:
     build:
-      context: ./packages/dashboard
+      context: .
+      dockerfile: packages/dashboard/Dockerfile
       args:
         - NEXT_PUBLIC_KEYWAY_API_URL=https://api.${DOMAIN:-keyway.sh}
+        - NEXT_PUBLIC_DASHBOARD_URL=https://app.${DOMAIN:-keyway.sh}
+        - NEXT_PUBLIC_LANDING_URL=https://${DOMAIN:-keyway.sh}
+        - NEXT_PUBLIC_DOCS_URL=https://docs.${DOMAIN:-keyway.sh}
         - NEXT_PUBLIC_POSTHOG_KEY=${NEXT_PUBLIC_POSTHOG_KEY:-}
         - NEXT_PUBLIC_POSTHOG_HOST=${NEXT_PUBLIC_POSTHOG_HOST:-}
         - NEXT_PUBLIC_SENTRY_DSN=${NEXT_PUBLIC_SENTRY_DSN:-}

@@ -16,7 +16,7 @@ describe('cli', () => {
     it('should have windows install command', () => {
       expect(CLI_INSTALL.windows.command).toBe('Download for Windows')
       expect(CLI_INSTALL.windows.copyable).toBe(false)
-      expect(CLI_INSTALL.windows.href).toBe('https://github.com/keywaysh/cli/releases/latest')
+      expect(CLI_INSTALL.windows.href).toBe('https://github.com/keywaysh/keyway/releases')
     })
   })
 

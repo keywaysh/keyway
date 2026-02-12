@@ -16,7 +16,7 @@ vi.mock('../lib/cli', () => ({
     windows: {
       command: 'Download for Windows',
       copyable: false,
-      href: 'https://github.com/keywaysh/cli/releases/latest',
+      href: 'https://github.com/keywaysh/keyway/releases',
     },
   },
   CLI_COMMANDS: {

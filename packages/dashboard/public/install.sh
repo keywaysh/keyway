@@ -4,7 +4,7 @@
 
 set -e
 
-REPO="keywaysh/cli-go"
+REPO="keywaysh/keyway"
 BINARY_NAME="keyway"
 INSTALL_DIR="${KEYWAY_INSTALL_DIR:-$HOME/.local/bin}"
 
@@ -55,7 +55,8 @@ detect_platform() {
 
 # Get latest version from GitHub
 get_latest_version() {
-    VERSION=$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
+    # In the monorepo, CLI releases use cli/vX.X.X tags
+    VERSION=$(curl -fsSL "https://api.github.com/repos/${REPO}/releases" | grep '"tag_name":' | grep 'cli/v' | head -1 | sed -E 's/.*"cli\/(v[^"]+)".*/\1/')
     if [ -z "$VERSION" ]; then
         error "Failed to get latest version"
     fi
@@ -77,7 +78,7 @@ install() {
         EXT="zip"
     fi
 
-    DOWNLOAD_URL="https://github.com/${REPO}/releases/download/${VERSION}/${BINARY_NAME}_${VERSION#v}_${PLATFORM}.${EXT}"
+    DOWNLOAD_URL="https://github.com/${REPO}/releases/download/cli%2F${VERSION}/${BINARY_NAME}_${VERSION#v}_${PLATFORM}.${EXT}"
 
     info "Downloading from $DOWNLOAD_URL..."
 

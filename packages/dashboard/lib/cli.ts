@@ -1,7 +1,7 @@
 export type Platform = 'mac' | 'linux' | 'windows'
 
 const landingUrl = process.env.NEXT_PUBLIC_LANDING_URL || 'https://keyway.sh'
-const cliReleasesUrl = process.env.NEXT_PUBLIC_CLI_RELEASES_URL || 'https://github.com/keywaysh/cli/releases/latest'
+const cliReleasesUrl = process.env.NEXT_PUBLIC_CLI_RELEASES_URL || 'https://github.com/keywaysh/keyway/releases'
 const brewTap = process.env.NEXT_PUBLIC_BREW_TAP || 'keywaysh/tap/keyway'
 
 export const CLI_INSTALL = {

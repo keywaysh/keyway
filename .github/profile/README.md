@@ -6,7 +6,7 @@
     <a href="https://docs.keyway.sh">Docs</a> ·
     <a href="https://keyway.sh">Website</a> ·
     <a href="https://app.keyway.sh">Dashboard</a> ·
-    <a href="https://github.com/keywaysh/cli">CLI</a>
+    <a href="https://github.com/keywaysh/keyway/tree/main/packages/cli">CLI</a>
   </p>
 </div>
 
@@ -49,14 +49,9 @@ claude mcp add keyway -- npx @keywaysh/mcp     # MCP server for AI assistants
 
 | Repo | Description |
 |------|-------------|
-| [cli](https://github.com/keywaysh/cli) | Go CLI (Homebrew, npm, curl) |
-| [keyway-backend](https://github.com/keywaysh/keyway-backend) | Fastify 5 API server |
-| [keyway-crypto](https://github.com/keywaysh/keyway-crypto) | Go gRPC encryption microservice |
-| [keyway-mcp](https://github.com/keywaysh/keyway-mcp) | MCP server for AI assistants |
+| [keyway](https://github.com/keywaysh/keyway) | Monorepo: CLI, API, dashboard, crypto, MCP, docs |
 | [keyway-action](https://github.com/keywaysh/keyway-action) | GitHub Action for CI/CD |
-| [keyway-dashboard](https://github.com/keywaysh/keyway-dashboard) | Next.js web dashboard |
 | [keyway-landing](https://github.com/keywaysh/keyway-landing) | Marketing site |
-| [keyway-docs](https://github.com/keywaysh/keyway-docs) | Documentation (Docusaurus) |
 
 ---
 
