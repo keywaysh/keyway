@@ -1,0 +1,104 @@
+version: 2
+
+project_name: keyway
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: keyway
+    main: ./cmd/keyway
+    binary: keyway
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+      - -X main.version={{.Version}}
+      - -X main.commit={{.ShortCommit}}
+      - -X main.date={{.Date}}
+
+# macOS code signing
+signs:
+  - cmd: codesign
+    args:
+      - "--force"
+      - "--options=runtime"
+      - "--sign"
+      - "{{ .Env.MACOS_SIGNING_IDENTITY }}"
+      - "--timestamp"
+      - "${artifact}"
+    artifacts: binary
+    ids:
+      - keyway
+    output: false
+
+# macOS notarization
+notarize:
+  macos:
+    - enabled: '{{ isEnvSet "AC_KEY_ID" }}'
+      sign:
+        certificate: "{{.Env.MACOS_SIGNING_IDENTITY}}"
+      notarize:
+        issuer_id: "{{.Env.AC_ISSUER_ID}}"
+        key_id: "{{.Env.AC_KEY_ID}}"
+        key: "~/private_keys/AuthKey_{{.Env.AC_KEY_ID}}.p8"
+
+archives:
+  - id: default
+    format: tar.gz
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    format_overrides:
+      - goos: windows
+        format: zip
+    files:
+      - README.md
+      - LICENSE*
+
+checksum:
+  name_template: "checksums.txt"
+  algorithm: sha256
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore:"
+      - "Merge pull request"
+      - "Merge branch"
+
+release:
+  github:
+    owner: keywaysh
+    name: cli
+  draft: false
+  prerelease: auto
+  name_template: "v{{.Version}}"
+
+brews:
+  - name: keyway
+    skip_upload: "{{ if .Prerelease }}true{{ end }}"
+    homepage: https://keyway.sh
+    description: "GitHub-native secrets management CLI"
+    license: "MIT"
+    repository:
+      owner: keywaysh
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+    commit_author:
+      name: keywaysh-bot
+      email: bot@keyway.sh
+    directory: Formula
+    install: |
+      bin.install "keyway"
+    test: |
+      system "#{bin}/keyway", "--version"

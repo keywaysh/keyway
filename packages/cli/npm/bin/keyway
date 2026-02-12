@@ -1,0 +1,25 @@
+#!/usr/bin/env node
+
+const { spawnSync } = require("child_process");
+const path = require("path");
+const fs = require("fs");
+
+const binaryName = process.platform === "win32" ? "keyway-bin.exe" : "keyway-bin";
+const binaryPath = path.join(__dirname, binaryName);
+
+if (!fs.existsSync(binaryPath)) {
+  console.error("keyway binary not found. Try reinstalling: npm install @keywaysh/cli");
+  process.exit(1);
+}
+
+const result = spawnSync(binaryPath, process.argv.slice(2), {
+  stdio: "inherit",
+  env: process.env,
+});
+
+if (result.error) {
+  console.error("Failed to run keyway:", result.error.message);
+  process.exit(1);
+}
+
+process.exit(result.status || 0);

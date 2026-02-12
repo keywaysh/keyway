@@ -1,0 +1,6 @@
+# Downloaded binary (created by postinstall)
+bin/keyway-bin
+bin/keyway-bin.exe
+
+# Generated from main README (run: make prepare-npm)
+README.md

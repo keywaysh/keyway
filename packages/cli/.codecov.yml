@@ -1,0 +1,15 @@
+coverage:
+  status:
+    project:
+      default:
+        target: auto
+        threshold: 5%
+    patch:
+      default:
+        target: auto
+
+ignore:
+  - "cmd/**/*"                    # Main entry point
+  - "internal/cmd/deps_real.go"   # Thin delegation wrappers (untestable without real services)
+  - "internal/ui/**/*"            # Terminal UI (hard to test)
+  - "**/*_test.go"                # Test files themselves

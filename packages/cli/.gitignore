@@ -1,0 +1,45 @@
+# Binaries
+/bin/
+dist/
+/keyway
+/keyway-dev
+
+# npm package - keep wrapper, ignore downloaded binary
+!npm/bin/keyway
+npm/bin/keyway-bin
+npm/bin/keyway-bin.exe
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binary, built with `go test -c`
+*.test
+
+# Output of the go coverage tool
+*.out
+coverage.html
+
+# Dependency directories
+vendor/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Debug
+debug
+*.log
+
+# Environment
+.env
+.env.*
+!.env.example

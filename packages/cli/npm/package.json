@@ -1,0 +1,33 @@
+{
+  "name": "@keywaysh/cli",
+  "version": "0.2.0",
+  "description": "GitHub-native secrets management CLI",
+  "bin": {
+    "keyway": "./bin/keyway"
+  },
+  "scripts": {
+    "postinstall": "node scripts/install.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/keywaysh/cli.git"
+  },
+  "homepage": "https://keyway.sh",
+  "bugs": {
+    "url": "https://github.com/keywaysh/cli/issues"
+  },
+  "keywords": [
+    "secrets",
+    "cli",
+    "github",
+    "env",
+    "environment-variables",
+    "dotenv",
+    "secrets-management"
+  ],
+  "author": "Keyway <hello@keyway.sh>",
+  "license": "MIT",
+  "engines": {
+    "node": ">=14"
+  }
+}
