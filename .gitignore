@@ -4,16 +4,19 @@
 # macOS
 .DS_Store
 
-# Cloned repositories (setup.sh clones these)
-keyway-backend/
-keyway-dashboard/
-keyway-landing/
-cli/
-keyway-crypto/
-keyway-docs/
-keyway-action/
-keyway-mcp/
+# Node
+node_modules/
+
+# Turborepo
+.turbo/
+
+# Private/separate repos (not part of monorepo)
 keyway-admin/
+keyway-landing/
+keyway-action/
+
+# Docker Compose override (for private services in local dev)
+docker-compose.override.yml
 
 # Docker volumes (if any local state)
 caddy_data/
