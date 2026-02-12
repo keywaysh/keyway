@@ -1,6 +1,6 @@
 # Keyway Documentation
 
-[![Keyway Secrets](https://www.keyway.sh/badge.svg?repo=keywaysh/keyway-docs)](https://www.keyway.sh/vaults/keywaysh/keyway-docs)
+[![Keyway Secrets](https://www.keyway.sh/badge.svg?repo=keywaysh/keyway)](https://www.keyway.sh/vaults/keywaysh/keyway)
 
 Official documentation for [Keyway](https://keyway.sh) - GitHub-native secrets management for dev teams.
 
@@ -59,17 +59,17 @@ pnpm serve
 2. Preview locally with `pnpm start`
 3. Submit a PR
 
-## Related Repositories
+## Related
 
-| Repo | Description |
-|------|-------------|
-| [keyway-backend](https://github.com/keywaysh/keyway-backend) | Fastify API server |
-| [cli](https://github.com/keywaysh/cli) | CLI tool (`@keywaysh/cli`) |
-| [keyway-dashboard](https://github.com/keywaysh/keyway-dashboard) | Web dashboard |
-| [keyway-landing](https://github.com/keywaysh/keyway-landing) | Marketing site |
-| [keyway-crypto](https://github.com/keywaysh/keyway-crypto) | Go encryption microservice |
-| [keyway-mcp](https://github.com/keywaysh/keyway-mcp) | MCP server for AI assistants |
+| Package | Description |
+|---------|-------------|
+| [packages/backend](https://github.com/keywaysh/keyway/tree/main/packages/backend) | Fastify API server |
+| [packages/cli](https://github.com/keywaysh/keyway/tree/main/packages/cli) | CLI tool (`@keywaysh/cli`) |
+| [packages/dashboard](https://github.com/keywaysh/keyway/tree/main/packages/dashboard) | Web dashboard |
+| [packages/crypto](https://github.com/keywaysh/keyway/tree/main/packages/crypto) | Go encryption microservice |
+| [packages/mcp](https://github.com/keywaysh/keyway/tree/main/packages/mcp) | MCP server for AI assistants |
 | [keyway-action](https://github.com/keywaysh/keyway-action) | GitHub Action for CI/CD |
+| [keyway-landing](https://github.com/keywaysh/keyway-landing) | Marketing site |
 
 ## License
 

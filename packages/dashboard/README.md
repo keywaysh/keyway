@@ -1,7 +1,7 @@
 # Keyway Dashboard
 
-[![Keyway Secrets](https://www.keyway.sh/badge.svg?repo=keywaysh/keyway-dashboard)](https://www.keyway.sh/vaults/keywaysh/keyway-dashboard)
-[![Release](https://img.shields.io/github/v/release/keywaysh/keyway-dashboard?color=34D399)](https://github.com/keywaysh/keyway-dashboard/releases)
+[![Keyway Secrets](https://www.keyway.sh/badge.svg?repo=keywaysh/keyway)](https://www.keyway.sh/vaults/keywaysh/keyway)
+[![Release](https://img.shields.io/github/v/release/keywaysh/keyway?color=34D399)](https://github.com/keywaysh/keyway/releases)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.0-blue?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
@@ -53,7 +53,7 @@
 
 - Node.js 20+
 - [pnpm](https://pnpm.io/) 9+
-- Running [keyway-backend](https://github.com/keywaysh/keyway-backend)
+- Running [keyway-backend](https://github.com/keywaysh/keyway/tree/main/packages/backend)
 
 ### Setup
 
@@ -81,11 +81,11 @@ pnpm dev
 
 ## Related
 
-- [cli](https://github.com/keywaysh/cli) — Command-line tool
-- [keyway-backend](https://github.com/keywaysh/keyway-backend) — API server
-- [keyway-mcp](https://github.com/keywaysh/keyway-mcp) — MCP server for AI assistants
+- [cli](https://github.com/keywaysh/keyway/tree/main/packages/cli) — Command-line tool
+- [keyway-backend](https://github.com/keywaysh/keyway/tree/main/packages/backend) — API server
+- [keyway-mcp](https://github.com/keywaysh/keyway/tree/main/packages/mcp) — MCP server for AI assistants
 - [keyway-action](https://github.com/keywaysh/keyway-action) — GitHub Action
-- [keyway-docs](https://github.com/keywaysh/keyway-docs) — Documentation
+- [keyway-docs](https://github.com/keywaysh/keyway/tree/main/packages/docs) — Documentation
 
 ---
 

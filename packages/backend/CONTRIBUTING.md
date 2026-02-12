@@ -12,7 +12,7 @@ By participating in this project, you agree to abide by our [Code of Conduct](CO
 
 Before submitting a bug report:
 
-1. Check the [existing issues](https://github.com/keywaysh/keyway-backend/issues) to avoid duplicates
+1. Check the [existing issues](https://github.com/keywaysh/keyway/issues) to avoid duplicates
 2. Use the latest version of the software
 3. Collect information about the bug (logs, screenshots, steps to reproduce)
 
@@ -164,7 +164,7 @@ src/
 
 If you have questions, feel free to:
 
-- Open a [Discussion](https://github.com/keywaysh/keyway-backend/discussions)
+- Open a [Discussion](https://github.com/keywaysh/keyway/discussions)
 - Check the [Documentation](https://docs.keyway.sh)
 
 Thank you for contributing!

@@ -57,7 +57,7 @@ load_env() {
         set +a
     else
         echo -e "${YELLOW}Warning: No .env file found at $ENV_FILE${NC}"
-        echo -e "${YELLOW}Make sure ENCRYPTION_KEY, GITHUB_CLIENT_ID, etc. are set${NC}"
+        echo -e "${YELLOW}Make sure ENCRYPTION_KEY, GITHUB_APP_CLIENT_ID, etc. are set${NC}"
     fi
 }
 

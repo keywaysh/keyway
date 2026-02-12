@@ -10,10 +10,18 @@ node_modules/
 # Turborepo
 .turbo/
 
-# Private/separate repos (not part of monorepo)
+# Separate repos (not part of monorepo)
 keyway-admin/
 keyway-landing/
 keyway-action/
+
+# Legacy cloned repos (pre-monorepo, can be deleted)
+keyway-backend/
+keyway-dashboard/
+keyway-crypto/
+keyway-docs/
+keyway-mcp/
+cli/
 
 # Docker Compose override (for private services in local dev)
 docker-compose.override.yml

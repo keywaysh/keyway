@@ -1,10 +1,10 @@
 # Keyway API
 
-[![CI](https://github.com/keywaysh/keyway-backend/actions/workflows/ci.yml/badge.svg)](https://github.com/keywaysh/keyway-backend/actions/workflows/ci.yml)
+[![CI](https://github.com/keywaysh/keyway/actions/workflows/ci-backend.yml/badge.svg)](https://github.com/keywaysh/keyway/actions/workflows/ci-backend.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.3-blue.svg)](https://www.typescriptlang.org/)
 [![Node.js](https://img.shields.io/badge/Node.js-22_LTS-green.svg)](https://nodejs.org/)
-[![Keyway Secrets](https://www.keyway.sh/badge.svg?repo=keywaysh/keyway-backend)](https://www.keyway.sh/vaults/keywaysh/keyway-backend)
+[![Keyway Secrets](https://www.keyway.sh/badge.svg?repo=keywaysh/keyway)](https://www.keyway.sh/vaults/keywaysh/keyway)
 
 **The API behind [Keyway](https://keyway.sh)** — GitHub-native secrets management.
 
@@ -65,7 +65,7 @@ keyway-backend/
 - Node.js 22+
 - PostgreSQL (Neon recommended)
 - GitHub App
-- [keyway-crypto](../keyway-crypto) service running
+- [keyway-crypto](../crypto) service running
 
 ## Setup
 
@@ -129,7 +129,7 @@ POSTHOG_HOST=https://app.posthog.com
 
 ### 4. Start the Crypto Service
 
-The backend requires the `keyway-crypto` gRPC service for encryption. See [keyway-crypto](../keyway-crypto) for setup.
+The backend requires the `keyway-crypto` gRPC service for encryption. See [keyway-crypto](../crypto) for setup.
 
 ```bash
 # In keyway-crypto directory
@@ -523,7 +523,7 @@ Make sure you've created a `.env` file with your database connection string.
 
 Make sure the `keyway-crypto` gRPC service is running:
 ```bash
-cd ../keyway-crypto
+cd ../crypto
 ENCRYPTION_KEY=$(openssl rand -hex 32) go run .
 ```
 
@@ -551,6 +551,6 @@ MIT
 
 - **Docs**: https://docs.keyway.sh
 - **CLI**: https://github.com/keywaysh/cli
-- **MCP Server**: https://github.com/keywaysh/keyway-mcp
+- **MCP Server**: https://github.com/keywaysh/keyway/tree/main/packages/mcp
 - **Status**: https://status.keyway.sh
-- **Issues**: [GitHub Issues](https://github.com/keywaysh/keyway-backend/issues)
+- **Issues**: [GitHub Issues](https://github.com/keywaysh/keyway/issues)

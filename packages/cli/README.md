@@ -2,12 +2,10 @@
 
 **GitHub-native secrets management.** Repo access = secret access.
 
-[![Release](https://img.shields.io/github/v/release/keywaysh/cli?label=release&color=34D399)](https://github.com/keywaysh/cli/releases/latest)
-[![CI](https://github.com/keywaysh/cli/actions/workflows/ci.yml/badge.svg)](https://github.com/keywaysh/cli/actions/workflows/ci.yml)
-[![codecov](https://codecov.io/github/keywaysh/cli/graph/badge.svg?token=O3LRCDFKLS)](https://codecov.io/github/keywaysh/cli)
+[![CI](https://github.com/keywaysh/keyway/actions/workflows/ci-cli.yml/badge.svg)](https://github.com/keywaysh/keyway/actions/workflows/ci-cli.yml)
 [![Go Report Card](https://goreportcard.com/badge/github.com/keywaysh/cli)](https://goreportcard.com/report/github.com/keywaysh/cli)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Keyway Secrets](https://www.keyway.sh/badge.svg?repo=keywaysh/cli)](https://www.keyway.sh/vaults/keywaysh/cli)
+[![Keyway Secrets](https://www.keyway.sh/badge.svg?repo=keywaysh/keyway)](https://www.keyway.sh/vaults/keywaysh/keyway)
 
 <!-- TODO: replace with a 15s GIF of `keyway init` → `keyway run` -->
 

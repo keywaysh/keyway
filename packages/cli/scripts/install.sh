@@ -1,11 +1,11 @@
 #!/bin/sh
 # Keyway CLI installer
 # Usage: curl -fsSL https://get.keyway.sh | sh
-#    or: curl -fsSL https://raw.githubusercontent.com/keywaysh/cli/main/scripts/install.sh | sh
+#    or: curl -fsSL https://raw.githubusercontent.com/keywaysh/keyway/main/packages/cli/scripts/install.sh | sh
 
 set -e
 
-REPO="keywaysh/cli"
+REPO="keywaysh/keyway"
 INSTALL_DIR="${KEYWAY_INSTALL_DIR:-/usr/local/bin}"
 BINARY_NAME="keyway"
 
@@ -56,15 +56,19 @@ detect_arch() {
     echo "$ARCH"
 }
 
-# Get latest version from GitHub
+# Get latest CLI version from GitHub (filter for cli/v* tags)
 get_latest_version() {
+    local api_url="https://api.github.com/repos/${REPO}/releases"
+    local json
     if command -v curl >/dev/null 2>&1; then
-        curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" | grep '"tag_name"' | sed -E 's/.*"([^"]+)".*/\1/'
+        json=$(curl -fsSL "$api_url")
     elif command -v wget >/dev/null 2>&1; then
-        wget -qO- "https://api.github.com/repos/${REPO}/releases/latest" | grep '"tag_name"' | sed -E 's/.*"([^"]+)".*/\1/'
+        json=$(wget -qO- "$api_url")
     else
         error "Neither curl nor wget found. Please install one of them."
     fi
+    # Find latest cli/v* tag and strip the cli/ prefix
+    echo "$json" | grep '"tag_name"' | grep 'cli/v' | head -1 | sed -E 's/.*"cli\/(v[^"]+)".*/\1/'
 }
 
 # Download file
@@ -111,7 +115,7 @@ main() {
 
     # Build download URL
     FILENAME="${BINARY_NAME}_${VERSION_NUM}_${OS}_${ARCH}.${EXT}"
-    DOWNLOAD_URL="https://github.com/${REPO}/releases/download/${VERSION}/${FILENAME}"
+    DOWNLOAD_URL="https://github.com/${REPO}/releases/download/cli%2F${VERSION}/${FILENAME}"
 
     info "Downloading from $DOWNLOAD_URL"
 
