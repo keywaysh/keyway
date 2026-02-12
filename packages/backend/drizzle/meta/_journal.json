@@ -1,0 +1,300 @@
+{
+  "version": "5",
+  "dialect": "pg",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "5",
+      "when": 1763922894640,
+      "tag": "0000_outgoing_carmella_unuscione",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "5",
+      "when": 1763930835560,
+      "tag": "0001_dusty_lifeguard",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "5",
+      "when": 1763940864423,
+      "tag": "0002_loose_angel",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "5",
+      "when": 1763941035343,
+      "tag": "0003_worried_mauler",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "5",
+      "when": 1763942419725,
+      "tag": "0004_pink_dakota_north",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "5",
+      "when": 1763945746562,
+      "tag": "0005_round_inhumans",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "5",
+      "when": 1764051089519,
+      "tag": "0006_dashboard_api",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "5",
+      "when": 1764098103000,
+      "tag": "0007_add_vault_deleted_action",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "5",
+      "when": 1764137793000,
+      "tag": "0008_add_performance_indexes",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "5",
+      "when": 1764219111000,
+      "tag": "0009_security_alerts",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "5",
+      "when": 1764295771000,
+      "tag": "0010_add_plans_and_usage",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "5",
+      "when": 1764296562000,
+      "tag": "0011_encrypt_access_tokens",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "5",
+      "when": 1764296935000,
+      "tag": "0012_add_refresh_tokens",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "5",
+      "when": 1764383200000,
+      "tag": "0013_add_vault_environments",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "5",
+      "when": 1764383800000,
+      "tag": "0014_add_environment_actions",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "5",
+      "when": 1764470400000,
+      "tag": "0015_add_encryption_version",
+      "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "5",
+      "when": 1764534415000,
+      "tag": "0016_add_provider_integrations",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "5",
+      "when": 1764534415000,
+      "tag": "0017_add_secrets_unique_constraint",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "5",
+      "when": 1764536202000,
+      "tag": "0018_add_provider_token_versions",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "5",
+      "when": 1764538140000,
+      "tag": "0019_preserve_audit_logs",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "5",
+      "when": 1764600000000,
+      "tag": "0020_add_stripe_subscriptions",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "5",
+      "when": 1764850000000,
+      "tag": "0021_add_github_app_tables",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "5",
+      "when": 1765286000000,
+      "tag": "0022_add_secret_value_accessed_action",
+      "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "5",
+      "when": 1765290186000,
+      "tag": "0023_add_secret_trash",
+      "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "5",
+      "when": 1765380000000,
+      "tag": "0024_add_activity_actions",
+      "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "5",
+      "when": 1765470000000,
+      "tag": "0025_add_mcp_platform",
+      "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "5",
+      "when": 1765620000000,
+      "tag": "0026_add_api_keys",
+      "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "5",
+      "when": 1765625000000,
+      "tag": "0027_add_api_key_activity_actions",
+      "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "5",
+      "when": 1765724800000,
+      "tag": "0028_add_secret_last_modified_by",
+      "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "5",
+      "when": 1766089400000,
+      "tag": "0029_add_secret_versions",
+      "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "5",
+      "when": 1766092000000,
+      "tag": "0030_add_version_value_accessed_action",
+      "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "5",
+      "when": 1766400000000,
+      "tag": "0031_add_organizations",
+      "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "5",
+      "when": 1766500000000,
+      "tag": "0032_add_organization_trial",
+      "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "5",
+      "when": 1766600000000,
+      "tag": "0033_add_multi_forge_support",
+      "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "5",
+      "when": 1766700000000,
+      "tag": "0034_rename_github_to_vcs",
+      "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "5",
+      "when": 1766800000000,
+      "tag": "0035_rename_github_app_actions_to_vcs",
+      "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "5",
+      "when": 1766900000000,
+      "tag": "0036_add_secret_accesses",
+      "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "5",
+      "when": 1767000000000,
+      "tag": "0037_fix_secrets_unique_constraint",
+      "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "5",
+      "when": 1767100000000,
+      "tag": "0038_add_oauth_complete_status",
+      "breakpoints": true
+    },
+    {
+      "idx": 39,
+      "version": "5",
+      "when": 1767282000000,
+      "tag": "0039_add_pull_events_source",
+      "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "5",
+      "when": 1767400000000,
+      "tag": "0040_add_vault_environments_table",
+      "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "5",
+      "when": 1767500000000,
+      "tag": "0041_add_startup_plan",
+      "breakpoints": true
+    }
+  ]
+}
