@@ -49,7 +49,8 @@ export interface Vault {
   repo_avatar: string
   environments: string[]
   secrets_count: number
-  permission: VaultPermission
+  permission: VaultPermission | null
+  warning?: 'repo_inaccessible'
   is_private: boolean
   is_read_only: boolean
   readonly_reason: ReadonlyReason

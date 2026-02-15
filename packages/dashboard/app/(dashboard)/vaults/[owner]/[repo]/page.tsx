@@ -467,7 +467,8 @@ export default function VaultDetailPage() {
   }
 
   // Determine if user can write to this vault (GitHub permission + not read-only due to plan)
-  const canWrite = vault && permissionConfig[vault.permission].canWrite && !vault.is_read_only
+  const effectivePermission = vault?.permission ?? 'read'
+  const canWrite = vault && permissionConfig[effectivePermission].canWrite && !vault.is_read_only
 
   // Filter secrets based on search and environment
   const filteredSecrets = secrets.filter(secret => {
@@ -503,20 +504,20 @@ export default function VaultDetailPage() {
 
           {/* Permission badge */}
           {vault && (
-            <div className={`mt-4 p-3 rounded-lg border border-border ${permissionConfig[vault.permission].bgColor}`}>
+            <div className={`mt-4 p-3 rounded-lg border border-border ${permissionConfig[effectivePermission].bgColor}`}>
               <div className="flex items-center justify-between">
                 <div>
                   <div className="flex items-center gap-2">
-                    <span className={`text-sm font-medium ${permissionConfig[vault.permission].color}`}>
-                      {permissionConfig[vault.permission].label}
+                    <span className={`text-sm font-medium ${permissionConfig[effectivePermission].color}`}>
+                      {permissionConfig[effectivePermission].label}
                     </span>
                     <span className="text-xs text-muted-foreground">on GitHub</span>
                   </div>
                   <p className="text-xs text-muted-foreground mt-1">
-                    {permissionConfig[vault.permission].description}
+                    {permissionConfig[effectivePermission].description}
                   </p>
                 </div>
-                {vault.permission === 'admin' && (
+                {effectivePermission === 'admin' && (
                   <Button variant="ghost" size="sm" asChild className="shrink-0">
                     <Link href={`/vaults/${owner}/${repo}/collaborators`}>
                       <Users className="w-4 h-4 mr-1.5" />
@@ -682,7 +683,7 @@ export default function VaultDetailPage() {
                       </button>
                     )
                   })}
-                  {vault.permission === 'admin' && (
+                  {effectivePermission === 'admin' && (
                     <Button variant="ghost" size="icon" className="-mb-px h-8 w-8" asChild>
                       <Link href={`/vaults/${owner}/${repo}/environments`}>
                         <Settings className="w-4 h-4" />

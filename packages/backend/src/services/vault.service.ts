@@ -7,6 +7,7 @@ import { DEFAULT_ENVIRONMENTS } from "../types";
 import { getOrganizationById } from "./organization.service";
 import { getEffectivePlanWithTrial } from "./trial.service";
 import { inferEnvironmentType } from "../utils/permissions";
+import { logger } from "../utils/sharedLogger";
 
 // Reason why a vault is read-only
 export type ReadonlyReason = "plan_limit_exceeded" | "org_free_plan" | null;
@@ -54,6 +55,7 @@ export interface VaultListItem {
   environments: string[]; // Array of environment names for backwards compatibility
   environmentDetails: VaultEnvironmentInfo[]; // Full environment info with types
   permission: string | null;
+  warning?: "repo_inaccessible";
   isPrivate: boolean;
   isReadOnly: boolean;
   readonlyReason: ReadonlyReason;
@@ -168,7 +170,14 @@ export async function getVaultsForUser(
       const environments = await getVaultEnvironments(vault.id);
 
       // Fetch user's permission for this repo using GitHub App token
-      const permission = await getUserRoleWithApp(vault.repoFullName, username);
+      let permission: string | null = null;
+      let warning: VaultListItem["warning"];
+      try {
+        permission = await getUserRoleWithApp(vault.repoFullName, username);
+      } catch (err) {
+        logger.warn({ repo: vault.repoFullName, err }, "Failed to check repo access — repo may have been deleted");
+        warning = "repo_inaccessible";
+      }
 
       // Determine isReadOnly and reason based on vault type (org vs personal)
       let isReadOnly = false;
@@ -218,6 +227,7 @@ export async function getVaultsForUser(
         environments: environments.map((e) => e.name), // String array for backwards compatibility
         environmentDetails: environments, // Full environment info with types
         permission,
+        ...(warning && { warning }),
         isPrivate: vault.isPrivate,
         isReadOnly,
         readonlyReason,

@@ -11,7 +11,8 @@ class VaultsApiClient extends BaseApiClient {
         repoAvatar: string
         secretCount: number
         environments: string[]
-        permission: string
+        permission: string | null
+        warning?: string
         isPrivate: boolean
         isReadOnly: boolean
         readonlyReason: ReadonlyReason
@@ -40,6 +41,7 @@ class VaultsApiClient extends BaseApiClient {
       environments: v.environments,
       secrets_count: v.secretCount,
       permission: v.permission as Vault['permission'],
+      warning: v.warning as Vault['warning'],
       is_private: v.isPrivate,
       is_read_only: v.isReadOnly,
       readonly_reason: v.readonlyReason,
@@ -68,7 +70,7 @@ class VaultsApiClient extends BaseApiClient {
         repoAvatar: string
         secretCount: number
         environments: string[]
-        permission: string
+        permission: string | null
         isPrivate: boolean
         isReadOnly: boolean
         readonlyReason: ReadonlyReason
