@@ -22,11 +22,14 @@ pnpm run clear        # Clear Docusaurus cache
 ```
 docs/
 ├── intro.md          # Getting started (landing page)
+├── installation.md   # Installation guide
 ├── cli.md            # CLI reference
 ├── api.md            # API reference
 ├── ci-cd.md          # CI/CD integration
-├── mcp.md            # MCP Server for AI tools
+├── mcp.md            # MCP Server for AI tools (9 tools)
+├── ai-agents.md      # AI agents integration (keyway run)
 ├── security.md       # Security & permissions
+├── organizations.md  # Organizations & billing
 └── integrations.md   # Provider integrations (Vercel, etc.)
 ```
 
