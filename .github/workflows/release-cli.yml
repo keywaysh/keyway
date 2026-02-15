@@ -96,7 +96,7 @@ jobs:
           registry-url: "https://registry.npmjs.org"
 
       - name: Update npm for OIDC support
-        run: npm install -g npm@latest
+        run: npm install -g npm@11.7.0
 
       - name: Copy README to npm
         run: cp README.md npm/README.md
