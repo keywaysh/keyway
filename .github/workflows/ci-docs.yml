@@ -1,20 +1,20 @@
-name: "CI: Dashboard"
+name: "CI: Docs"
 
 on:
   push:
     branches: [main]
     paths:
-      - "packages/dashboard/**"
-      - ".github/workflows/ci-dashboard.yml"
+      - "packages/docs/**"
+      - ".github/workflows/ci-docs.yml"
   pull_request:
     branches: [main]
     paths:
-      - "packages/dashboard/**"
-      - ".github/workflows/ci-dashboard.yml"
+      - "packages/docs/**"
+      - ".github/workflows/ci-docs.yml"
 
 defaults:
   run:
-    working-directory: packages/dashboard
+    working-directory: packages/docs
 
 jobs:
   build:
@@ -33,12 +33,6 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
         working-directory: .
-
-      - name: Lint
-        run: pnpm run lint
-
-      - name: Run tests
-        run: pnpm test
 
       - name: Build
         run: pnpm run build

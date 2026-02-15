@@ -30,13 +30,3 @@ packages/docs/docs
 packages/docs/build
 packages/docs/src
 packages/docs/static
-
-# Legacy cloned repos
-keyway-backend
-keyway-dashboard
-keyway-crypto
-keyway-docs
-keyway-mcp
-keyway-landing
-keyway-admin
-keyway-action
