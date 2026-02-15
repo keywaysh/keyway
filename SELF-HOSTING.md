@@ -113,7 +113,7 @@ GITHUB_APP_PRIVATE_KEY=base64encodedkey...
 GITHUB_APP_NAME=keyway         # App slug from the URL
 ```
 
-The `setup.sh` script can auto-generate `ENCRYPTION_KEY` and `JWT_SECRET` for you.
+`make setup` can auto-generate `ENCRYPTION_KEY` and `JWT_SECRET` for you.
 
 ### URL Defaults
 
@@ -309,8 +309,8 @@ KEYWAY_API_URL=https://api.example.com npx @keywaysh/mcp
 For local development with `keyway.local` domains and mkcert certificates:
 
 ```bash
-# Run the setup script (configures /etc/hosts and generates certs)
-./setup.sh
+# Run setup (configures /etc/hosts and generates certs)
+make setup
 
 # Use the local Caddyfile
 CADDYFILE=./Caddyfile docker compose up --build
@@ -322,10 +322,10 @@ This gives you:
 
 Alternatively, run services directly without Docker:
 ```bash
-./dev.sh              # Starts crypto, backend, and dashboard
-./dev.sh backend      # Backend only
-./dev.sh dashboard    # Dashboard only
-./dev.sh docker       # Via Docker Compose
+make dev              # Starts crypto, backend, and dashboard
+make dev-backend      # Backend only
+make dev-dashboard    # Dashboard only
+make docker           # Via Docker Compose
 ```
 
 ---

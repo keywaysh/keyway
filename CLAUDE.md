@@ -82,11 +82,20 @@ pnpm --filter keyway-docs start      # Dev server at localhost:3000
 pnpm --filter keyway-docs build      # Production build
 ```
 
-### Docker (self-hosting)
+### Root Makefile
 ```bash
-docker compose up --build             # Full stack
-./dev.sh                              # Dev servers without Docker
-./setup.sh                            # First-time setup (secrets, hosts, certs)
+make help             # Show all targets
+make setup            # First-time setup (secrets, hosts, certs)
+make install          # pnpm install + go mod download
+make dev              # Start all services (crypto, backend, dashboard)
+make dev-backend      # Backend only
+make dev-dashboard    # Dashboard only
+make dev-crypto       # Crypto only
+make build            # Build all (turbo + go)
+make test             # Run all tests
+make lint             # Lint all packages
+make docker           # docker compose up --build
+make clean            # Clean build artifacts
 ```
 
 ## Architecture

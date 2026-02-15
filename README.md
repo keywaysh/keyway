@@ -9,7 +9,7 @@ GitHub-native secrets management. If you have repo access, you get secret access
 ```bash
 git clone git@github.com:keywaysh/keyway.git
 cd keyway
-./setup.sh
+make setup
 nano .env
 docker compose up --build
 ```
@@ -35,8 +35,7 @@ keyway/
 ├── docker-compose.yml Self-hosting orchestration
 ├── Caddyfile          Local dev reverse proxy (mkcert)
 ├── Caddyfile.production  Production reverse proxy (Let's Encrypt)
-├── setup.sh           Local dev setup (secrets, hosts, certs)
-├── dev.sh             Dev server launcher (hot reload)
+├── Makefile           Dev workflows (make help for all targets)
 ├── turbo.json         Turborepo task config
 └── pnpm-workspace.yaml
 ```
@@ -55,26 +54,23 @@ keyway/
 ### Install & Build
 
 ```bash
-pnpm install              # Install all TypeScript dependencies
-pnpm build                # Build all TypeScript packages (via Turborepo)
-
-cd packages/cli && make build      # Build CLI binary
-cd packages/crypto && make build   # Build crypto service
+make install              # Install all deps (pnpm + Go modules)
+make build                # Build everything (Turborepo + Go binaries)
 ```
 
 ### Dev Server (without Docker)
 
 ```bash
-./dev.sh                  # Start crypto + backend + dashboard with hot reload
-./dev.sh backend          # Backend only
-./dev.sh dashboard        # Dashboard only
-./dev.sh crypto           # Crypto gRPC only
+make dev                  # Start crypto + backend + dashboard with hot reload
+make dev-backend          # Backend only
+make dev-dashboard        # Dashboard only
+make dev-crypto           # Crypto gRPC only
 ```
 
 ### Dev Server (with Docker)
 
 ```bash
-docker compose up --build
+make docker               # or: docker compose up --build
 ```
 
 ### Per-Package Commands
