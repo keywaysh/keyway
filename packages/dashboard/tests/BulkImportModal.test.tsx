@@ -16,7 +16,7 @@ describe('BulkImportModal', () => {
   const mockOnClose = vi.fn()
   const mockOnImport = vi.fn()
   const defaultEnvironments = ['default', 'staging', 'production']
-  const defaultExistingSecrets: string[] = []
+  const defaultExistingSecrets = new Set<string>()
 
   beforeEach(() => {
     vi.clearAllMocks()
@@ -204,7 +204,7 @@ describe('BulkImportModal', () => {
           onClose={mockOnClose}
           onImport={mockOnImport}
           environments={defaultEnvironments}
-          existingSecretNames={['API_KEY', 'DATABASE_URL']}
+          existingSecretNames={new Set(['API_KEY', 'DATABASE_URL'])}
         />
       )
 
@@ -347,7 +347,7 @@ describe('BulkImportModal', () => {
           onClose={mockOnClose}
           onImport={mockOnImport}
           environments={defaultEnvironments}
-          existingSecretNames={['API_KEY']}
+          existingSecretNames={new Set(['API_KEY'])}
         />
       )
 

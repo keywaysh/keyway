@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor, fireEvent } from '@testing-library/react'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import ActivityPage from '../../app/(dashboard)/activity/page'
 import type { ActivityEvent } from '../../lib/types'
 
@@ -94,6 +95,15 @@ vi.mock('../../lib/api', () => ({
   },
 }))
 
+function renderWithProviders(ui: React.ReactElement) {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  })
+  return render(
+    <QueryClientProvider client={queryClient}>{ui}</QueryClientProvider>
+  )
+}
+
 describe('ActivityPage', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -103,7 +113,7 @@ describe('ActivityPage', () => {
 
   describe('Page Header', () => {
     it('should render page title and description', async () => {
-      render(<ActivityPage />)
+      renderWithProviders(<ActivityPage />)
 
       await waitFor(() => {
         expect(screen.getByText('Activity')).toBeInTheDocument()
@@ -114,7 +124,7 @@ describe('ActivityPage', () => {
 
   describe('Category Filters', () => {
     it('should render all category filter buttons', async () => {
-      render(<ActivityPage />)
+      renderWithProviders(<ActivityPage />)
 
       await waitFor(() => {
         expect(screen.getByText('All')).toBeInTheDocument()
@@ -129,7 +139,7 @@ describe('ActivityPage', () => {
     })
 
     it('should filter by category when clicked', async () => {
-      render(<ActivityPage />)
+      renderWithProviders(<ActivityPage />)
 
       await waitFor(() => {
         // Click Secrets filter
@@ -144,7 +154,7 @@ describe('ActivityPage', () => {
     })
 
     it('should show counts for categories with events', async () => {
-      render(<ActivityPage />)
+      renderWithProviders(<ActivityPage />)
 
       await waitFor(() => {
         // Secrets should show count 1
@@ -157,7 +167,7 @@ describe('ActivityPage', () => {
   describe('Error State', () => {
     it('should show error state when API fails', async () => {
       mockApiError = new Error('Network error')
-      render(<ActivityPage />)
+      renderWithProviders(<ActivityPage />)
 
       await waitFor(() => {
         expect(screen.getByTestId('error-state')).toBeInTheDocument()
@@ -167,7 +177,7 @@ describe('ActivityPage', () => {
 
     it('should have retry button', async () => {
       mockApiError = new Error('Network error')
-      render(<ActivityPage />)
+      renderWithProviders(<ActivityPage />)
 
       await waitFor(() => {
         expect(screen.getByText('Retry')).toBeInTheDocument()
@@ -178,7 +188,7 @@ describe('ActivityPage', () => {
   describe('Empty State', () => {
     it('should show empty state when no events', async () => {
       mockApiResponse = []
-      render(<ActivityPage />)
+      renderWithProviders(<ActivityPage />)
 
       await waitFor(() => {
         expect(screen.getByTestId('empty-state')).toBeInTheDocument()
@@ -188,7 +198,7 @@ describe('ActivityPage', () => {
 
     it('should show category-specific empty message', async () => {
       mockApiResponse = []
-      render(<ActivityPage />)
+      renderWithProviders(<ActivityPage />)
 
       await waitFor(() => {
         // Click on Secrets filter
@@ -204,7 +214,7 @@ describe('ActivityPage', () => {
 
   describe('Activity Events', () => {
     it('should render activity events', async () => {
-      render(<ActivityPage />)
+      renderWithProviders(<ActivityPage />)
 
       await waitFor(() => {
         // testuser appears in multiple events
@@ -213,7 +223,7 @@ describe('ActivityPage', () => {
     })
 
     it('should show vault names', async () => {
-      render(<ActivityPage />)
+      renderWithProviders(<ActivityPage />)
 
       await waitFor(() => {
         // owner/repo appears in multiple events
@@ -222,7 +232,7 @@ describe('ActivityPage', () => {
     })
 
     it('should show secret names', async () => {
-      render(<ActivityPage />)
+      renderWithProviders(<ActivityPage />)
 
       await waitFor(() => {
         expect(screen.getByText('API_KEY')).toBeInTheDocument()
@@ -230,7 +240,7 @@ describe('ActivityPage', () => {
     })
 
     it('should group events by date', async () => {
-      render(<ActivityPage />)
+      renderWithProviders(<ActivityPage />)
 
       await waitFor(() => {
         expect(screen.getByText('Today')).toBeInTheDocument()
@@ -239,7 +249,7 @@ describe('ActivityPage', () => {
     })
 
     it('should link vault names to vault pages', async () => {
-      render(<ActivityPage />)
+      renderWithProviders(<ActivityPage />)
 
       await waitFor(() => {
         const links = screen.getAllByText('owner/repo')
@@ -250,7 +260,7 @@ describe('ActivityPage', () => {
 
   describe('Action Labels', () => {
     it('should display human-readable action for secret_created', async () => {
-      render(<ActivityPage />)
+      renderWithProviders(<ActivityPage />)
 
       await waitFor(() => {
         // "created" appears in action descriptions
@@ -260,7 +270,7 @@ describe('ActivityPage', () => {
     })
 
     it('should display human-readable action for vault_created', async () => {
-      render(<ActivityPage />)
+      renderWithProviders(<ActivityPage />)
 
       await waitFor(() => {
         expect(screen.getByText(/created vault/)).toBeInTheDocument()
