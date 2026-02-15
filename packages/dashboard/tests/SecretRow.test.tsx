@@ -3,6 +3,14 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { SecretRow, SecretRowSkeleton } from '../app/components/dashboard/SecretRow'
 import type { Secret } from '../lib/types'
 
+// Mock next/image
+vi.mock('next/image', () => ({
+  default: ({ src, alt, ...props }: { src: string; alt: string }) => (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img src={src} alt={alt} {...props} />
+  ),
+}))
+
 // Mock environment colors
 vi.mock('@/lib/environment-colors', () => ({
   getEnvironmentColor: (env: string) => ({

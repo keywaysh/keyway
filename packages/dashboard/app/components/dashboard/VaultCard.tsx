@@ -31,6 +31,11 @@ interface VaultCardProps {
 
 // Check if vault has any warnings (e.g., missing production secrets)
 function getVaultWarning(vault: Vault): string | null {
+  // Highest priority: repo is gone
+  if (vault.warning === 'repo_inaccessible') {
+    return 'Repo not found'
+  }
+
   // If there are syncs configured but one is stale (vault updated after last sync)
   if (vault.syncs && vault.syncs.length > 0) {
     const vaultUpdatedAt = new Date(vault.updated_at)
@@ -58,8 +63,9 @@ function getVaultWarning(vault: Vault): string | null {
 }
 
 export const VaultCard = memo(function VaultCard({ vault, onDelete }: VaultCardProps) {
+  const isInaccessible = vault.warning === 'repo_inaccessible'
   const effectivePermission = vault.permission || 'read'
-  const canDelete = effectivePermission === 'admin'
+  const canDelete = effectivePermission === 'admin' || isInaccessible
   const warning = getVaultWarning(vault)
   const hasSyncs = vault.syncs && vault.syncs.length > 0
 
@@ -73,6 +79,100 @@ export const VaultCard = memo(function VaultCard({ vault, onDelete }: VaultCardP
   const syncInfo = vault.syncs?.[0]
   const syncProvider = syncInfo ? providerConfig[syncInfo.provider] : null
 
+  const card = (
+    <Card className={`p-4 transition-all${isInaccessible ? ' opacity-60' : ' hover:ring-2 hover:ring-ring/20'}`}>
+      {/* Header: Avatar + Name + Subtitle */}
+      <div className="flex items-start gap-3">
+        <Image
+          src={vault.repo_avatar}
+          alt={vault.repo_owner}
+          width={40}
+          height={40}
+          className="rounded-lg ring-1 ring-border shrink-0"
+        />
+        <div className="flex-1 min-w-0">
+          <h3 className="font-semibold text-foreground truncate group-hover:text-primary transition-colors">
+            {vault.repo_owner}/{vault.repo_name}
+          </h3>
+          <p className="text-sm text-muted-foreground truncate">
+            {warning ? (
+              <span className="text-amber-500">{warning}</span>
+            ) : syncInfo ? (
+              `Syncing to ${syncProvider?.label || syncInfo.provider}`
+            ) : (
+              `Updated ${formatRelativeTime(vault.updated_at, { daysThreshold: 7 })}`
+            )}
+          </p>
+        </div>
+        {canDelete && onDelete && (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild onClick={(e) => e.preventDefault()}>
+              <Button
+                variant="ghost"
+                size="icon"
+                className={`h-7 w-7 text-muted-foreground hover:text-foreground shrink-0 transition-opacity${isInaccessible ? '' : ' opacity-0 group-hover:opacity-100'}`}
+              >
+                <MoreVertical className="h-4 w-4" />
+                <span className="sr-only">Vault actions</span>
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem
+                onClick={handleDelete}
+                className="text-destructive focus:text-destructive"
+              >
+                <Trash2 className="h-4 w-4 mr-2" />
+                Delete vault
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
+      </div>
+
+      {/* Stats row */}
+      <div className="grid grid-cols-2 gap-px mt-4 rounded-lg overflow-hidden border border-border">
+        <div className="bg-muted/30 p-3">
+          <div className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
+            Secrets
+          </div>
+          <div className="text-xl font-semibold text-foreground">
+            {vault.secrets_count}
+          </div>
+        </div>
+        <div className="bg-muted/30 p-3 border-l border-border">
+          <div className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
+            Envs
+          </div>
+          <div className="text-xl font-semibold text-foreground">
+            {vault.environments.length}
+          </div>
+        </div>
+      </div>
+
+      {/* Footer: Badge + Updated by */}
+      <div className="flex items-center gap-2 mt-4">
+        {hasSyncs && (
+          <Badge
+            variant="outline"
+            className="text-xs text-emerald-500 border-emerald-500/30 bg-emerald-500/10"
+          >
+            <RefreshCw className="size-3 mr-1" />
+            Active
+          </Badge>
+        )}
+        {vault.last_modified_by && (
+          <span className="text-xs text-muted-foreground">
+            Updated by {vault.last_modified_by}
+          </span>
+        )}
+      </div>
+    </Card>
+  )
+
+  if (isInaccessible) {
+    return <div className="group">{card}</div>
+  }
+
   return (
     <Link
       href={`/vaults/${vault.repo_owner}/${vault.repo_name}`}
@@ -82,93 +182,7 @@ export const VaultCard = memo(function VaultCard({ vault, onDelete }: VaultCardP
         repoName: `${vault.repo_owner}/${vault.repo_name}`,
       })}
     >
-      <Card className="p-4 hover:ring-2 hover:ring-ring/20 transition-all">
-        {/* Header: Avatar + Name + Subtitle */}
-        <div className="flex items-start gap-3">
-          <Image
-            src={vault.repo_avatar}
-            alt={vault.repo_owner}
-            width={40}
-            height={40}
-            className="rounded-lg ring-1 ring-border shrink-0"
-          />
-          <div className="flex-1 min-w-0">
-            <h3 className="font-semibold text-foreground truncate group-hover:text-primary transition-colors">
-              {vault.repo_owner}/{vault.repo_name}
-            </h3>
-            <p className="text-sm text-muted-foreground truncate">
-              {warning ? (
-                <span className="text-amber-500">{warning}</span>
-              ) : syncInfo ? (
-                `Syncing to ${syncProvider?.label || syncInfo.provider}`
-              ) : (
-                `Updated ${formatRelativeTime(vault.updated_at, { daysThreshold: 7 })}`
-              )}
-            </p>
-          </div>
-          {canDelete && onDelete && (
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild onClick={(e) => e.preventDefault()}>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-7 w-7 text-muted-foreground hover:text-foreground shrink-0 opacity-0 group-hover:opacity-100 transition-opacity"
-                >
-                  <MoreVertical className="h-4 w-4" />
-                  <span className="sr-only">Vault actions</span>
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuItem
-                  onClick={handleDelete}
-                  className="text-destructive focus:text-destructive"
-                >
-                  <Trash2 className="h-4 w-4 mr-2" />
-                  Delete vault
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          )}
-        </div>
-
-        {/* Stats row */}
-        <div className="grid grid-cols-2 gap-px mt-4 rounded-lg overflow-hidden border border-border">
-          <div className="bg-muted/30 p-3">
-            <div className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
-              Secrets
-            </div>
-            <div className="text-xl font-semibold text-foreground">
-              {vault.secrets_count}
-            </div>
-          </div>
-          <div className="bg-muted/30 p-3 border-l border-border">
-            <div className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
-              Envs
-            </div>
-            <div className="text-xl font-semibold text-foreground">
-              {vault.environments.length}
-            </div>
-          </div>
-        </div>
-
-        {/* Footer: Badge + Updated by */}
-        <div className="flex items-center gap-2 mt-4">
-          {hasSyncs && (
-            <Badge
-              variant="outline"
-              className="text-xs text-emerald-500 border-emerald-500/30 bg-emerald-500/10"
-            >
-              <RefreshCw className="size-3 mr-1" />
-              Active
-            </Badge>
-          )}
-          {vault.last_modified_by && (
-            <span className="text-xs text-muted-foreground">
-              Updated by {vault.last_modified_by}
-            </span>
-          )}
-        </div>
-      </Card>
+      {card}
     </Link>
   )
 })

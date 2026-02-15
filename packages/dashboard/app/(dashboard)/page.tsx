@@ -4,7 +4,7 @@ import { useEffect, useState, useRef, useMemo } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import Image from 'next/image'
 import Link from 'next/link'
-import { User, Building2, AlertTriangle } from 'lucide-react'
+import { User, Building2, AlertTriangle, X } from 'lucide-react'
 import { api } from '@/lib/api'
 import type { Vault, UserPlan } from '@/lib/types'
 import {
@@ -64,6 +64,7 @@ export default function DashboardPage() {
   const { user } = useAuth()
   const queryClient = useQueryClient()
   const [vaultToDelete, setVaultToDelete] = useState<Vault | null>(null)
+  const [inaccessibleBannerDismissed, setInaccessibleBannerDismissed] = useState(false)
   const hasFiredView = useRef(false)
 
   const {
@@ -86,6 +87,11 @@ export default function DashboardPage() {
   // Count vaults that are read-only due to plan limit exceeded
   const readonlyDueToPlanLimit = useMemo(() => {
     return vaults.filter(v => v.is_read_only && v.readonly_reason === 'plan_limit_exceeded').length
+  }, [vaults])
+
+  // Count vaults where the GitHub repo is no longer accessible
+  const inaccessibleVaultCount = useMemo(() => {
+    return vaults.filter(v => v.warning === 'repo_inaccessible').length
   }, [vaults])
 
   useEffect(() => {
@@ -180,6 +186,30 @@ export default function DashboardPage() {
                       </Link>
                     </p>
                   </div>
+                </div>
+              </div>
+            )}
+
+            {/* Inaccessible repo banner */}
+            {inaccessibleVaultCount > 0 && !inaccessibleBannerDismissed && (
+              <div className="p-4 rounded-lg border border-amber-200 bg-amber-50 dark:border-amber-800/50 dark:bg-amber-900/20">
+                <div className="flex items-start gap-3">
+                  <AlertTriangle className="h-5 w-5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+                  <div className="flex-1">
+                    <p className="text-sm font-medium text-amber-800 dark:text-amber-400">
+                      {inaccessibleVaultCount} vault{inaccessibleVaultCount > 1 ? 's have' : ' has'} a missing or inaccessible repo
+                    </p>
+                    <p className="text-xs text-amber-700 dark:text-amber-500 mt-1">
+                      The GitHub {inaccessibleVaultCount > 1 ? 'repositories were' : 'repository was'} deleted or the app was uninstalled. You can delete {inaccessibleVaultCount > 1 ? 'these vaults' : 'this vault'} to clean up.
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => setInaccessibleBannerDismissed(true)}
+                    className="text-amber-600 dark:text-amber-400 hover:text-amber-800 dark:hover:text-amber-300 shrink-0"
+                  >
+                    <X className="h-4 w-4" />
+                    <span className="sr-only">Dismiss</span>
+                  </button>
                 </div>
               </div>
             )}
