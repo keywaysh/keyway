@@ -138,3 +138,4 @@ Upgrade: [keyway.sh/settings](https://keyway.sh/settings)
 - [API](/api) - REST API and API keys
 - [Organizations](/organizations) - Team billing and management
 - [Security](/security) - Permissions and activity logs
+- [Self-Hosting](/self-hosting) - Deploy on your own infrastructure
