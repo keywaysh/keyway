@@ -12,6 +12,7 @@ const sidebars: SidebarsConfig = {
     'security',
     'organizations',
     'integrations',
+    'self-hosting',
   ],
 };
 
