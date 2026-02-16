@@ -192,7 +192,7 @@ Add `KEYWAY_API_URL` to your shell profile (`~/.bashrc`, `~/.zshrc`) to persist 
 
 ## Architecture
 
-```
+```text
                 ┌──────────┐
                 │  Caddy   │ :80, :443
                 │(reverse  │ Auto HTTPS via Let's Encrypt
@@ -241,8 +241,8 @@ Sends welcome emails and security alerts (new device login, impossible travel).
 
 ```bash
 RESEND_API_KEY=re_...
-EMAIL_FROM_ADDRESS=Keyway <hello@mail.example.com>
-EMAIL_FROM_NAME=hello@example.com
+EMAIL_FROM_ADDRESS=hello@mail.example.com
+EMAIL_FROM_NAME=Keyway
 ```
 
 Without this, no emails are sent. Users can still authenticate and use all features.
@@ -297,7 +297,7 @@ NETLIFY_CLIENT_SECRET=...
 
 ## GitHub Enterprise
 
-To use GitHub Enterprise Server instead of github.com:
+To use GitHub Enterprise Server instead of GitHub.com:
 
 ```bash
 GITHUB_URL=https://github.example.com
@@ -400,6 +400,6 @@ keyway login
 
 ### GitHub App callback fails
 Verify the callback URL in your GitHub App settings matches exactly:
-```
+```text
 https://api.example.com/v1/auth/callback
 ```
