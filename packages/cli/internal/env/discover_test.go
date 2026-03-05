@@ -12,7 +12,7 @@ func TestDeriveEnvFromFile(t *testing.T) {
 		expected string
 	}{
 		{".env", "development"},
-		{".env.local", "local"},
+		{".env.local", "development"},
 		{".env.development", "development"},
 		{".env.production", "production"},
 		{".env.staging", "staging"},
@@ -121,8 +121,8 @@ func TestDiscover_IncludesEnvLocal(t *testing.T) {
 	for _, c := range candidates {
 		if c.File == ".env.local" {
 			foundEnvLocal = true
-			if c.Env != "local" {
-				t.Errorf(".env.local should map to 'local', got %q", c.Env)
+			if c.Env != "development" {
+				t.Errorf(".env.local should map to 'development', got %q", c.Env)
 			}
 		}
 	}
@@ -215,13 +215,24 @@ func TestDeriveEnvFromFile_EdgeCases(t *testing.T) {
 	}{
 		// Edge cases
 		{".env.", ""},                             // Empty suffix
-		{".env.dev.local", "dev.local"},           // Multiple dots
 		{"config", "development"},                 // Not an env file format
 		{"", "development"},                       // Empty string
-		{".env.PRODUCTION", "PRODUCTION"},         // Case preserved
+		{".env.PRODUCTION", "production"},         // Case normalized
 		{"./path/to/.env.staging", "staging"},     // Relative path
-		{"/absolute/path/.env.prod", "prod"},      // Absolute path
 		{".env.development.backup", "development.backup"}, // Multiple parts
+		// Alias mappings
+		{".env.local", "development"},             // Next.js/Vite local
+		{".env.dev", "development"},               // Common shorthand
+		{"/absolute/path/.env.prod", "production"},// Common shorthand
+		{".env.stage", "staging"},                 // Common shorthand
+		{".env.development.local", "development"}, // Next.js local override
+		{".env.production.local", "production"},   // Next.js local override
+		{".env.staging.local", "staging"},         // Next.js local override
+		{".env.dev.local", "development"},         // Shorthand + local
+		{".env.prod.local", "production"},         // Shorthand + local
+		{".env.stage.local", "staging"},           // Shorthand + local
+		{".env.test.local", "development"},        // Next.js local override
+		{".env.stg", "staging"},                   // Common shorthand
 	}
 
 	for _, tt := range tests {
