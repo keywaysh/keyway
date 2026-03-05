@@ -8,7 +8,7 @@ import (
 
 	"github.com/fatih/color"
 	"github.com/keywaysh/cli/internal/analytics"
-	"github.com/keywaysh/cli/internal/env"
+	envpkg "github.com/keywaysh/cli/internal/env"
 	"github.com/keywaysh/cli/internal/ui"
 	"github.com/spf13/cobra"
 )
@@ -186,14 +186,14 @@ func runDiffWithDeps(opts DiffOptions, deps *Dependencies) error {
 		if err != nil {
 			pullErr1 = err
 		} else {
-			secrets1 = env.Parse(resp1.Content)
+			secrets1 = envpkg.Parse(resp1.Content)
 		}
 
 		resp2, err := client.PullSecrets(ctx, repo, env2)
 		if err != nil {
 			pullErr2 = err
 		} else {
-			secrets2 = env.Parse(resp2.Content)
+			secrets2 = envpkg.Parse(resp2.Content)
 		}
 
 		return nil
@@ -241,18 +241,8 @@ func runDiffWithDeps(opts DiffOptions, deps *Dependencies) error {
 	return nil
 }
 
-func normalizeEnvName(env string) string {
-	env = strings.ToLower(strings.TrimSpace(env))
-	switch env {
-	case "prod":
-		return "production"
-	case "dev":
-		return "development"
-	case "stg":
-		return "staging"
-	default:
-		return env
-	}
+func normalizeEnvName(name string) string {
+	return envpkg.NormalizeEnvName(name)
 }
 
 func compareSecrets(env1, env2 string, secrets1, secrets2 map[string]string, includeValues bool) *DiffResult {

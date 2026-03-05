@@ -40,17 +40,31 @@ func Discover() []Candidate {
 	return candidates
 }
 
-// envAliases maps common framework-specific env file suffixes to standard
-// vault environment names (e.g. Next.js/Vite ".env.local" → "development").
+// envAliases maps common framework-specific env file suffixes and shorthand
+// names to standard vault environment names.
 var envAliases = map[string]string{
 	"local":             "development",
 	"dev":               "development",
 	"prod":              "production",
 	"stage":             "staging",
+	"stg":               "staging",
 	"development.local": "development",
 	"production.local":  "production",
 	"staging.local":     "staging",
 	"test.local":        "development",
+	"dev.local":         "development",
+	"prod.local":        "production",
+	"stage.local":       "staging",
+}
+
+// NormalizeEnvName maps shorthand or framework-specific environment names
+// to their canonical vault environment names.
+func NormalizeEnvName(name string) string {
+	name = strings.ToLower(strings.TrimSpace(name))
+	if mapped, ok := envAliases[name]; ok {
+		return mapped
+	}
+	return name
 }
 
 // DeriveEnvFromFile derives the environment name from a filename.
@@ -66,10 +80,7 @@ func DeriveEnvFromFile(file string) string {
 	}
 	if strings.HasPrefix(base, ".env.") {
 		suffix := strings.TrimPrefix(base, ".env.")
-		if mapped, ok := envAliases[suffix]; ok {
-			return mapped
-		}
-		return suffix
+		return NormalizeEnvName(suffix)
 	}
 	return "development"
 }

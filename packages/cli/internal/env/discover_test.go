@@ -217,7 +217,7 @@ func TestDeriveEnvFromFile_EdgeCases(t *testing.T) {
 		{".env.", ""},                             // Empty suffix
 		{"config", "development"},                 // Not an env file format
 		{"", "development"},                       // Empty string
-		{".env.PRODUCTION", "PRODUCTION"},         // Case preserved
+		{".env.PRODUCTION", "production"},         // Case normalized
 		{"./path/to/.env.staging", "staging"},     // Relative path
 		{".env.development.backup", "development.backup"}, // Multiple parts
 		// Alias mappings
@@ -228,7 +228,11 @@ func TestDeriveEnvFromFile_EdgeCases(t *testing.T) {
 		{".env.development.local", "development"}, // Next.js local override
 		{".env.production.local", "production"},   // Next.js local override
 		{".env.staging.local", "staging"},         // Next.js local override
+		{".env.dev.local", "development"},         // Shorthand + local
+		{".env.prod.local", "production"},         // Shorthand + local
+		{".env.stage.local", "staging"},           // Shorthand + local
 		{".env.test.local", "development"},        // Next.js local override
+		{".env.stg", "staging"},                   // Common shorthand
 	}
 
 	for _, tt := range tests {
