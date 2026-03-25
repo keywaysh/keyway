@@ -247,12 +247,16 @@ export async function getVaultsForUser(
 async function findVaultByForgeRepoId(repoFullName: string) {
   try {
     const repoInfo = await getRepoInfoWithApp(repoFullName);
-    if (!repoInfo?.repoId) return null;
+    if (!repoInfo?.repoId) {
+      return null;
+    }
 
     const vault = await db.query.vaults.findFirst({
       where: and(eq(vaults.forgeRepoId, repoInfo.repoId), eq(vaults.forgeType, "github")),
     });
-    if (!vault) return null;
+    if (!vault) {
+      return null;
+    }
 
     // Self-heal: update the stored name to the current one
     await db

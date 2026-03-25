@@ -533,7 +533,7 @@ export async function getRepoInfo(
 
     const data = (await response.json()) as GitHubRepo;
     return {
-      repoId: data.id != null ? String(data.id) : null,
+      repoId: data.id !== undefined && data.id !== null ? String(data.id) : null,
       isPrivate: data.private === true,
       isOrganization: data.owner?.type === "Organization",
     };
