@@ -1,6 +1,6 @@
 import { db, vaults, vaultEnvironments } from "../db";
 import { eq, desc, and, asc } from "drizzle-orm";
-import { getUserRoleWithApp } from "../utils/github";
+import { getUserRoleWithApp, getRepoInfoWithApp } from "../utils/github";
 import type { UserPlan, EnvironmentType } from "../db/schema";
 import { PLANS } from "../config/plans";
 import { DEFAULT_ENVIRONMENTS } from "../types";
@@ -241,6 +241,55 @@ export async function getVaultsForUser(
 }
 
 /**
+ * Try to find a vault by its forge repo ID (fallback for repo renames).
+ * If found, self-heal by updating repoFullName to the current name.
+ */
+async function findVaultByForgeRepoId(repoFullName: string) {
+  try {
+    const repoInfo = await getRepoInfoWithApp(repoFullName);
+    if (!repoInfo?.repoId) return null;
+
+    const vault = await db.query.vaults.findFirst({
+      where: and(eq(vaults.forgeRepoId, repoInfo.repoId), eq(vaults.forgeType, "github")),
+    });
+    if (!vault) return null;
+
+    // Self-heal: update the stored name to the current one
+    await db
+      .update(vaults)
+      .set({ repoFullName, updatedAt: new Date() })
+      .where(eq(vaults.id, vault.id));
+
+    logger.info(
+      { vaultId: vault.id, oldName: vault.repoFullName, newName: repoFullName },
+      "Vault repoFullName self-healed after repo rename"
+    );
+
+    return { ...vault, repoFullName };
+  } catch (error) {
+    logger.warn({ error, repoFullName }, "Failed to resolve vault by forge repo ID");
+    return null;
+  }
+}
+
+/**
+ * Backfill forgeRepoId for a vault that was created before this column existed.
+ */
+async function backfillForgeRepoId(vaultId: string, repoFullName: string) {
+  try {
+    const repoInfo = await getRepoInfoWithApp(repoFullName);
+    if (repoInfo?.repoId) {
+      await db
+        .update(vaults)
+        .set({ forgeRepoId: repoInfo.repoId })
+        .where(eq(vaults.id, vaultId));
+    }
+  } catch {
+    // Best-effort, don't block the request
+  }
+}
+
+/**
  * Get vault by repo full name with access check
  * Uses GitHub App token to check user's permission
  */
@@ -249,7 +298,7 @@ export async function getVaultByRepo(
   username: string,
   plan: UserPlan
 ): Promise<{ vault: VaultDetails; hasAccess: boolean }> {
-  const vault = await db.query.vaults.findFirst({
+  let vault = await db.query.vaults.findFirst({
     where: eq(vaults.repoFullName, repoFullName),
     with: {
       secrets: true,
@@ -259,7 +308,28 @@ export async function getVaultByRepo(
   });
 
   if (!vault) {
-    return { vault: null as unknown as VaultDetails, hasAccess: false };
+    // Fallback: repo may have been renamed, try lookup by forge repo ID
+    const fallback = await findVaultByForgeRepoId(repoFullName);
+    if (!fallback) {
+      return { vault: null as unknown as VaultDetails, hasAccess: false };
+    }
+    // Re-fetch with relations after self-heal
+    vault = await db.query.vaults.findFirst({
+      where: eq(vaults.id, fallback.id),
+      with: {
+        secrets: true,
+        owner: true,
+        vaultSyncs: true,
+      },
+    });
+    if (!vault) {
+      return { vault: null as unknown as VaultDetails, hasAccess: false };
+    }
+  }
+
+  // Lazy backfill forgeRepoId for pre-existing vaults
+  if (!vault.forgeRepoId) {
+    void backfillForgeRepoId(vault.id, vault.repoFullName).catch(() => {});
   }
 
   // Check user's role using GitHub App token
@@ -334,9 +404,20 @@ export async function getVaultByRepo(
  * Get vault by repo full name (internal, no access check)
  */
 export async function getVaultByRepoInternal(repoFullName: string) {
-  return db.query.vaults.findFirst({
+  const vault = await db.query.vaults.findFirst({
     where: eq(vaults.repoFullName, repoFullName),
   });
+
+  if (vault) {
+    // Lazy backfill forgeRepoId for pre-existing vaults
+    if (!vault.forgeRepoId) {
+      void backfillForgeRepoId(vault.id, vault.repoFullName).catch(() => {});
+    }
+    return vault;
+  }
+
+  // Fallback: repo may have been renamed, try lookup by forge repo ID
+  return (await findVaultByForgeRepoId(repoFullName)) ?? undefined;
 }
 
 /**

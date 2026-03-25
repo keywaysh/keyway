@@ -299,6 +299,7 @@ export async function vaultsRoutes(fastify: FastifyInstance) {
         .insert(vaults)
         .values({
           repoFullName: body.repoFullName,
+          forgeRepoId: repoInfo.repoId,
           ownerId: user.id,
           orgId: org?.id ?? null,
           isPrivate: repoInfo.isPrivate,
