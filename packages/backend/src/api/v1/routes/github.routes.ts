@@ -14,7 +14,7 @@ import {
   logActivity,
   getInstallationToken,
 } from "../../../services";
-import { db, users, vcsAppInstallations } from "../../../db";
+import { db, users, vaults, vcsAppInstallations, vcsAppInstallationRepos } from "../../../db";
 import { eq, and } from "drizzle-orm";
 import { sendData } from "../../../lib/response";
 import { BadRequestError, ForbiddenError } from "../../../lib/errors";
@@ -58,9 +58,15 @@ interface GitHubWebhookRepository {
 interface GitHubWebhookPayload {
   action: string;
   installation: GitHubWebhookInstallation;
+  repository?: GitHubWebhookRepository;
   repositories?: GitHubWebhookRepository[];
   repositories_added?: GitHubWebhookRepository[];
   repositories_removed?: GitHubWebhookRepository[];
+  changes?: {
+    repository?: {
+      name?: { from: string };
+    };
+  };
   sender?: {
     id: number;
     login: string;
@@ -347,6 +353,10 @@ export async function githubRoutes(fastify: FastifyInstance) {
 
         case "membership":
           await handleMembershipEvent(payload, fastify);
+          break;
+
+        case "repository":
+          await handleRepositoryEvent(payload, fastify);
           break;
 
         default:
@@ -781,4 +791,47 @@ async function handleMembershipEvent(payload: unknown, fastify: FastifyInstance)
       );
     }
   }
+}
+
+/**
+ * Handle repository.* events (e.g., renamed)
+ */
+async function handleRepositoryEvent(
+  payload: GitHubWebhookPayload,
+  fastify: FastifyInstance
+): Promise<void> {
+  const { action, repository, changes } = payload;
+
+  if (action !== "renamed" || !repository) {
+    return;
+  }
+
+  const forgeRepoId = String(repository.id);
+  const newFullName = repository.full_name;
+  const oldName = changes?.repository?.name?.from;
+
+  fastify.log.info(
+    { forgeRepoId, newFullName, oldName },
+    "Repository renamed, updating vault and installation repos"
+  );
+
+  // Update vault repoFullName by forge repo ID
+  const updated = await db
+    .update(vaults)
+    .set({ repoFullName: newFullName, updatedAt: new Date() })
+    .where(and(eq(vaults.forgeRepoId, forgeRepoId), eq(vaults.forgeType, "github")))
+    .returning({ id: vaults.id });
+
+  if (updated.length > 0) {
+    fastify.log.info(
+      { vaultId: updated[0].id, newFullName },
+      "Vault repoFullName updated after repo rename"
+    );
+  }
+
+  // Also update vcsAppInstallationRepos if present
+  await db
+    .update(vcsAppInstallationRepos)
+    .set({ repoFullName: newFullName })
+    .where(eq(vcsAppInstallationRepos.repoId, repository.id));
 }

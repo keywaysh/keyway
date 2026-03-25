@@ -48,6 +48,7 @@ interface GitHubTokenResponse {
 }
 
 interface GitHubRepo {
+  id?: number;
   private?: boolean;
   owner?: {
     login: string;
@@ -504,7 +505,7 @@ export async function getUserFromToken(accessToken: string) {
 export async function getRepoInfo(
   accessToken: string,
   repoFullName: string
-): Promise<{ isPrivate: boolean; isOrganization: boolean } | null> {
+): Promise<{ repoId: string | null; isPrivate: boolean; isOrganization: boolean } | null> {
   const [owner, repo] = repoFullName.split("/");
 
   try {
@@ -532,6 +533,7 @@ export async function getRepoInfo(
 
     const data = (await response.json()) as GitHubRepo;
     return {
+      repoId: data.id !== undefined && data.id !== null ? String(data.id) : null,
       isPrivate: data.private === true,
       isOrganization: data.owner?.type === "Organization",
     };
@@ -635,7 +637,7 @@ export async function getRepoCollaborators(
  */
 export async function getRepoInfoWithApp(
   repoFullName: string
-): Promise<{ isPrivate: boolean; isOrganization: boolean } | null> {
+): Promise<{ repoId: string | null; isPrivate: boolean; isOrganization: boolean } | null> {
   const [owner, repo] = repoFullName.split("/");
   const token = await getTokenForRepo(owner, repo);
 

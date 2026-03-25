@@ -172,6 +172,7 @@ export const vaults = pgTable(
     // Multi-forge support
     forgeType: forgeTypeEnum("forge_type").notNull().default("github"),
     repoFullName: text("repo_full_name").notNull(), // Unique per forge (see constraint below)
+    forgeRepoId: text("forge_repo_id"), // Immutable repo ID from the forge (for rename detection)
     ownerId: uuid("owner_id")
       .notNull()
       .references(() => users.id),

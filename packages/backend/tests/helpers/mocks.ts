@@ -90,6 +90,7 @@ export const mockOrgPaid = {
 export const mockVault = {
   id: 'test-vault-id-123',
   forgeType: 'github' as const,
+  forgeRepoId: '999888',
   repoOwner: 'testuser',
   repoName: 'test-repo',
   repoFullName: 'testuser/test-repo',
@@ -376,9 +377,9 @@ export function createMockGitHubUtils() {
     getRepoPermission: vi.fn().mockResolvedValue('admin'),
     getRepoAccessAndPermission: vi.fn().mockResolvedValue({ hasAccess: true, permission: 'admin' }),
     getUserRole: vi.fn().mockResolvedValue('admin'),
-    getRepoInfo: vi.fn().mockResolvedValue({ isPrivate: false }),
+    getRepoInfo: vi.fn().mockResolvedValue({ repoId: '999888', isPrivate: false, isOrganization: false }),
     // GitHub App-powered functions (used by current codebase)
-    getRepoInfoWithApp: vi.fn().mockResolvedValue({ isPrivate: false, isOrganization: false }),
+    getRepoInfoWithApp: vi.fn().mockResolvedValue({ repoId: '999888', isPrivate: false, isOrganization: false }),
     getUserRoleWithApp: vi.fn().mockResolvedValue('admin'),
     getRepoCollaboratorsWithApp: vi.fn().mockResolvedValue([]),
   };
