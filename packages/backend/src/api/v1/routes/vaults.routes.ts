@@ -3,6 +3,7 @@ import { z } from "zod";
 import {
   authenticateGitHub,
   requireAdminAccess,
+  requireAdminOrOwnerAccess,
   requireApiKeyScope,
 } from "../../../middleware/auth";
 import {
@@ -405,7 +406,7 @@ export async function vaultsRoutes(fastify: FastifyInstance) {
   fastify.delete(
     "/:owner/:repo",
     {
-      preHandler: [authenticateGitHub, requireApiKeyScope("delete:secrets"), requireAdminAccess],
+      preHandler: [authenticateGitHub, requireApiKeyScope("delete:secrets"), requireAdminOrOwnerAccess],
     },
     async (request, reply) => {
       const params = request.params as { owner: string; repo: string };

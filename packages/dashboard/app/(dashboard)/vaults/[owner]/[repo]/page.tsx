@@ -1,10 +1,10 @@
 'use client'
 
 import { useEffect, useState, useRef, useMemo, useTransition } from 'react'
-import { useParams } from 'next/navigation'
+import { useParams, useRouter } from 'next/navigation'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import Link from 'next/link'
-import { ChevronLeft, Upload, Search, X, Settings, Users, RefreshCw, AlertTriangle, Copy } from 'lucide-react'
+import { ChevronLeft, Upload, Search, X, Settings, Users, RefreshCw, AlertTriangle, Copy, Trash2 } from 'lucide-react'
 import { api } from '@/lib/api'
 import { useAuth } from '@/lib/auth'
 import type { Vault, Secret, TrashedSecret, VaultPermission, UserPlan } from '@/lib/types'
@@ -20,6 +20,7 @@ import {
   TrashSection,
   SyncButton,
   VaultDetailHeader,
+  DeleteVaultModal,
 } from '@/app/components/dashboard'
 import { trackEvent, AnalyticsEvents } from '@/lib/analytics'
 import { Button } from '@/components/ui/button'
@@ -466,9 +467,24 @@ export default function VaultDetailPage() {
     }
   }
 
+  const router = useRouter()
+  const [showDeleteModal, setShowDeleteModal] = useState(false)
+  const isRepoInaccessible = vault?.warning === 'repo_inaccessible'
+
   // Determine if user can write to this vault (GitHub permission + not read-only due to plan)
   const effectivePermission = vault?.permission ?? 'read'
-  const canWrite = vault && permissionConfig[effectivePermission].canWrite && !vault.is_read_only
+  const canWrite = vault && !isRepoInaccessible && permissionConfig[effectivePermission].canWrite && !vault.is_read_only
+
+  const handleDeleteVault = async () => {
+    try {
+      await api.deleteVault(owner, repo)
+      setShowDeleteModal(false)
+      queryClient.invalidateQueries({ queryKey: ['vaults'] })
+      router.push('/')
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to delete vault')
+    }
+  }
 
   // Filter secrets based on search and environment
   const filteredSecrets = secrets.filter(secret => {
@@ -502,8 +518,35 @@ export default function VaultDetailPage() {
             onBulkImport={handleBulkImport}
           />
 
+          {/* Repo inaccessible warning */}
+          {vault && isRepoInaccessible && (
+            <div className="mt-4 p-4 rounded-lg border border-amber-200 bg-amber-50 dark:border-amber-800/50 dark:bg-amber-900/20">
+              <div className="flex items-start gap-3">
+                <AlertTriangle className="h-5 w-5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+                <div className="flex-1">
+                  <p className="text-sm font-medium text-amber-800 dark:text-amber-400">
+                    Repository not found
+                  </p>
+                  <p className="text-xs text-amber-700 dark:text-amber-500 mt-1">
+                    The GitHub repository <code className="font-mono">{owner}/{repo}</code> was deleted or the Keyway app was uninstalled.
+                    Secrets are still accessible in read-only mode. You can delete this vault to clean up.
+                  </p>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="shrink-0 text-red-600 border-red-200 hover:bg-red-50 dark:text-red-400 dark:border-red-800 dark:hover:bg-red-900/20"
+                  onClick={() => setShowDeleteModal(true)}
+                >
+                  <Trash2 className="w-4 h-4 mr-1.5" />
+                  Delete vault
+                </Button>
+              </div>
+            </div>
+          )}
+
           {/* Permission badge */}
-          {vault && (
+          {vault && !isRepoInaccessible && (
             <div className={`mt-4 p-3 rounded-lg border border-border ${permissionConfig[effectivePermission].bgColor}`}>
               <div className="flex items-center justify-between">
                 <div>
@@ -530,7 +573,7 @@ export default function VaultDetailPage() {
           )}
 
           {/* Integrations section */}
-          {vault && vault.syncs && vault.syncs.length > 0 && (
+          {vault && !isRepoInaccessible && vault.syncs && vault.syncs.length > 0 && (
             <div className="mt-4 p-3 rounded-lg border border-border bg-card">
               <div className="flex items-center gap-2 mb-3">
                 <RefreshCw className="w-4 h-4 text-muted-foreground" />
@@ -824,6 +867,13 @@ export default function VaultDetailPage() {
           repo={repo}
           canWrite={!!canWrite}
           onSecretUpdated={refetchAll}
+        />
+
+        <DeleteVaultModal
+          isOpen={showDeleteModal}
+          onClose={() => setShowDeleteModal(false)}
+          onConfirm={handleDeleteVault}
+          vault={vault ?? null}
         />
       </div>
     </DashboardLayout>

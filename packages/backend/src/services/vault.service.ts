@@ -7,6 +7,7 @@ import { DEFAULT_ENVIRONMENTS } from "../types";
 import { getOrganizationById } from "./organization.service";
 import { getEffectivePlanWithTrial } from "./trial.service";
 import { inferEnvironmentType } from "../utils/permissions";
+import { ForbiddenError } from "../lib";
 import { logger } from "../utils/sharedLogger";
 
 // Reason why a vault is read-only
@@ -73,6 +74,7 @@ export interface VaultDetails {
   environments: string[]; // Array of environment names for backwards compatibility
   environmentDetails: VaultEnvironmentInfo[]; // Full environment info with types
   permission: string | null;
+  warning?: "repo_inaccessible";
   isPrivate: boolean;
   isReadOnly: boolean;
   readonlyReason: ReadonlyReason;
@@ -263,9 +265,32 @@ export async function getVaultByRepo(
   }
 
   // Check user's role using GitHub App token
-  const role = await getUserRoleWithApp(vault.repoFullName, username);
+  let role: string | null = null;
+  let warning: VaultDetails["warning"];
+  try {
+    role = await getUserRoleWithApp(vault.repoFullName, username);
+  } catch (err) {
+    if (
+      err instanceof ForbiddenError &&
+      err.message.includes("GitHub App not installed")
+    ) {
+      logger.warn(
+        { repo: vault.repoFullName, err },
+        "Failed to check repo access in vault detail — repo may have been deleted"
+      );
+      warning = "repo_inaccessible";
+    } else {
+      throw err;
+    }
+  }
 
-  if (!role) {
+  // If repo is inaccessible, only the vault owner can see it
+  if (warning && vault.owner.username !== username) {
+    return { vault: null as unknown as VaultDetails, hasAccess: false };
+  }
+
+  // If repo is accessible but user has no role, deny access
+  if (!role && !warning) {
     return { vault: null as unknown as VaultDetails, hasAccess: false };
   }
 
@@ -319,6 +344,7 @@ export async function getVaultByRepo(
       environments: environments.map((e) => e.name), // String array for backwards compatibility
       environmentDetails: environments, // Full environment info with types
       permission: role,
+      ...(warning && { warning }),
       isPrivate: vault.isPrivate,
       isReadOnly,
       readonlyReason,
