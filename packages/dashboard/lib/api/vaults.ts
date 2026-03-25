@@ -71,6 +71,7 @@ class VaultsApiClient extends BaseApiClient {
         secretCount: number
         environments: string[]
         permission: string | null
+        warning?: 'repo_inaccessible'
         isPrivate: boolean
         isReadOnly: boolean
         readonlyReason: ReadonlyReason
@@ -98,6 +99,7 @@ class VaultsApiClient extends BaseApiClient {
       environments: data.environments,
       secrets_count: data.secretCount,
       permission: data.permission as Vault['permission'],
+      ...(data.warning && { warning: data.warning }),
       is_private: data.isPrivate,
       is_read_only: data.isReadOnly,
       readonly_reason: data.readonlyReason,

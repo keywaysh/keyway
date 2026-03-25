@@ -359,6 +359,46 @@ export async function requireAdminAccess(request: FastifyRequest, _reply: Fastif
 }
 
 /**
+ * Like requireAdminAccess, but falls back to vault ownership check
+ * when the repo is inaccessible (deleted or app uninstalled).
+ * Use only for destructive operations like vault deletion.
+ */
+export async function requireAdminOrOwnerAccess(request: FastifyRequest, _reply: FastifyReply) {
+  const vcsUser = request.vcsUser || request.githubUser;
+  if (!request.accessToken || !vcsUser) {
+    throw new UnauthorizedError("Authentication required");
+  }
+
+  const params = request.params as { owner?: string; repo?: string };
+  const repoFullName =
+    params.owner && params.repo ? `${params.owner}/${params.repo}` : undefined;
+
+  if (!repoFullName) {
+    throw new ForbiddenError("Repository name required");
+  }
+
+  try {
+    const role = await getUserRoleWithApp(repoFullName, vcsUser.username);
+    if (role !== "admin") {
+      throw new ForbiddenError("Only repository admins can perform this action");
+    }
+  } catch (err) {
+    if (err instanceof ForbiddenError && err.message.includes("GitHub App not installed")) {
+      const vault = await db.query.vaults.findFirst({
+        where: eq(vaults.repoFullName, repoFullName),
+        with: { owner: true },
+      });
+
+      if (!vault || vault.owner.username !== vcsUser.username) {
+        throw new ForbiddenError("Only the vault owner can delete a vault when the repo is inaccessible");
+      }
+    } else {
+      throw err;
+    }
+  }
+}
+
+/**
  * Create middleware factory for environment-based permissions
  * Requires authenticateGitHub to be called first
  */
