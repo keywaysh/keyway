@@ -286,13 +286,33 @@ export async function vaultsRoutes(fastify: FastifyInstance) {
         );
       }
 
-      // Check if vault already exists
+      // Check if vault already exists (by name or by forge repo ID after rename)
       const existingVault = await db.query.vaults.findFirst({
         where: eq(vaults.repoFullName, body.repoFullName),
       });
 
       if (existingVault) {
         throw new ConflictError("Vault already exists for this repository");
+      }
+
+      if (repoInfo.repoId) {
+        const existingByRepoId = await db.query.vaults.findFirst({
+          where: and(
+            eq(vaults.forgeType, "github"),
+            eq(vaults.forgeRepoId, repoInfo.repoId),
+          ),
+        });
+
+        if (existingByRepoId) {
+          // Self-heal the stale name
+          if (existingByRepoId.repoFullName !== body.repoFullName) {
+            await db
+              .update(vaults)
+              .set({ repoFullName: body.repoFullName, updatedAt: new Date() })
+              .where(eq(vaults.id, existingByRepoId.id));
+          }
+          throw new ConflictError("Vault already exists for this repository");
+        }
       }
 
       // Create vault with visibility info and org association
