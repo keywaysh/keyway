@@ -21,6 +21,9 @@ linters:
         - fmt.Printf
         - fmt.Print
         - fmt.Println
+        - (*github.com/fatih/color.Color).Printf
+        - (io.ReadCloser).Close
+        - (*os.File).Close
   exclusions:
     rules:
       - path: _test\.go

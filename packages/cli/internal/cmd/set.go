@@ -80,7 +80,9 @@ func runSetWithDeps(opts SetOptions, deps *Dependencies) error {
 
 	// Validate key format (alphanumeric and underscores only)
 	for _, c := range opts.Key {
-		if !((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_') {
+		isLetter := (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z')
+		isDigit := c >= '0' && c <= '9'
+		if !isLetter && !isDigit && c != '_' {
 			deps.UI.Error("Key must contain only alphanumeric characters and underscores")
 			return fmt.Errorf("invalid key format")
 		}
