@@ -22,9 +22,13 @@ vi.mock('../../src/db', () => {
     db: {
       query: mockDbQuery,
       select: vi.fn(),
-      update: vi.fn(),
+      update: vi.fn().mockReturnValue({
+        set: vi.fn().mockReturnValue({
+          where: vi.fn().mockResolvedValue(undefined),
+        }),
+      }),
     },
-    vaults: { id: 'id', ownerId: 'ownerId', isPrivate: 'isPrivate', createdAt: 'createdAt' },
+    vaults: { id: 'id', ownerId: 'ownerId', isPrivate: 'isPrivate', createdAt: 'createdAt', forgeRepoId: 'forgeRepoId', forgeType: 'forgeType' },
     secrets: { id: 'id' },
     vaultEnvironments: { id: 'id', vaultId: 'vaultId', name: 'name', type: 'type', displayOrder: 'displayOrder' },
   };
@@ -33,6 +37,7 @@ vi.mock('../../src/db', () => {
 // Mock GitHub utils
 vi.mock('../../src/utils/github', () => ({
   getUserRoleWithApp: vi.fn().mockResolvedValue('admin'),
+  getRepoInfoWithApp: vi.fn().mockResolvedValue({ repoId: '999888', isPrivate: false, isOrganization: false }),
 }));
 
 // Mock types
@@ -304,6 +309,91 @@ describe('VaultService', () => {
       const result = await getVaultByRepoInternal('unknown/repo');
 
       expect(result).toBeUndefined();
+    });
+  });
+
+  // ==========================================================================
+  // Forge repo ID fallback (repo rename handling)
+  // ==========================================================================
+
+  describe('forge repo ID fallback', () => {
+    const renamedRepo = 'testuser/renamed-repo';
+    const vaultWithForgeId = {
+      ...mockVault,
+      forgeRepoId: '999888',
+    };
+
+    describe('getVaultByRepoInternal', () => {
+      it('should find vault by forgeRepoId when repoFullName lookup fails', async () => {
+        // First call (by name) returns nothing, second call (by forgeRepoId) returns vault
+        (db.query.vaults.findFirst as any)
+          .mockResolvedValueOnce(undefined) // name lookup
+          .mockResolvedValueOnce(vaultWithForgeId); // forgeRepoId lookup (inside findVaultByForgeRepoId)
+
+        const result = await getVaultByRepoInternal(renamedRepo);
+
+        // Should have found the vault via fallback and self-healed the name
+        expect(result).toBeDefined();
+        expect(db.update).toHaveBeenCalled();
+      });
+
+      it('should return undefined when both lookups fail', async () => {
+        (db.query.vaults.findFirst as any).mockResolvedValue(undefined);
+
+        const result = await getVaultByRepoInternal('nonexistent/repo');
+
+        expect(result).toBeUndefined();
+      });
+
+      it('should trigger lazy backfill when vault has no forgeRepoId', async () => {
+        const vaultWithoutForgeId = { ...mockVault, forgeRepoId: null };
+        (db.query.vaults.findFirst as any).mockResolvedValue(vaultWithoutForgeId);
+
+        const result = await getVaultByRepoInternal('testuser/test-repo');
+
+        expect(result).toEqual(vaultWithoutForgeId);
+        // backfillForgeRepoId is fire-and-forget, so update should be called
+        // Give the async backfill a tick to run
+        await new Promise((r) => setTimeout(r, 10));
+        expect(db.update).toHaveBeenCalled();
+      });
+    });
+
+    describe('getVaultByRepo', () => {
+      it('should find vault by forgeRepoId when repoFullName lookup fails', async () => {
+        const vaultWithRelations = {
+          ...vaultWithForgeId,
+          secrets: [],
+          owner: mockUser,
+          vaultSyncs: [],
+        };
+
+        (db.query.vaults.findFirst as any)
+          .mockResolvedValueOnce(null) // first name lookup returns null
+          .mockResolvedValueOnce(vaultWithForgeId) // forgeRepoId fallback finds it
+          .mockResolvedValueOnce(vaultWithRelations); // re-fetch with relations after self-heal
+
+        (db.select as any).mockReturnValue({
+          from: vi.fn().mockReturnValue({
+            where: vi.fn().mockReturnValue({
+              orderBy: vi.fn().mockResolvedValue([]),
+            }),
+          }),
+        });
+
+        const result = await getVaultByRepo(renamedRepo, mockUser.username, 'pro');
+
+        expect(result.hasAccess).toBe(true);
+        expect(result.vault).toBeDefined();
+      });
+
+      it('should return no access when both lookups fail', async () => {
+        (db.query.vaults.findFirst as any).mockResolvedValue(null);
+
+        const result = await getVaultByRepo('nonexistent/repo', mockUser.username, 'pro');
+
+        expect(result.hasAccess).toBe(false);
+      });
     });
   });
 

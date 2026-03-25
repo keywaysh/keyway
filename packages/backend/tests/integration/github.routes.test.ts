@@ -40,13 +40,26 @@ vi.mock('../../src/services/github-app.service', () => ({
 }));
 
 // Mock database
+const mockUpdateWhere = vi.fn().mockReturnValue({
+  returning: vi.fn().mockResolvedValue([{ id: 'vault-123' }]),
+});
+const mockUpdateSet = vi.fn().mockReturnValue({
+  where: mockUpdateWhere,
+});
+const mockUpdate = vi.fn().mockReturnValue({
+  set: mockUpdateSet,
+});
+
 vi.mock('../../src/db', () => ({
   db: {
     query: {
       users: { findFirst: vi.fn() },
     },
+    update: mockUpdate,
   },
   users: { id: 'id' },
+  vaults: { forgeRepoId: 'forgeRepoId', forgeType: 'forgeType' },
+  vcsAppInstallationRepos: { repoId: 'repoId' },
 }));
 
 // Mock authentication
@@ -334,6 +347,90 @@ describe('GitHub Routes - Webhook Security', () => {
         ]),
         []
       );
+    });
+
+    it('should handle repository.renamed event and update vault', async () => {
+      const renamePayload = {
+        action: 'renamed',
+        repository: {
+          id: 999888,
+          full_name: 'testuser/new-repo-name',
+          private: false,
+        },
+        changes: {
+          repository: {
+            name: { from: 'old-repo-name' },
+          },
+        },
+        installation: {
+          id: 12345678,
+          account: { id: 98765, login: 'testuser', type: 'User' },
+          repository_selection: 'selected',
+          permissions: { metadata: 'read' },
+        },
+      };
+
+      const payload = JSON.stringify(renamePayload);
+      const signature = generateSignature(payload, WEBHOOK_SECRET);
+
+      const response = await app.inject({
+        method: 'POST',
+        url: '/v1/github/webhook',
+        headers: {
+          'content-type': 'application/json',
+          'x-hub-signature-256': signature,
+          'x-github-event': 'repository',
+          'x-github-delivery': 'test-delivery-rename',
+        },
+        payload,
+      });
+
+      expect(response.statusCode).toBe(200);
+
+      // Verify db.update was called to update the vault name
+      expect(mockUpdate).toHaveBeenCalled();
+      expect(mockUpdateSet).toHaveBeenCalledWith(
+        expect.objectContaining({
+          repoFullName: 'testuser/new-repo-name',
+        })
+      );
+    });
+
+    it('should ignore non-renamed repository events', async () => {
+      mockUpdate.mockClear();
+
+      const otherPayload = {
+        action: 'archived',
+        repository: {
+          id: 999888,
+          full_name: 'testuser/some-repo',
+          private: false,
+        },
+        installation: {
+          id: 12345678,
+          account: { id: 98765, login: 'testuser', type: 'User' },
+          repository_selection: 'selected',
+          permissions: { metadata: 'read' },
+        },
+      };
+
+      const payload = JSON.stringify(otherPayload);
+      const signature = generateSignature(payload, WEBHOOK_SECRET);
+
+      await app.inject({
+        method: 'POST',
+        url: '/v1/github/webhook',
+        headers: {
+          'content-type': 'application/json',
+          'x-hub-signature-256': signature,
+          'x-github-event': 'repository',
+          'x-github-delivery': 'test-delivery-archive',
+        },
+        payload,
+      });
+
+      // db.update should NOT have been called for non-renamed events
+      expect(mockUpdate).not.toHaveBeenCalled();
     });
 
     it('should prevent timing attacks with constant-time comparison', async () => {
