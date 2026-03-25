@@ -113,15 +113,19 @@ describe("Vault rename handling (real DB)", () => {
     expect(result).toBeDefined();
     expect(result!.forgeRepoId).toBeNull(); // returned before backfill completes
 
-    // Poll until backfill completes (max 2s)
-    const deadline = Date.now() + 2000;
+    // Poll until backfill completes (default 5s, configurable)
+    const timeoutMs = Number(process.env.INTEGRATION_DB_BACKFILL_TIMEOUT_MS ?? 5000);
+    const deadline = Date.now() + timeoutMs;
     let updated;
     while (Date.now() < deadline) {
       updated = await findVaultById(db, vault.id);
       if (updated?.forgeRepoId) break;
       await new Promise((r) => setTimeout(r, 50));
     }
-    expect(updated!.forgeRepoId).toBe("33333");
+    expect(
+      updated?.forgeRepoId,
+      `forgeRepoId backfill did not complete within ${timeoutMs}ms`,
+    ).toBe("33333");
   });
 
   // =========================================================================

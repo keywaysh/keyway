@@ -12,6 +12,9 @@ const TEST_DB_URL =
 export async function setup() {
   const sql = postgres(TEST_DB_URL, { max: 1 });
   const db = drizzle(sql);
-  await migrate(db, { migrationsFolder: "./drizzle" });
-  await sql.end();
+  try {
+    await migrate(db, { migrationsFolder: "./drizzle" });
+  } finally {
+    await sql.end();
+  }
 }
