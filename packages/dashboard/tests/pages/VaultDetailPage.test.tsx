@@ -8,6 +8,11 @@ import type { Vault, Secret, TrashedSecret } from '../../lib/types'
 const mockParams = { owner: 'testowner', repo: 'testrepo' }
 vi.mock('next/navigation', () => ({
   useParams: () => mockParams,
+  useRouter: () => ({
+    push: vi.fn(),
+    replace: vi.fn(),
+    back: vi.fn(),
+  }),
 }))
 
 // Mock next/link
@@ -249,6 +254,8 @@ vi.mock('../../app/components/dashboard', () => ({
     <div data-testid="trash-section">Trash: {trashedSecrets.length}</div>
   ),
   SyncButton: () => <button data-testid="sync-button">Sync</button>,
+  DeleteVaultModal: ({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) =>
+    isOpen ? <div data-testid="delete-vault-modal"><button onClick={onClose}>Close</button></div> : null,
 }))
 
 describe('VaultDetailPage', () => {
