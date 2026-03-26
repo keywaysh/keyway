@@ -8,13 +8,10 @@ import { toast } from 'sonner'
 import { api } from '@/lib/api'
 import { trackEvent, AnalyticsEvents } from '@/lib/analytics'
 import type { ExposureOrgSummary, ExposureUserReport } from '@/lib/types'
-import {
-  DashboardLayout,
-  ErrorState,
-  ExposureStatCard,
-  ExposureUserRow,
-  ExposureUserRowSkeleton,
-} from '@/app/components/dashboard'
+import { DashboardLayout } from '@/app/components/dashboard/Layout'
+import { ErrorState } from '@/app/components/dashboard/ErrorState'
+import { ExposureStatCard } from '@/app/components/dashboard/ExposureStatCard'
+import { ExposureUserRow, ExposureUserRowSkeleton } from '@/app/components/dashboard/ExposureUserRow'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'

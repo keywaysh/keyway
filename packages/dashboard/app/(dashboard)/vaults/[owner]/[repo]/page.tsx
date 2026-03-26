@@ -8,20 +8,30 @@ import { ChevronLeft, Upload, Search, X, Settings, Users, RefreshCw, AlertTriang
 import { api } from '@/lib/api'
 import { useAuth } from '@/lib/auth'
 import type { Vault, Secret, TrashedSecret, VaultPermission, UserPlan } from '@/lib/types'
-import {
-  DashboardLayout,
-  SecretRow,
-  SecretRowSkeleton,
-  SecretModal,
-  ViewSecretModal,
-  BulkImportModal,
-  ErrorState,
-  EmptyState,
-  TrashSection,
-  SyncButton,
-  VaultDetailHeader,
-  DeleteVaultModal,
-} from '@/app/components/dashboard'
+import dynamic from 'next/dynamic'
+import { DashboardLayout } from '@/app/components/dashboard/Layout'
+import { SecretRow, SecretRowSkeleton } from '@/app/components/dashboard/SecretRow'
+import { ErrorState, EmptyState } from '@/app/components/dashboard/ErrorState'
+import { TrashSection } from '@/app/components/dashboard/TrashSection'
+import { SyncButton } from '@/app/components/dashboard/SyncButton'
+import { VaultDetailHeader } from '@/app/components/dashboard/VaultDetailHeader'
+
+const SecretModal = dynamic(
+  () => import('@/app/components/dashboard/SecretModal').then(m => m.SecretModal),
+  { ssr: false }
+)
+const ViewSecretModal = dynamic(
+  () => import('@/app/components/dashboard/ViewSecretModal').then(m => m.ViewSecretModal),
+  { ssr: false }
+)
+const BulkImportModal = dynamic(
+  () => import('@/app/components/dashboard/BulkImportModal').then(m => m.BulkImportModal),
+  { ssr: false }
+)
+const DeleteVaultModal = dynamic(
+  () => import('@/app/components/dashboard/DeleteVaultModal').then(m => m.DeleteVaultModal),
+  { ssr: false }
+)
 import { trackEvent, AnalyticsEvents } from '@/lib/analytics'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'

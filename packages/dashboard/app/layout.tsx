@@ -56,11 +56,11 @@ export default function RootLayout({
             <Script
               id="posthog-js"
               src={`${posthogHost}/static/array.js`}
-              strategy="afterInteractive"
+              strategy="lazyOnload"
             />
             <Script
               id="posthog-init"
-              strategy="afterInteractive"
+              strategy="lazyOnload"
             >
               {`window.posthog && window.posthog.init('${posthogKey}', {
                 api_host: '${posthogHost}',

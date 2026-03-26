@@ -6,13 +6,9 @@ import Link from 'next/link'
 import { ChevronLeft, Users, ExternalLink } from 'lucide-react'
 import { api } from '@/lib/api'
 import type { Collaborator } from '@/lib/types'
-import {
-  DashboardLayout,
-  CollaboratorRow,
-  CollaboratorRowSkeleton,
-  ErrorState,
-  EmptyState,
-} from '@/app/components/dashboard'
+import { DashboardLayout } from '@/app/components/dashboard/Layout'
+import { CollaboratorRow, CollaboratorRowSkeleton } from '@/app/components/dashboard/CollaboratorRow'
+import { ErrorState, EmptyState } from '@/app/components/dashboard/ErrorState'
 import { trackEvent, AnalyticsEvents } from '@/lib/analytics'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'

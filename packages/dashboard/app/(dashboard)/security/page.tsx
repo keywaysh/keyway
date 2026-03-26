@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { LayoutDashboard, AlertTriangle, Users, History } from 'lucide-react'
-import { DashboardLayout } from '@/app/components/dashboard'
+import { DashboardLayout } from '@/app/components/dashboard/Layout'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Skeleton } from '@/components/ui/skeleton'
 import { trackEvent, AnalyticsEvents } from '@/lib/analytics'
