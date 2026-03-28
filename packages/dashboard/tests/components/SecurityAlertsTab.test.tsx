@@ -19,7 +19,7 @@ vi.mock('../../lib/analytics', () => ({
 }))
 
 // Mock dashboard components
-vi.mock('../../app/components/dashboard', () => ({
+vi.mock('../../app/components/dashboard/ErrorState', () => ({
   ErrorState: ({ message, onRetry }: { message: string; onRetry: () => void }) => (
     <div data-testid="error-state">
       <span>{message}</span>

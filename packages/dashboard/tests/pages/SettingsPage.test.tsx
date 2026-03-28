@@ -46,7 +46,7 @@ vi.mock('../../lib/analytics', () => ({
 }))
 
 // Mock dashboard components
-vi.mock('../../app/components/dashboard', () => ({
+vi.mock('../../app/components/dashboard/Layout', () => ({
   DashboardLayout: ({ children }: { children: React.ReactNode }) => <div data-testid="dashboard-layout">{children}</div>,
 }))
 
@@ -135,6 +135,7 @@ vi.mock('../../lib/api', () => ({
     getSubscription: vi.fn(),
     getUsage: vi.fn(),
     createPortalSession: vi.fn(),
+    getOrganizations: vi.fn(() => Promise.resolve([])),
   },
 }))
 

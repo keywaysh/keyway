@@ -11,7 +11,7 @@ vi.mock('../../lib/analytics', () => ({
 }))
 
 // Mock DashboardLayout
-vi.mock('../../app/components/dashboard', () => ({
+vi.mock('../../app/components/dashboard/Layout', () => ({
   DashboardLayout: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
 }))
 
