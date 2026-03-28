@@ -52,26 +52,22 @@ export default function RootLayout({
           <CrispProvider />
         </ThemeProvider>
         {posthogKey ? (
-          <>
-            <Script
-              id="posthog-js"
-              src={`${posthogHost}/static/array.js`}
-              strategy="lazyOnload"
-            />
-            <Script
-              id="posthog-init"
-              strategy="lazyOnload"
-            >
-              {`window.posthog && window.posthog.init('${posthogKey}', {
-                api_host: '${posthogHost}',
+          <Script
+            id="posthog-js"
+            src={`${posthogHost}/static/array.js`}
+            strategy="lazyOnload"
+            onLoad={() => {
+              // @ts-expect-error -- posthog is loaded via external script
+              window.posthog?.init(posthogKey, {
+                api_host: posthogHost,
                 capture_pageview: true,
                 capture_pageleave: true,
                 autocapture: true,
                 persistence: 'localStorage+cookie',
-                capture_performance: true
-              })`}
-            </Script>
-          </>
+                capture_performance: true,
+              })
+            }}
+          />
         ) : null}
       </body>
     </html>
