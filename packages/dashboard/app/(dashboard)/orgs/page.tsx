@@ -6,8 +6,14 @@ import { useRouter } from 'next/navigation'
 import { Building2, Users, Box, Sparkles, ChevronRight, Plus } from 'lucide-react'
 import { api } from '@/lib/api'
 import type { Organization } from '@/lib/types'
-import { DashboardLayout, ErrorState, EmptyState } from '@/app/components/dashboard'
-import { ConnectOrgModal } from '@/app/components/dashboard/ConnectOrgModal'
+import dynamic from 'next/dynamic'
+import { DashboardLayout } from '@/app/components/dashboard/Layout'
+import { ErrorState, EmptyState } from '@/app/components/dashboard/ErrorState'
+
+const ConnectOrgModal = dynamic(
+  () => import('@/app/components/dashboard/ConnectOrgModal').then(m => m.ConnectOrgModal),
+  { ssr: false }
+)
 import { trackEvent, AnalyticsEvents } from '@/lib/analytics'
 import { Card, CardContent } from '@/components/ui/card'
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar'

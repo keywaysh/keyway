@@ -13,6 +13,7 @@ vi.mock('next/navigation', () => ({
     replace: vi.fn(),
     back: vi.fn(),
   }),
+  usePathname: () => '/vaults/testowner/testrepo',
 }))
 
 // Mock next/link
@@ -190,8 +191,11 @@ vi.mock('../../lib/api', () => ({
 }))
 
 // Mock dashboard components
-vi.mock('../../app/components/dashboard', () => ({
+vi.mock('../../app/components/dashboard/Layout', () => ({
   DashboardLayout: ({ children }: { children: React.ReactNode }) => <div data-testid="dashboard-layout">{children}</div>,
+}))
+
+vi.mock('../../app/components/dashboard/VaultDetailHeader', () => ({
   VaultDetailHeader: ({ vault, isLoading, canWrite, onAddSecret, onBulkImport }: {
     vault: Vault | undefined
     isLoading: boolean
@@ -221,6 +225,9 @@ vi.mock('../../app/components/dashboard', () => ({
       </div>
     )
   },
+}))
+
+vi.mock('../../app/components/dashboard/SecretRow', () => ({
   SecretRow: ({ secret, onView, onEdit, onDelete }: { secret: Secret; onView?: (s: Secret) => void; onEdit?: (s: Secret) => void; onDelete?: (s: Secret) => void }) => (
     <div data-testid={`secret-row-${secret.id}`}>
       <span>{secret.name}</span>
@@ -231,12 +238,9 @@ vi.mock('../../app/components/dashboard', () => ({
     </div>
   ),
   SecretRowSkeleton: () => <div data-testid="secret-row-skeleton" />,
-  SecretModal: ({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) =>
-    isOpen ? <div data-testid="secret-modal"><button onClick={onClose}>Close</button></div> : null,
-  ViewSecretModal: ({ isOpen, onClose, secret }: { isOpen: boolean; onClose: () => void; secret: Secret | null }) =>
-    isOpen ? <div data-testid="view-secret-modal">{secret?.name}<button onClick={onClose}>Close</button></div> : null,
-  BulkImportModal: ({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) =>
-    isOpen ? <div data-testid="bulk-import-modal"><button onClick={onClose}>Close</button></div> : null,
+}))
+
+vi.mock('../../app/components/dashboard/ErrorState', () => ({
   ErrorState: ({ message, onRetry }: { message: string; onRetry: () => void }) => (
     <div data-testid="error-state">
       <span>{message}</span>
@@ -250,10 +254,34 @@ vi.mock('../../app/components/dashboard', () => ({
       {action}
     </div>
   ),
+}))
+
+vi.mock('../../app/components/dashboard/TrashSection', () => ({
   TrashSection: ({ trashedSecrets }: { trashedSecrets: TrashedSecret[] }) => (
     <div data-testid="trash-section">Trash: {trashedSecrets.length}</div>
   ),
+}))
+
+vi.mock('../../app/components/dashboard/SyncButton', () => ({
   SyncButton: () => <button data-testid="sync-button">Sync</button>,
+}))
+
+vi.mock('../../app/components/dashboard/SecretModal', () => ({
+  SecretModal: ({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) =>
+    isOpen ? <div data-testid="secret-modal"><button onClick={onClose}>Close</button></div> : null,
+}))
+
+vi.mock('../../app/components/dashboard/ViewSecretModal', () => ({
+  ViewSecretModal: ({ isOpen, onClose, secret }: { isOpen: boolean; onClose: () => void; secret: Secret | null }) =>
+    isOpen ? <div data-testid="view-secret-modal">{secret?.name}<button onClick={onClose}>Close</button></div> : null,
+}))
+
+vi.mock('../../app/components/dashboard/BulkImportModal', () => ({
+  BulkImportModal: ({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) =>
+    isOpen ? <div data-testid="bulk-import-modal"><button onClick={onClose}>Close</button></div> : null,
+}))
+
+vi.mock('../../app/components/dashboard/DeleteVaultModal', () => ({
   DeleteVaultModal: ({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) =>
     isOpen ? <div data-testid="delete-vault-modal"><button onClick={onClose}>Close</button></div> : null,
 }))

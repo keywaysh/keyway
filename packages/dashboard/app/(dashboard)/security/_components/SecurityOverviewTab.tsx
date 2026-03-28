@@ -12,7 +12,7 @@ import {
 import Link from 'next/link'
 import { api } from '@/lib/api'
 import type { SecurityOverview } from '@/lib/types'
-import { ErrorState, EmptyState } from '@/app/components/dashboard'
+import { ErrorState, EmptyState } from '@/app/components/dashboard/ErrorState'
 import { trackEvent, AnalyticsEvents } from '@/lib/analytics'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'

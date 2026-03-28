@@ -17,11 +17,8 @@ import {
 import { api } from '@/lib/api'
 import type { ApiKey, ApiKeyScope, CreateApiKeyResponse } from '@/lib/types'
 import { apiKeySchema } from '@/lib/validations'
-import {
-  DashboardLayout,
-  ErrorState,
-  EmptyState,
-} from '@/app/components/dashboard'
+import { DashboardLayout } from '@/app/components/dashboard/Layout'
+import { ErrorState, EmptyState } from '@/app/components/dashboard/ErrorState'
 import { trackEvent, AnalyticsEvents } from '@/lib/analytics'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'

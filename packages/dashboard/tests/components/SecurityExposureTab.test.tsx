@@ -35,7 +35,7 @@ vi.mock('../../lib/date-utils', () => ({
 }))
 
 // Mock dashboard components
-vi.mock('../../app/components/dashboard', () => ({
+vi.mock('../../app/components/dashboard/ErrorState', () => ({
   ErrorState: ({ title, message, onRetry }: { title?: string; message: string; onRetry?: () => void }) => (
     <div data-testid="error-state">
       {title && <h3>{title}</h3>}
@@ -43,6 +43,9 @@ vi.mock('../../app/components/dashboard', () => ({
       {onRetry && <button onClick={onRetry}>Retry</button>}
     </div>
   ),
+}))
+
+vi.mock('../../app/components/dashboard/ExposureStatCard', () => ({
   ExposureStatCard: ({ icon, label, value }: { icon: unknown; label: string; value: number }) => (
     <div data-testid="exposure-stat-card">
       <span>{label}</span>

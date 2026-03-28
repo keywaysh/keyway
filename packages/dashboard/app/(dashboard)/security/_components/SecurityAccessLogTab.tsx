@@ -15,7 +15,7 @@ import {
 } from 'lucide-react'
 import { api } from '@/lib/api'
 import type { AccessLogEvent, AccessLogResponse, Vault } from '@/lib/types'
-import { ErrorState, EmptyState } from '@/app/components/dashboard'
+import { ErrorState, EmptyState } from '@/app/components/dashboard/ErrorState'
 import { trackEvent, AnalyticsEvents } from '@/lib/analytics'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'

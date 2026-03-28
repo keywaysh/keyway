@@ -7,15 +7,17 @@ import Link from 'next/link'
 import { User, Building2, AlertTriangle, X } from 'lucide-react'
 import { api } from '@/lib/api'
 import type { Vault, UserPlan } from '@/lib/types'
-import {
-  DashboardLayout,
-  VaultCard,
-  VaultCardSkeleton,
-  ErrorState,
-  DeleteVaultModal,
-  GitHubAppNotInstalledState,
-  CreateVaultCard,
-} from '@/app/components/dashboard'
+import dynamic from 'next/dynamic'
+import { DashboardLayout } from '@/app/components/dashboard/Layout'
+import { VaultCard, VaultCardSkeleton } from '@/app/components/dashboard/VaultCard'
+import { ErrorState } from '@/app/components/dashboard/ErrorState'
+import { GitHubAppNotInstalledState } from '@/app/components/dashboard/GitHubAppNotInstalledState'
+import { CreateVaultCard } from '@/app/components/dashboard/CreateVaultCard'
+
+const DeleteVaultModal = dynamic(
+  () => import('@/app/components/dashboard/DeleteVaultModal').then(m => m.DeleteVaultModal),
+  { ssr: false }
+)
 import { CLICommand } from '@/app/components/cli-command'
 import { trackEvent, AnalyticsEvents } from '@/lib/analytics'
 import { useAuth } from '@/lib/auth'

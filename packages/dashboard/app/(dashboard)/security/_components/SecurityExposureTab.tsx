@@ -27,7 +27,8 @@ import type {
   ExposureUserSummary,
   Organization,
 } from '@/lib/types'
-import { ErrorState, ExposureStatCard } from '@/app/components/dashboard'
+import { ErrorState } from '@/app/components/dashboard/ErrorState'
+import { ExposureStatCard } from '@/app/components/dashboard/ExposureStatCard'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'

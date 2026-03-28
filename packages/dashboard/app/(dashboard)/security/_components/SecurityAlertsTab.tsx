@@ -13,7 +13,7 @@ import {
 import Link from 'next/link'
 import { api } from '@/lib/api'
 import type { SecurityAlert, SecurityAlertType } from '@/lib/types'
-import { ErrorState, EmptyState } from '@/app/components/dashboard'
+import { ErrorState, EmptyState } from '@/app/components/dashboard/ErrorState'
 import { trackEvent, AnalyticsEvents } from '@/lib/analytics'
 import { Card, CardContent } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'

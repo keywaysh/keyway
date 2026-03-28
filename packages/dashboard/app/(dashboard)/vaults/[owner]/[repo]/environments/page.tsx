@@ -7,11 +7,9 @@ import { AlertTriangle } from 'lucide-react'
 import { api } from '@/lib/api'
 import { trackEvent, AnalyticsEvents } from '@/lib/analytics'
 import type { Vault, Secret } from '@/lib/types'
-import {
-  DashboardLayout,
-  ErrorState,
-  LoadingSpinner,
-} from '@/app/components/dashboard'
+import { DashboardLayout } from '@/app/components/dashboard/Layout'
+import { ErrorState } from '@/app/components/dashboard/ErrorState'
+import { LoadingSpinner } from '@/app/components/dashboard/LoadingSpinner'
 import {
   AlertDialog,
   AlertDialogContent,
