@@ -48,7 +48,7 @@ keyway/
 
 - [Node.js](https://nodejs.org/) >= 20
 - [pnpm](https://pnpm.io/) >= 10
-- [Go](https://go.dev/) >= 1.24
+- [Go](https://go.dev/) >= 1.25
 - [Docker](https://www.docker.com/) (for self-hosting / full stack)
 
 ### Install & Build

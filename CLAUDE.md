@@ -12,8 +12,8 @@ This is a **monorepo** using pnpm workspaces + Turborepo, containing:
 |---------|------|----------|-----------|
 | Backend API | `packages/backend/` | TypeScript | Fastify 5, Drizzle ORM |
 | Dashboard | `packages/dashboard/` | TypeScript | Next.js 15 |
-| Crypto | `packages/crypto/` | Go 1.24 | gRPC |
-| CLI | `packages/cli/` | Go 1.24 | Cobra |
+| Crypto | `packages/crypto/` | Go 1.25 | gRPC |
+| CLI | `packages/cli/` | Go 1.25 | Cobra |
 | MCP Server | `packages/mcp/` | TypeScript | MCP SDK |
 | Docs | `packages/docs/` | TypeScript | Docusaurus 3 |
 
