@@ -1,21 +1,27 @@
 import * as grpc from "@grpc/grpc-js";
 import * as protoLoader from "@grpc/proto-loader";
+import * as fs from "fs";
 import path from "path";
 import type { IEncryptionService, EncryptedData } from "./encryption";
 import { DEFAULT_ENCRYPTION_VERSION } from "./encryption";
 
+type RpcCallback<T> = (err: Error | null, response: T) => void;
+
 interface CryptoClient {
   Encrypt: (
     request: { plaintext: Buffer; version: number },
-    callback: (err: Error | null, response: EncryptResponse) => void
+    metadataOrCallback: grpc.Metadata | RpcCallback<EncryptResponse>,
+    callback?: RpcCallback<EncryptResponse>
   ) => void;
   Decrypt: (
     request: { ciphertext: Buffer; iv: Buffer; authTag: Buffer; version: number },
-    callback: (err: Error | null, response: DecryptResponse) => void
+    metadataOrCallback: grpc.Metadata | RpcCallback<DecryptResponse>,
+    callback?: RpcCallback<DecryptResponse>
   ) => void;
   HealthCheck: (
     request: Record<string, never>,
-    callback: (err: Error | null, response: HealthResponse) => void
+    metadataOrCallback: grpc.Metadata | RpcCallback<HealthResponse>,
+    callback?: RpcCallback<HealthResponse>
   ) => void;
 }
 
@@ -124,28 +130,39 @@ function formatGrpcError(
   );
 }
 
+export interface CryptoServiceOptions {
+  authToken?: string;
+  /** PEM-encoded CA cert for TLS, base64-encoded (same pattern as GITHUB_APP_PRIVATE_KEY) */
+  tlsCa?: string;
+  /** Path to CA cert PEM file (alternative to tlsCa, for Docker shared volumes) */
+  tlsCaPath?: string;
+}
+
 export class RemoteEncryptionService implements IEncryptionService {
   private client: CryptoClient;
   private serviceUrl: string;
+  private metadata: grpc.Metadata | null = null;
 
-  constructor(address: string = "localhost:50051") {
+  constructor(address: string = "localhost:50051", options?: CryptoServiceOptions) {
     this.serviceUrl = address;
 
-    // Security: Only allow insecure gRPC for trusted networks
-    // Railway private networking doesn't provide TLS, but traffic is isolated
-    // Docker container names are also trusted (internal Docker network)
-    // (CRIT-2 fix: Validate address to prevent accidental exposure)
-    const isTrustedNetwork =
-      address.startsWith("localhost") ||
-      address.startsWith("127.0.0.1") ||
-      address.includes(".railway.internal") ||
-      address.startsWith("crypto:"); // Docker container name for local dev
+    // Set up auth metadata if token provided
+    if (options?.authToken) {
+      this.metadata = new grpc.Metadata();
+      this.metadata.set("x-crypto-auth-token", options.authToken);
+    }
 
-    if (!isTrustedNetwork) {
-      throw new Error(
-        `Crypto service address "${address}" is not on a trusted network. ` +
-          "Only localhost, 127.0.0.1, *.railway.internal, and crypto:* (Docker) are allowed without TLS."
-      );
+    // Determine channel credentials (TLS or insecure)
+    let channelCreds: grpc.ChannelCredentials;
+    const tlsCaPem = this.loadTlsCa(options);
+
+    if (tlsCaPem) {
+      // TLS mode: use the CA cert to verify the server
+      channelCreds = grpc.credentials.createSsl(tlsCaPem);
+    } else {
+      // Insecure mode: only allow trusted networks
+      this.validateTrustedNetwork(address);
+      channelCreds = grpc.credentials.createInsecure();
     }
 
     const protoPath = path.join(__dirname, "../../proto/crypto.proto");
@@ -166,36 +183,78 @@ export class RemoteEncryptionService implements IEncryptionService {
         };
       };
     };
-    this.client = new proto.keyway.crypto.CryptoService(address, grpc.credentials.createInsecure());
+    this.client = new proto.keyway.crypto.CryptoService(address, channelCreds);
+  }
+
+  private loadTlsCa(options?: CryptoServiceOptions): Buffer | null {
+    if (options?.tlsCa) {
+      return Buffer.from(options.tlsCa, "base64");
+    }
+    if (options?.tlsCaPath) {
+      // Path was explicitly configured -- fail loudly if unreadable
+      return fs.readFileSync(options.tlsCaPath);
+    }
+    return null;
+  }
+
+  private validateTrustedNetwork(address: string): void {
+    // Security: Only allow insecure gRPC for trusted networks
+    // Railway private networking doesn't provide TLS, but traffic is isolated
+    // Docker container names are also trusted (internal Docker network)
+    const isTrustedNetwork =
+      address.startsWith("localhost") ||
+      address.startsWith("127.0.0.1") ||
+      address.includes(".railway.internal") ||
+      address.startsWith("crypto:"); // Docker container name for local dev
+
+    if (!isTrustedNetwork) {
+      throw new Error(
+        `Crypto service address "${address}" is not on a trusted network. ` +
+          "Provide TLS CA cert (CRYPTO_TLS_CA or CRYPTO_TLS_CA_PATH) or use a trusted network."
+      );
+    }
   }
 
   async encrypt(content: string): Promise<EncryptedData> {
     return withRetry(() => this.encryptOnce(content));
   }
 
-  private async encryptOnce(content: string): Promise<EncryptedData> {
+  private callRpc<TReq, TRes>(
+    method: CryptoClient[keyof CryptoClient],
+    request: TReq
+  ): Promise<TRes> {
     return new Promise((resolve, reject) => {
-      this.client.Encrypt(
-        { plaintext: Buffer.from(content, "utf-8"), version: 0 }, // 0 = use current version
-        (err, response) => {
-          if (err) {
-            return reject(
-              formatGrpcError(
-                err as Error & { code?: number; details?: string },
-                this.serviceUrl,
-                "encrypt"
-              )
-            );
-          }
-          resolve({
-            encryptedContent: Buffer.from(response.ciphertext).toString("hex"),
-            iv: Buffer.from(response.iv).toString("hex"),
-            authTag: Buffer.from(response.authTag).toString("hex"),
-            version: response.version,
-          });
-        }
-      );
+      const cb = (err: Error | null, response: TRes) => {
+        if (err) return reject(err);
+        resolve(response);
+      };
+      if (this.metadata) {
+        (method as Function).call(this.client, request, this.metadata, cb);
+      } else {
+        (method as Function).call(this.client, request, cb);
+      }
     });
+  }
+
+  private async encryptOnce(content: string): Promise<EncryptedData> {
+    try {
+      const response = await this.callRpc<{ plaintext: Buffer; version: number }, EncryptResponse>(
+        this.client.Encrypt,
+        { plaintext: Buffer.from(content, "utf-8"), version: 0 }
+      );
+      return {
+        encryptedContent: Buffer.from(response.ciphertext).toString("hex"),
+        iv: Buffer.from(response.iv).toString("hex"),
+        authTag: Buffer.from(response.authTag).toString("hex"),
+        version: response.version,
+      };
+    } catch (err) {
+      throw formatGrpcError(
+        err as Error & { code?: number; details?: string },
+        this.serviceUrl,
+        "encrypt"
+      );
+    }
   }
 
   async decrypt(data: EncryptedData): Promise<string> {
@@ -203,45 +262,40 @@ export class RemoteEncryptionService implements IEncryptionService {
   }
 
   private async decryptOnce(data: EncryptedData): Promise<string> {
-    return new Promise((resolve, reject) => {
-      this.client.Decrypt(
-        {
-          ciphertext: Buffer.from(data.encryptedContent, "hex"),
-          iv: Buffer.from(data.iv, "hex"),
-          authTag: Buffer.from(data.authTag, "hex"),
-          version: data.version ?? DEFAULT_ENCRYPTION_VERSION,
-        },
-        (err, response) => {
-          if (err) {
-            return reject(
-              formatGrpcError(
-                err as Error & { code?: number; details?: string },
-                this.serviceUrl,
-                "decrypt"
-              )
-            );
-          }
-          resolve(Buffer.from(response.plaintext).toString("utf-8"));
-        }
+    try {
+      const response = await this.callRpc<
+        { ciphertext: Buffer; iv: Buffer; authTag: Buffer; version: number },
+        DecryptResponse
+      >(this.client.Decrypt, {
+        ciphertext: Buffer.from(data.encryptedContent, "hex"),
+        iv: Buffer.from(data.iv, "hex"),
+        authTag: Buffer.from(data.authTag, "hex"),
+        version: data.version ?? DEFAULT_ENCRYPTION_VERSION,
+      });
+      return Buffer.from(response.plaintext).toString("utf-8");
+    } catch (err) {
+      throw formatGrpcError(
+        err as Error & { code?: number; details?: string },
+        this.serviceUrl,
+        "decrypt"
       );
-    });
+    }
   }
 
   async healthCheck(): Promise<{ healthy: boolean; version: string }> {
-    return new Promise((resolve, reject) => {
-      this.client.HealthCheck({}, (err, response) => {
-        if (err) {
-          return reject(
-            formatGrpcError(
-              err as Error & { code?: number; details?: string },
-              this.serviceUrl,
-              "healthcheck"
-            )
-          );
-        }
-        resolve({ healthy: response.healthy, version: response.version });
-      });
-    });
+    try {
+      const response = await this.callRpc<Record<string, never>, HealthResponse>(
+        this.client.HealthCheck,
+        {}
+      );
+      return { healthy: response.healthy, version: response.version };
+    } catch (err) {
+      throw formatGrpcError(
+        err as Error & { code?: number; details?: string },
+        this.serviceUrl,
+        "healthcheck"
+      );
+    }
   }
 }
 
@@ -250,8 +304,9 @@ export class RemoteEncryptionService implements IEncryptionService {
  * Throws CryptoServiceError with detailed message if not accessible
  */
 export async function checkCryptoService(
-  serviceUrl: string
+  serviceUrl: string,
+  options?: CryptoServiceOptions
 ): Promise<{ healthy: boolean; version: string }> {
-  const service = new RemoteEncryptionService(serviceUrl);
+  const service = new RemoteEncryptionService(serviceUrl, options);
   return service.healthCheck();
 }
