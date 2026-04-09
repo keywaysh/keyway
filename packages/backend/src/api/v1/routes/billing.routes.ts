@@ -364,7 +364,8 @@ export async function billingRoutes(fastify: FastifyInstance) {
 
         // For other errors, still return 200 to prevent Stripe retries
         // The event was already recorded for idempotency
-        return reply.send({ received: true, error: error.message });
+        // Return generic message — internal details already logged above
+        return reply.send({ received: true, error: "Processing failed" });
       }
     }
   );
