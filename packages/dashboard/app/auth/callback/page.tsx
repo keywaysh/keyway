@@ -4,6 +4,14 @@ import { Suspense, useEffect, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { trackEvent, AnalyticsEvents } from '@/lib/analytics'
 
+const errorMessages: Record<string, string> = {
+  access_denied: 'Access was denied. Please try again.',
+  invalid_state: 'Authentication failed due to an invalid or expired session. Please try again.',
+  invalid_request: 'The authentication request was invalid. Please try again.',
+  server_error: 'An unexpected error occurred. Please try again later.',
+  temporarily_unavailable: 'The service is temporarily unavailable. Please try again later.',
+}
+
 function AuthCallbackContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -14,7 +22,7 @@ function AuthCallbackContent() {
 
     if (errorParam) {
       trackEvent(AnalyticsEvents.AUTH_CALLBACK_ERROR, { error: errorParam })
-      setError(errorParam)
+      setError(errorMessages[errorParam] || 'An unexpected error occurred. Please try again.')
       return
     }
 
