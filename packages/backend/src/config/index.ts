@@ -32,6 +32,9 @@ const envSchema = z
 
     // Encryption (remote crypto service)
     CRYPTO_SERVICE_URL: z.string().min(1, "CRYPTO_SERVICE_URL is required (e.g., localhost:50051)"),
+    CRYPTO_AUTH_TOKEN: z.preprocess(emptyToUndefined, z.string().optional()),
+    CRYPTO_TLS_CA: z.preprocess(emptyToUndefined, z.string().optional()),
+    CRYPTO_TLS_CA_PATH: z.preprocess(emptyToUndefined, z.string().optional()),
 
     // JWT for Keyway tokens
     JWT_SECRET: z.string().min(32, "JWT_SECRET must be at least 32 characters"),
@@ -167,6 +170,9 @@ export const config = {
 
   crypto: {
     serviceUrl: env.CRYPTO_SERVICE_URL,
+    authToken: env.CRYPTO_AUTH_TOKEN,
+    tlsCa: env.CRYPTO_TLS_CA,
+    tlsCaPath: env.CRYPTO_TLS_CA_PATH,
   },
 
   jwt: {

@@ -20,6 +20,11 @@ services:
     environment:
       - ENCRYPTION_KEY=${ENCRYPTION_KEY}
       - GRPC_PORT=${GRPC_PORT:-50051}
+      - CRYPTO_AUTH_TOKEN=${CRYPTO_AUTH_TOKEN:-}
+      - CRYPTO_TLS_CERT_PATH=${CRYPTO_TLS_CERT_PATH:-none}
+      - CRYPTO_TLS_KEY_PATH=${CRYPTO_TLS_KEY_PATH:-none}
+    volumes:
+      - crypto_certs:/data/crypto
     healthcheck:
       test: ["CMD-SHELL", "nc -z localhost ${GRPC_PORT:-50051} || exit 1"]
       interval: 10s
@@ -36,6 +41,8 @@ services:
       - NODE_ENV=production
       - DATABASE_URL=${DATABASE_URL:-postgresql://keyway:keyway@db:5432/keyway}
       - CRYPTO_SERVICE_URL=${CRYPTO_SERVICE_URL:-crypto:50051}
+      - CRYPTO_AUTH_TOKEN=${CRYPTO_AUTH_TOKEN:-}
+      - CRYPTO_TLS_CA_PATH=${CRYPTO_TLS_CA_PATH:-}
       - ENCRYPTION_KEY=${ENCRYPTION_KEY}
       - JWT_SECRET=${JWT_SECRET}
       # GitHub App (unified auth + repo access)
@@ -60,6 +67,8 @@ services:
       # Optional: Analytics
       - POSTHOG_API_KEY=${POSTHOG_API_KEY:-}
       - POSTHOG_HOST=${POSTHOG_HOST:-}
+    volumes:
+      - crypto_certs:/data/crypto:ro
     depends_on:
       db:
         condition: service_healthy
@@ -103,3 +112,4 @@ volumes:
   postgres_data:
   caddy_data:
   caddy_config:
+  crypto_certs:

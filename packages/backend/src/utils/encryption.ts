@@ -33,7 +33,11 @@ let encryptionService: IEncryptionService | null = null;
 export async function getEncryptionService(): Promise<IEncryptionService> {
   if (!encryptionService) {
     const { RemoteEncryptionService } = await import("./remoteEncryption.js");
-    encryptionService = new RemoteEncryptionService(config.crypto.serviceUrl);
+    encryptionService = new RemoteEncryptionService(config.crypto.serviceUrl, {
+      authToken: config.crypto.authToken,
+      tlsCa: config.crypto.tlsCa,
+      tlsCaPath: config.crypto.tlsCaPath,
+    });
     logger.info({ serviceUrl: config.crypto.serviceUrl }, "Using remote encryption service");
   }
   return encryptionService;

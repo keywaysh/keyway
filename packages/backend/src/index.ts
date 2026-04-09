@@ -128,7 +128,11 @@ fastify.get("/health", async (request, reply) => {
 
   // Check crypto service connectivity with a 3s timeout
   try {
-    const health = await withTimeout(checkCryptoService(config.crypto.serviceUrl), 3000);
+    const health = await withTimeout(checkCryptoService(config.crypto.serviceUrl, {
+      authToken: config.crypto.authToken,
+      tlsCa: config.crypto.tlsCa,
+      tlsCaPath: config.crypto.tlsCaPath,
+    }), 3000);
     cryptoVersion = health.version;
   } catch {
     cryptoStatus = "disconnected";
@@ -271,7 +275,11 @@ const start = async () => {
     // Check crypto service connectivity (warning only, don't crash)
     fastify.log.info(`Checking crypto service connectivity at ${config.crypto.serviceUrl}...`);
     try {
-      const health = await checkCryptoService(config.crypto.serviceUrl);
+      const health = await checkCryptoService(config.crypto.serviceUrl, {
+        authToken: config.crypto.authToken,
+        tlsCa: config.crypto.tlsCa,
+        tlsCaPath: config.crypto.tlsCaPath,
+      });
       fastify.log.info({ version: health.version }, "Crypto service connection successful");
     } catch (cryptoError) {
       fastify.log.warn(
