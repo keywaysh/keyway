@@ -470,13 +470,8 @@ export async function secretsRoutes(fastify: FastifyInstance) {
       const secret = envSecrets.find((s) => s.key === key);
 
       if (!secret) {
-        const availableKeys = envSecrets.map((s) => s.key).sort();
-        const availableList =
-          availableKeys.length > 0
-            ? `Available secrets: ${availableKeys.join(", ")}`
-            : "No secrets found in this environment";
         throw new NotFoundError(
-          `Secret "${key}" not found in environment "${environment}". ${availableList}`
+          `Secret "${key}" not found in environment "${environment}"`
         );
       }
 
