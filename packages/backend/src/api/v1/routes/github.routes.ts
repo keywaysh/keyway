@@ -222,7 +222,9 @@ export async function githubRoutes(fastify: FastifyInstance) {
    * Get GitHub repository IDs for deep linking during GitHub App installation
    * Uses existing "all repos" installation token if available
    */
-  fastify.get("/repo-ids", async (request: FastifyRequest, reply: FastifyReply) => {
+  fastify.get("/repo-ids", {
+    preHandler: [authenticateGitHub],
+  }, async (request: FastifyRequest, reply: FastifyReply) => {
     const query = request.query as { repo?: string };
     if (!query.repo) {
       throw new BadRequestError("repo parameter required");
