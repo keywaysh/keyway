@@ -286,13 +286,15 @@ func main() {
 	}
 
 	// TLS (self-signed cert, auto-generated if needed)
+	// Default is "none" (TLS off) to avoid silently enabling TLS when the
+	// backend isn't configured with the CA cert. TLS must be opted into explicitly.
 	tlsCertPath := os.Getenv("CRYPTO_TLS_CERT_PATH")
 	tlsKeyPath := os.Getenv("CRYPTO_TLS_KEY_PATH")
 	if tlsCertPath == "" {
-		tlsCertPath = "/data/crypto/tls.crt"
+		tlsCertPath = "none"
 	}
 	if tlsKeyPath == "" {
-		tlsKeyPath = "/data/crypto/tls.key"
+		tlsKeyPath = "none"
 	}
 
 	tlsRequired := os.Getenv("CRYPTO_TLS_REQUIRED") == "true"
