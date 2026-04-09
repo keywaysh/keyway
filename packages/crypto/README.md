@@ -75,6 +75,10 @@ ENCRYPTION_KEY=<64-hex-chars> make run
 | `ENCRYPTION_KEY` | Single AES-256 key in hex (64 chars) | Yes* |
 | `ENCRYPTION_KEYS` | Versioned keys for rotation (e.g., `1:key1,2:key2`) | Yes* |
 | `GRPC_PORT` | gRPC server port (default: 50051) | No |
+| `CRYPTO_AUTH_TOKEN` | Shared secret for gRPC authentication. Generate with `openssl rand -hex 32`. Must match the backend's `CRYPTO_AUTH_TOKEN`. | No |
+| `CRYPTO_TLS_CERT_PATH` | Path to TLS cert PEM. Set to `none` to disable TLS (default in docker-compose). If the file doesn't exist, a self-signed ECDSA P-256 cert is auto-generated. | No |
+| `CRYPTO_TLS_KEY_PATH` | Path to TLS key PEM. Auto-generated alongside the cert. | No |
+| `CRYPTO_TLS_REQUIRED` | Set to `true` to make TLS failures fatal instead of falling back to plaintext. Recommended for production. | No |
 
 \* Either `ENCRYPTION_KEY` or `ENCRYPTION_KEYS` must be set. `ENCRYPTION_KEYS` takes priority if both are set.
 
@@ -179,7 +183,8 @@ Key points:
 2. **Key management**: Never commit `ENCRYPTION_KEY` to version control. Use a secrets manager in production.
 3. **Key rotation**: Use `ENCRYPTION_KEYS` with versioned keys (e.g., `1:oldkey,2:newkey`) for zero-downtime rotation.
 4. **Logging**: The service never logs plaintext, ciphertext, IVs, auth tags, or keys.
-5. **mTLS**: Optional but recommended for high-security environments. Network isolation provides the baseline transport security.
+5. **Authentication**: Set `CRYPTO_AUTH_TOKEN` on both the crypto service and the backend to require a shared secret on every gRPC call. Uses SHA-256 + constant-time comparison.
+6. **TLS**: Set `CRYPTO_TLS_CERT_PATH` to enable auto-generated self-signed TLS. The cert is shared with the backend via Docker volume or env var. Recommended for Docker Compose and Kubernetes. On Railway, the private network isolation makes TLS unnecessary -- use `CRYPTO_AUTH_TOKEN` alone.
 
 ## Make Commands
 
