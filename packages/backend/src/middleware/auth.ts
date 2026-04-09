@@ -120,9 +120,9 @@ export async function authenticateGitHub(request: FastifyRequest, reply: Fastify
     throw new UnauthorizedError("Authentication required");
   }
 
-  // Log token info for debugging
-  const tokenPreview = token.substring(0, 20) + "..." + token.substring(token.length - 10);
-  request.log.info({ tokenPreview, tokenLength: token.length }, "Auth middleware: received token");
+  // Log token type and length only — never log token content (OWASP Logging Cheat Sheet)
+  const tokenType = isKeywayApiKey(token) ? "api_key" : token.startsWith("ghu_") || token.startsWith("ghp_") ? "github_pat" : "jwt";
+  request.log.info({ tokenType, tokenLength: token.length }, "Auth middleware: received token");
 
   // Step 0: Check if it's a Keyway API key (kw_live_* or kw_test_*)
   if (isKeywayApiKey(token)) {
@@ -142,13 +142,13 @@ export async function authenticateGitHub(request: FastifyRequest, reply: Fastify
   } catch (jwtError) {
     const errorMessage = jwtError instanceof Error ? jwtError.message : "Unknown error";
     request.log.warn(
-      { error: errorMessage, tokenPreview },
+      { error: errorMessage, tokenType },
       "Auth middleware: JWT verification failed"
     );
 
     // If not a valid JWT, try as GitHub access token
     if (jwtError instanceof Error && jwtError.message.includes("Token")) {
-      request.log.info({ tokenPreview }, "Auth middleware: trying as GitHub token");
+      request.log.info({ tokenType }, "Auth middleware: trying as GitHub token");
       try {
         const githubUser = await getUserFromToken(token);
         request.log.info(
