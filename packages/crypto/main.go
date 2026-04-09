@@ -124,6 +124,22 @@ func loadOrGenerateTLS(certPath, keyPath string) (tls.Certificate, string, error
 		if err != nil {
 			return tls.Certificate{}, "", fmt.Errorf("failed to load TLS cert: %w", err)
 		}
+		// Validate cert is not expired
+		x509Cert, err := x509.ParseCertificate(cert.Certificate[0])
+		if err != nil {
+			return tls.Certificate{}, "", fmt.Errorf("failed to parse TLS cert: %w", err)
+		}
+		now := time.Now()
+		if now.Before(x509Cert.NotBefore) || now.After(x509Cert.NotAfter) {
+			log.Printf("TLS cert expired (valid %s to %s), regenerating...", x509Cert.NotBefore.Format(time.RFC3339), x509Cert.NotAfter.Format(time.RFC3339))
+			os.Remove(certPath)
+			os.Remove(keyPath)
+			return loadOrGenerateTLS(certPath, keyPath)
+		}
+		// Warn if cert expires within 30 days
+		if time.Until(x509Cert.NotAfter) < 30*24*time.Hour {
+			log.Printf("WARNING: TLS cert expires in %d days (%s)", int(time.Until(x509Cert.NotAfter).Hours()/24), x509Cert.NotAfter.Format(time.RFC3339))
+		}
 		hash := sha256.Sum256(cert.Certificate[0])
 		return cert, hex.EncodeToString(hash[:]), nil
 	}
@@ -155,20 +171,38 @@ func loadOrGenerateTLS(certPath, keyPath string) (tls.Certificate, string, error
 		return tls.Certificate{}, "", fmt.Errorf("failed to create certificate: %w", err)
 	}
 
-	// Write cert PEM
+	// Write cert and key atomically using temp files + rename to avoid partial writes
 	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certDER})
-	if err := os.WriteFile(certPath, certPEM, 0644); err != nil {
-		return tls.Certificate{}, "", fmt.Errorf("failed to write cert: %w", err)
-	}
-
-	// Write key PEM
 	keyDER, err := x509.MarshalECPrivateKey(privateKey)
 	if err != nil {
 		return tls.Certificate{}, "", fmt.Errorf("failed to marshal key: %w", err)
 	}
 	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER})
-	if err := os.WriteFile(keyPath, keyPEM, 0600); err != nil {
+
+	tmpCert := certPath + ".tmp"
+	tmpKey := keyPath + ".tmp"
+	// Clean up temp files on any error
+	cleanup := func() {
+		os.Remove(tmpCert)
+		os.Remove(tmpKey)
+	}
+
+	if err := os.WriteFile(tmpCert, certPEM, 0644); err != nil {
+		cleanup()
+		return tls.Certificate{}, "", fmt.Errorf("failed to write cert: %w", err)
+	}
+	if err := os.WriteFile(tmpKey, keyPEM, 0600); err != nil {
+		cleanup()
 		return tls.Certificate{}, "", fmt.Errorf("failed to write key: %w", err)
+	}
+	if err := os.Rename(tmpCert, certPath); err != nil {
+		cleanup()
+		return tls.Certificate{}, "", fmt.Errorf("failed to rename cert: %w", err)
+	}
+	if err := os.Rename(tmpKey, keyPath); err != nil {
+		// Cert already renamed, try to clean up
+		os.Remove(certPath)
+		return tls.Certificate{}, "", fmt.Errorf("failed to rename key: %w", err)
 	}
 
 	cert, err := tls.LoadX509KeyPair(certPath, keyPath)

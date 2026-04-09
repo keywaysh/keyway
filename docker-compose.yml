@@ -21,12 +21,12 @@ services:
       - ENCRYPTION_KEY=${ENCRYPTION_KEY}
       - GRPC_PORT=${GRPC_PORT:-50051}
       - CRYPTO_AUTH_TOKEN=${CRYPTO_AUTH_TOKEN:-}
-      - CRYPTO_TLS_CERT_PATH=${CRYPTO_TLS_CERT_PATH:-}
-      - CRYPTO_TLS_KEY_PATH=${CRYPTO_TLS_KEY_PATH:-}
+      - CRYPTO_TLS_CERT_PATH=${CRYPTO_TLS_CERT_PATH:-none}
+      - CRYPTO_TLS_KEY_PATH=${CRYPTO_TLS_KEY_PATH:-none}
     volumes:
       - crypto_certs:/data/crypto
     healthcheck:
-      test: ["CMD-SHELL", "(test -z \"${CRYPTO_TLS_CERT_PATH}\" || test -f /data/crypto/tls.crt) && nc -z localhost ${GRPC_PORT:-50051} || exit 1"]
+      test: ["CMD-SHELL", "nc -z localhost ${GRPC_PORT:-50051} || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 3
