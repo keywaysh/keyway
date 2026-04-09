@@ -21,7 +21,9 @@ function AuthCallbackContent() {
     const errorParam = searchParams.get('error')
 
     if (errorParam) {
-      trackEvent(AnalyticsEvents.AUTH_CALLBACK_ERROR, { error: errorParam })
+      // Only send known error codes to analytics — raw param is user-controlled
+      const normalizedError = errorParam in errorMessages ? errorParam : 'unknown'
+      trackEvent(AnalyticsEvents.AUTH_CALLBACK_ERROR, { error: normalizedError })
       setError(errorMessages[errorParam] || 'An unexpected error occurred. Please try again.')
       return
     }
