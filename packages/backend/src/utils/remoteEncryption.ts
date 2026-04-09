@@ -225,13 +225,17 @@ export class RemoteEncryptionService implements IEncryptionService {
   ): Promise<TRes> {
     return new Promise((resolve, reject) => {
       const cb = (err: Error | null, response: TRes) => {
-        if (err) return reject(err);
+        if (err) {
+          return reject(err);
+        }
         resolve(response);
       };
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-function-type -- proto-loaded gRPC clients have dynamic signatures that can't be statically typed
+      const fn = method as unknown as (...args: unknown[]) => void;
       if (this.metadata) {
-        (method as Function).call(this.client, request, this.metadata, cb);
+        fn.call(this.client, request, this.metadata, cb);
       } else {
-        (method as Function).call(this.client, request, cb);
+        fn.call(this.client, request, cb);
       }
     });
   }
