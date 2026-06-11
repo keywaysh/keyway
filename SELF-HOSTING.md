@@ -239,12 +239,6 @@ SENTRY_DSN=https://...@sentry.io/...
 NEXT_PUBLIC_SENTRY_DSN=https://...@sentry.io/...
 ```
 
-### Live Chat (Crisp)
-
-```bash
-NEXT_PUBLIC_CRISP_WEBSITE_ID=abc123
-```
-
 ### IP Geolocation (ipinfo.io)
 
 Enables security features like impossible travel detection and new location alerts.

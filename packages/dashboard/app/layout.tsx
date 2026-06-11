@@ -6,7 +6,6 @@ import clsx from 'clsx'
 import { ThemeProvider } from '@/components/theme-provider'
 import { Toaster } from '@/components/ui/sonner'
 import { QueryProvider } from './providers'
-import { CrispProvider } from '@/lib/crisp'
 import './globals.css'
 
 const inter = Inter({
@@ -49,7 +48,6 @@ export default function RootLayout({
             {children}
           </QueryProvider>
           <Toaster richColors position="bottom-right" />
-          <CrispProvider />
         </ThemeProvider>
         {posthogKey ? (
           <Script

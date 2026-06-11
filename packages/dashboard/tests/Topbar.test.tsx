@@ -3,11 +3,6 @@ import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Topbar } from '../app/components/dashboard/Topbar'
 
-// Mock Crisp
-vi.mock('@/lib/crisp', () => ({
-  openFeedback: vi.fn(),
-}))
-
 // Mock NewVaultModal
 vi.mock('../app/components/dashboard/NewVaultModal', () => ({
   NewVaultModal: ({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) => (
@@ -18,8 +13,6 @@ vi.mock('../app/components/dashboard/NewVaultModal', () => ({
     ) : null
   ),
 }))
-
-import { openFeedback } from '@/lib/crisp'
 
 describe('Topbar', () => {
   const mockOnMenuClick = vi.fn()
@@ -47,7 +40,7 @@ describe('Topbar', () => {
       expect(screen.getByRole('button', { name: /open menu/i })).toBeInTheDocument()
     })
 
-    it('should render feedback button', () => {
+    it('should render feedback link', () => {
       render(<Topbar onMenuClick={mockOnMenuClick} />)
 
       expect(screen.getByText('Feedback')).toBeInTheDocument()
@@ -76,13 +69,11 @@ describe('Topbar', () => {
       expect(mockOnMenuClick).toHaveBeenCalled()
     })
 
-    it('should call openFeedback when feedback button clicked', async () => {
-      const user = userEvent.setup()
+    it('should render feedback link with mailto href', () => {
       render(<Topbar onMenuClick={mockOnMenuClick} />)
 
-      await user.click(screen.getByText('Feedback'))
-
-      expect(openFeedback).toHaveBeenCalled()
+      const feedbackLink = screen.getByRole('link', { name: /feedback/i })
+      expect(feedbackLink).toHaveAttribute('href', 'mailto:hello@keyway.sh')
     })
 
     it('should open new vault modal when new vault button clicked', async () => {

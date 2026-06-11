@@ -104,7 +104,6 @@ import { Badge } from '@/components/ui/badge';
 ```
 NEXT_PUBLIC_KEYWAY_API_URL=https://api.keyway.sh
 NEXT_PUBLIC_POSTHOG_KEY=...
-NEXT_PUBLIC_CRISP_WEBSITE_ID=...
 ```
 
 ## Key Patterns

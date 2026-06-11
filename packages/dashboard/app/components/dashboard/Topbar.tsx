@@ -4,7 +4,6 @@ import { useState } from 'react'
 import { Menu, Plus, MessageSquare } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { NewVaultModal } from './NewVaultModal'
-import { openFeedback } from '@/lib/crisp'
 
 interface TopbarProps {
   onMenuClick: () => void
@@ -35,11 +34,13 @@ export function Topbar({ onMenuClick, title = 'Vaults', showNewVault = true }: T
           <Button
             variant="ghost"
             size="sm"
-            onClick={openFeedback}
+            asChild
             className="text-muted-foreground hover:text-foreground"
           >
-            <MessageSquare className="h-4 w-4 sm:mr-1.5" />
-            <span className="hidden sm:inline">Feedback</span>
+            <a href="mailto:hello@keyway.sh">
+              <MessageSquare className="h-4 w-4 sm:mr-1.5" />
+              <span className="hidden sm:inline">Feedback</span>
+            </a>
           </Button>
 
           {showNewVault && (
