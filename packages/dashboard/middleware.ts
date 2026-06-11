@@ -33,28 +33,22 @@ export function middleware(request: NextRequest) {
 
 function addSecurityHeaders(response: NextResponse, request: NextRequest) {
   // Content Security Policy (CSP)
-  // Allow PostHog analytics, GitHub avatars, and Crisp chat (conditionally)
+  // Allow PostHog analytics and GitHub avatars
   const apiUrl = process.env.NEXT_PUBLIC_KEYWAY_API_URL || 'https://api.keyway.sh'
   const hasPosthog = !!process.env.NEXT_PUBLIC_POSTHOG_KEY
-  const hasCrisp = !!process.env.NEXT_PUBLIC_CRISP_WEBSITE_ID
 
   const posthogHost = process.env.NEXT_PUBLIC_POSTHOG_HOST || 'https://us.i.posthog.com'
   const posthogScriptSrc = hasPosthog ? ` ${posthogHost} https://us.i.posthog.com` : ''
-  const crispScriptSrc = hasCrisp ? ' https://client.crisp.chat' : ''
-  const crispStyleSrc = hasCrisp ? ' https://client.crisp.chat' : ''
-  const crispFontSrc = hasCrisp ? ' https://client.crisp.chat' : ''
   const posthogConnectSrc = hasPosthog ? ` ${posthogHost} https://us.i.posthog.com` : ''
-  const crispConnectSrc = hasCrisp ? ' https://client.crisp.chat wss://client.relay.crisp.chat wss://stream.relay.crisp.chat https://storage.crisp.chat' : ''
-  const crispFrameSrc = hasCrisp ? ' https://game.crisp.chat' : ''
 
   const cspDirectives = [
     "default-src 'self'",
-    `script-src 'self' 'unsafe-inline' 'unsafe-eval'${posthogScriptSrc}${crispScriptSrc}`,
-    `style-src 'self' 'unsafe-inline'${crispStyleSrc}`,
+    `script-src 'self' 'unsafe-inline' 'unsafe-eval'${posthogScriptSrc}`,
+    "style-src 'self' 'unsafe-inline'",
     "img-src 'self' data: https: blob:",
-    `font-src 'self' data:${crispFontSrc}`,
-    `connect-src 'self'${posthogConnectSrc} ${apiUrl} https://localhost${crispConnectSrc}`,
-    `frame-src 'self'${crispFrameSrc}`,
+    "font-src 'self' data:",
+    `connect-src 'self'${posthogConnectSrc} ${apiUrl} https://localhost`,
+    "frame-src 'self'",
     "worker-src 'self' blob:",
     "frame-ancestors 'none'",
     "base-uri 'self'",

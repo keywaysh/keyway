@@ -39,9 +39,6 @@ const clientEnvSchema = z.object({
   // Sentry error tracking (optional)
   NEXT_PUBLIC_SENTRY_DSN: optionalUrl(),
 
-  // Crisp chat widget (optional)
-  NEXT_PUBLIC_CRISP_WEBSITE_ID: optionalString(),
-
   // Self-hosting configuration
   NEXT_PUBLIC_DASHBOARD_URL: optionalUrl(),
   NEXT_PUBLIC_LANDING_URL: optionalUrl(),
@@ -68,7 +65,6 @@ function validateEnv(): Env {
     NEXT_PUBLIC_POSTHOG_KEY: process.env.NEXT_PUBLIC_POSTHOG_KEY,
     NEXT_PUBLIC_POSTHOG_HOST: process.env.NEXT_PUBLIC_POSTHOG_HOST,
     NEXT_PUBLIC_SENTRY_DSN: process.env.NEXT_PUBLIC_SENTRY_DSN,
-    NEXT_PUBLIC_CRISP_WEBSITE_ID: process.env.NEXT_PUBLIC_CRISP_WEBSITE_ID,
     NEXT_PUBLIC_DASHBOARD_URL: process.env.NEXT_PUBLIC_DASHBOARD_URL,
     NEXT_PUBLIC_LANDING_URL: process.env.NEXT_PUBLIC_LANDING_URL,
     NEXT_PUBLIC_DOCS_URL: process.env.NEXT_PUBLIC_DOCS_URL,
@@ -101,7 +97,6 @@ export const API_BASE = env.NEXT_PUBLIC_KEYWAY_API_URL
 export const POSTHOG_KEY = env.NEXT_PUBLIC_POSTHOG_KEY
 export const POSTHOG_HOST = env.NEXT_PUBLIC_POSTHOG_HOST ?? 'https://app.posthog.com'
 export const SENTRY_DSN = env.NEXT_PUBLIC_SENTRY_DSN
-export const CRISP_WEBSITE_ID = env.NEXT_PUBLIC_CRISP_WEBSITE_ID
 export const LANDING_URL = env.NEXT_PUBLIC_LANDING_URL ?? 'https://keyway.sh'
 export const DOCS_URL = env.NEXT_PUBLIC_DOCS_URL ?? 'https://docs.keyway.sh'
 export const CONTACT_EMAIL = env.NEXT_PUBLIC_CONTACT_EMAIL ?? 'hello@keyway.sh'
