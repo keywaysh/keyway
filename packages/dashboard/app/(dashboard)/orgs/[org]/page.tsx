@@ -13,6 +13,7 @@ import {
   RefreshCw,
   Clock,
   Shield,
+  Users,
 } from 'lucide-react'
 import { api } from '@/lib/api'
 import type { OrganizationDetails } from '@/lib/types'
@@ -252,6 +253,25 @@ export default function OrganizationDashboardPage() {
           </CardContent>
         </Card>
       )}
+
+      {/* Members (visible to all members) */}
+      <Link href={`/orgs/${orgLogin}/members`}>
+        <Card className="hover:bg-accent/50 transition-colors cursor-pointer">
+          <CardContent className="p-4">
+            <div className="flex items-center gap-3">
+              <div className="flex items-center justify-center h-10 w-10 rounded-lg bg-muted">
+                <Users className="h-5 w-5 text-muted-foreground" />
+              </div>
+              <div>
+                <p className="font-medium">Members</p>
+                <p className="text-sm text-muted-foreground">
+                  View organization members synced from GitHub
+                </p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </Link>
 
       {/* Quick Actions */}
       {isOwner && (

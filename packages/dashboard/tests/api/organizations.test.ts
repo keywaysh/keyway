@@ -98,8 +98,8 @@ describe('organizationsApi', () => {
         status: 200,
         json: () => Promise.resolve({
           data: [
-            { id: '1', username: 'john', avatarUrl: 'https://john.png', role: 'owner', joinedAt: '2025-01-01' },
-            { id: '2', username: 'jane', avatarUrl: 'https://jane.png', role: 'member', joinedAt: '2025-01-02' },
+            { id: '1', username: 'john', avatarUrl: 'https://john.png', role: 'owner', joinedAt: '2025-01-01', onKeyway: true },
+            { id: 'github:2', username: 'jane', avatarUrl: 'https://jane.png', role: 'member', joinedAt: null, onKeyway: false },
           ],
           meta: { requestId: 'req-1' },
         }),
@@ -113,7 +113,10 @@ describe('organizationsApi', () => {
       )
       expect(result).toHaveLength(2)
       expect(result[0].username).toBe('john')
+      expect(result[0].on_keyway).toBe(true)
       expect(result[1].role).toBe('member')
+      expect(result[1].on_keyway).toBe(false)
+      expect(result[1].joined_at).toBeNull()
     })
   })
 
