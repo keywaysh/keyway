@@ -21,10 +21,14 @@ function AuthCallbackContent() {
     const errorParam = searchParams.get('error')
 
     if (errorParam) {
-      // Only send known error codes to analytics — raw param is user-controlled
-      const normalizedError = errorParam in errorMessages ? errorParam : 'unknown'
+      // Only treat own (whitelisted) keys as known — `in` would accept inherited
+      // keys (e.g. "constructor"), and the raw param is user-controlled.
+      const isKnown = Object.hasOwn(errorMessages, errorParam)
+      const normalizedError = isKnown ? errorParam : 'unknown'
       trackEvent(AnalyticsEvents.AUTH_CALLBACK_ERROR, { error: normalizedError })
-      setError(errorMessages[errorParam] || 'An unexpected error occurred. Please try again.')
+      setError(
+        isKnown ? errorMessages[errorParam] : 'An unexpected error occurred. Please try again.'
+      )
       return
     }
 

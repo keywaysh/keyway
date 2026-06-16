@@ -41,9 +41,14 @@ function addSecurityHeaders(response: NextResponse, request: NextRequest) {
   const posthogScriptSrc = hasPosthog ? ` ${posthogHost} https://us.i.posthog.com` : ''
   const posthogConnectSrc = hasPosthog ? ` ${posthogHost} https://us.i.posthog.com` : ''
 
+  // 'unsafe-eval' is only needed for the Next.js dev runtime (HMR/eval). Keeping
+  // it in production weakens CSP's XSS protection, so scope it to development.
+  const isDevelopment = process.env.NODE_ENV !== 'production'
+  const unsafeEval = isDevelopment ? " 'unsafe-eval'" : ''
+
   const cspDirectives = [
     "default-src 'self'",
-    `script-src 'self' 'unsafe-inline' 'unsafe-eval'${posthogScriptSrc}`,
+    `script-src 'self' 'unsafe-inline'${unsafeEval}${posthogScriptSrc}`,
     "style-src 'self' 'unsafe-inline'",
     "img-src 'self' data: https: blob:",
     "font-src 'self' data:",
