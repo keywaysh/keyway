@@ -213,19 +213,8 @@ export async function organizationsRoutes(fastify: FastifyInstance) {
             { requestId: request.id }
           );
         }
-        // Org exists but user isn't a member - add them
-        // Use role from /user/installations (admin or member)
-        const keywayRole = targetOrg.role === "admin" ? "owner" : "member";
-        await upsertOrganizationMember(existingOrg.id, user.id, keywayRole);
-        const details = await getOrganizationDetails(existingOrg.id);
-        return sendData(
-          reply,
-          {
-            organization: details,
-            message: "Connected to organization",
-          },
-          { requestId: request.id }
-        );
+        // Org exists but the caller isn't a member yet — they're added below,
+        // after resolving the authoritative role (shared with the create path).
       }
 
       // Check if GitHub App is installed on this org (check DB first, then GitHub API)
@@ -258,9 +247,10 @@ export async function organizationsRoutes(fastify: FastifyInstance) {
       const installToken = await getInstallationToken(installation.installationId);
 
       // Resolve the caller's role authoritatively via the installation token
-      // (which has org Members access) rather than trusting targetOrg.role from
-      // the user-to-server token — that read can silently fail and demote a real
-      // owner to "member". Fall back to the user-token-derived role on failure.
+      // (Members: Read) for BOTH the add-to-existing and create paths, rather
+      // than trusting targetOrg.role from the user-to-server token — that read
+      // can silently fail and demote a real owner to "member". Fall back to the
+      // user-token-derived role on failure.
       let keywayRole: OrgRole = keywayRoleFromGitHub(targetOrg.role);
       try {
         const authoritative = await getOrgMembership(installToken, orgLogin, user.username);
@@ -271,7 +261,18 @@ export async function organizationsRoutes(fastify: FastifyInstance) {
         // Keep the user-token-derived role if the authoritative read fails.
       }
 
-      // Create the organization using existing service function
+      // Existing org the caller isn't a member of yet → add them with the role.
+      if (existingOrg) {
+        await upsertOrganizationMember(existingOrg.id, user.id, keywayRole);
+        const details = await getOrganizationDetails(existingOrg.id);
+        return sendData(
+          reply,
+          { organization: details, message: "Connected to organization" },
+          { requestId: request.id }
+        );
+      }
+
+      // New org → create it with the resolved role.
       const org = await ensureOrganizationExists(orgLogin, installToken, {
         userId: user.id,
         keywayRole,

@@ -312,6 +312,35 @@ describe("POST /v1/orgs/connect — privilege escalation regression", () => {
     // Authoritative read wins → owner, not the user-token "member".
     expect(currentUser.keywayRole).toBe("owner");
   });
+
+  it("uses the authoritative role when adding the caller to an already-connected org", async () => {
+    // User-token says "member"...
+    mocks.listUserOrganizations.mockResolvedValue([
+      { id: 98765, login: "acme-corp", role: "member", avatar_url: null, description: null },
+    ]);
+    // ...the org already exists in Keyway and the caller isn't a member yet...
+    mocks.getOrganizationByLogin.mockResolvedValue({ id: "org-existing", login: "acme-corp" });
+    mocks.getOrganizationMembership.mockResolvedValue(null);
+    mocks.getOrganizationDetails.mockResolvedValue({ id: "org-existing", login: "acme-corp" });
+    // ...but the authoritative installation-token read says admin.
+    mocks.getOrgMembership.mockResolvedValue({
+      role: "admin",
+      state: "active",
+      organization: { id: 98765, login: "acme-corp", avatar_url: "" },
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/v1/orgs/connect",
+      payload: { orgLogin: "acme-corp" },
+    });
+
+    expect(response.statusCode).toBe(200);
+    // Added with the authoritative "owner", not the user-token "member" — and
+    // the create path is not taken for an existing org.
+    expect(mocks.upsertOrganizationMember).toHaveBeenCalledWith("org-existing", bobUser.id, "owner");
+    expect(mocks.ensureOrganizationExists).not.toHaveBeenCalled();
+  });
 });
 
 // ============================================================================
