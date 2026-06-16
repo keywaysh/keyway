@@ -14,6 +14,8 @@ import {
   ensureOrganizationExists,
   upsertOrganizationMember,
 } from "../../../services/organization.service";
+import { keywayRoleFromGitHub } from "../../../utils/orgRole";
+import type { OrgRole } from "../../../db/schema";
 import { startTrial, getTrialInfo, TRIAL_DURATION_DAYS } from "../../../services/trial.service";
 import { detectPlatform } from "../../../services/activity.service";
 import { sendTrialStartedEmail } from "../../../utils/email";
@@ -45,33 +47,71 @@ import {
  * POST /api/v1/orgs/:org/members/sync - Force sync members from GitHub
  */
 
+type WarnLogger = { warn: (obj: object, msg: string) => void };
+
 /**
- * Authorize an owner-gated action by re-checking LIVE GitHub admin on the org.
- * The local `organization_members.org_role` column is a stale-able mirror of
- * GitHub, not a source of truth, so it must not be sufficient on its own (a
- * stale/forged owner row, or a member mis-recorded at connect time, would
- * otherwise grant or deny incorrectly — the latter being the bootstrap deadlock
- * where a real admin recorded as "member" can't run owner-only actions).
+ * Refresh the caller's cached org_role from LIVE GitHub — the single primitive
+ * for the "GitHub is the source of truth, `organization_members.org_role` is a
+ * mirror" invariant. Returns the live role, or null when it can't be determined
+ * (no token, not an active member, or GitHub unreachable). Self-heals the DB row
+ * when it differs from `cachedRole`, so DB-based reads (member list, UI) stay
+ * consistent; the write is non-fatal.
  *
- * Fails closed if the token is missing or GitHub is unreachable. On success it
- * self-heals the cached role so DB-based reads (member list, UI) stay consistent.
+ * Intentionally uncached — one GitHub round-trip per call. Do NOT call on hot paths.
+ */
+async function refreshCachedOrgRole(
+  accessToken: string | undefined,
+  orgLogin: string,
+  orgId: string,
+  userId: string,
+  cachedRole: OrgRole | undefined,
+  log: WarnLogger
+): Promise<OrgRole | null> {
+  if (!accessToken) {
+    return null;
+  }
+  let live;
+  try {
+    live = await getOrgMembershipForCurrentUser(accessToken, orgLogin);
+  } catch {
+    return null;
+  }
+  if (!live || live.state !== "active") {
+    return null;
+  }
+  const role = keywayRoleFromGitHub(live.role);
+  if (role !== cachedRole) {
+    try {
+      await upsertOrganizationMember(orgId, userId, role);
+    } catch (err) {
+      log.warn({ err, orgId, userId }, "self-heal org role upsert failed");
+    }
+  }
+  return role;
+}
+
+/**
+ * The single gate for owner-gated org actions: re-check LIVE GitHub admin (via
+ * refreshCachedOrgRole). A stale/forged DB owner row must not grant, and a member
+ * mis-recorded at connect time must not be wrongly denied (the bootstrap deadlock).
+ * Fails closed: missing token / non-admin / GitHub unreachable → ForbiddenError.
+ * Keep PUT/sync/billing/trial routed through here so the boundary lives in one place.
  */
 async function requireLiveOrgAdmin(
   accessToken: string | undefined,
   orgLogin: string,
   orgId: string,
   userId: string,
-  action: string
+  action: string,
+  log: WarnLogger
 ): Promise<void> {
   if (!accessToken) {
     throw new ForbiddenError(`Authentication required to ${action}`);
   }
-  const membership = await getOrgMembershipForCurrentUser(accessToken, orgLogin);
-  if (!membership || membership.state !== "active" || membership.role !== "admin") {
+  const role = await refreshCachedOrgRole(accessToken, orgLogin, orgId, userId, undefined, log);
+  if (role !== "owner") {
     throw new ForbiddenError(`Only organization admins can ${action}`);
   }
-  // Self-heal the cached role (non-fatal) so subsequent DB reads agree with GitHub.
-  await upsertOrganizationMember(orgId, userId, "owner").catch(() => {});
 }
 
 export async function organizationsRoutes(fastify: FastifyInstance) {
@@ -221,11 +261,11 @@ export async function organizationsRoutes(fastify: FastifyInstance) {
       // (which has org Members access) rather than trusting targetOrg.role from
       // the user-to-server token — that read can silently fail and demote a real
       // owner to "member". Fall back to the user-token-derived role on failure.
-      let keywayRole: "owner" | "member" = targetOrg.role === "admin" ? "owner" : "member";
+      let keywayRole: OrgRole = keywayRoleFromGitHub(targetOrg.role);
       try {
         const authoritative = await getOrgMembership(installToken, orgLogin, user.username);
         if (authoritative?.role) {
-          keywayRole = authoritative.role === "admin" ? "owner" : "member";
+          keywayRole = keywayRoleFromGitHub(authoritative.role);
         }
       } catch {
         // Keep the user-token-derived role if the authoritative read fails.
@@ -300,21 +340,15 @@ export async function organizationsRoutes(fastify: FastifyInstance) {
       // stale — e.g. it's set to "member" at connect time if the App didn't yet
       // have the org Members permission to read the real role. GitHub is the
       // source of truth, so refresh the cache on access. Non-fatal on failure.
-      let role = membership.orgRole;
-      if (request.accessToken) {
-        try {
-          const live = await getOrgMembershipForCurrentUser(request.accessToken, orgLogin);
-          if (live?.state === "active") {
-            const liveRole = live.role === "admin" ? "owner" : "member";
-            if (liveRole !== role) {
-              await upsertOrganizationMember(org.id, user.id, liveRole);
-              role = liveRole;
-            }
-          }
-        } catch {
-          // Keep the cached role if the live refresh fails.
-        }
-      }
+      const role =
+        (await refreshCachedOrgRole(
+          request.accessToken,
+          orgLogin,
+          org.id,
+          user.id,
+          membership.orgRole,
+          request.log
+        )) ?? membership.orgRole;
 
       // Get full details
       const details = await getOrganizationDetails(org.id);
@@ -373,20 +407,17 @@ export async function organizationsRoutes(fastify: FastifyInstance) {
         throw new NotFoundError("Organization not found");
       }
 
-      // Authorization: require live GitHub admin on the org.
-      // The local organization_members.org_role column is treated as a
-      // mirror of GitHub state, not a source of truth — defaultPermissions
-      // can grant write access to every vault in the org, so a stale or
-      // forged owner row in the DB must not be sufficient. Fail closed if
-      // GitHub is unreachable; legitimate admins can retry.
-      const accessToken = request.accessToken;
-      if (!accessToken) {
-        throw new ForbiddenError("Authentication required to update organization settings");
-      }
-      const membership = await getOrgMembershipForCurrentUser(accessToken, orgLogin);
-      if (!membership || membership.state !== "active" || membership.role !== "admin") {
-        throw new ForbiddenError("Only organization admins can update settings");
-      }
+      // Authorization: require live GitHub admin. defaultPermissions can grant
+      // write to every vault in the org, so a stale/forged DB owner row must not
+      // suffice. Fails closed if GitHub is unreachable; legitimate admins retry.
+      await requireLiveOrgAdmin(
+        request.accessToken,
+        orgLogin,
+        org.id,
+        user.id,
+        "update settings",
+        request.log
+      );
 
       // Update organization
       const updated = await updateOrganization(org.id, validatedBody);
@@ -487,7 +518,7 @@ export async function organizationsRoutes(fastify: FastifyInstance) {
         throw new NotFoundError("Organization not found");
       }
 
-      await requireLiveOrgAdmin(request.accessToken, orgLogin, org.id, user.id, "sync members");
+      await requireLiveOrgAdmin(request.accessToken, orgLogin, org.id, user.id, "sync members", request.log);
 
       // Fetch members from GitHub using the user's OAuth token
       // This allows seeing private members (the user is a member of the org)
@@ -656,7 +687,7 @@ export async function organizationsRoutes(fastify: FastifyInstance) {
         throw new NotFoundError("Organization not found");
       }
 
-      await requireLiveOrgAdmin(request.accessToken, orgLogin, org.id, user.id, "manage billing");
+      await requireLiveOrgAdmin(request.accessToken, orgLogin, org.id, user.id, "manage billing", request.log);
 
       // Create checkout session
       const sessionUrl = await createOrgCheckoutSession(
@@ -718,7 +749,7 @@ export async function organizationsRoutes(fastify: FastifyInstance) {
         throw new NotFoundError("Organization not found");
       }
 
-      await requireLiveOrgAdmin(request.accessToken, orgLogin, org.id, user.id, "manage billing");
+      await requireLiveOrgAdmin(request.accessToken, orgLogin, org.id, user.id, "manage billing", request.log);
 
       // Create portal session
       const portalUrl = await createOrgPortalSession(org.id, returnUrl);
@@ -819,7 +850,7 @@ export async function organizationsRoutes(fastify: FastifyInstance) {
         throw new NotFoundError("Organization not found");
       }
 
-      await requireLiveOrgAdmin(request.accessToken, orgLogin, org.id, user.id, "start a trial");
+      await requireLiveOrgAdmin(request.accessToken, orgLogin, org.id, user.id, "start a trial", request.log);
 
       // Start the trial
       const result = await startTrial({

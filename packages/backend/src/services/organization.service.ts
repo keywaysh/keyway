@@ -11,6 +11,7 @@ import {
 } from "./trial.service";
 import { getGitHubOrgInfoWithToken, listOrgMembers } from "../utils/github";
 import type { GitHubOrgMember } from "../utils/github";
+import { keywayRoleFromGitHub } from "../utils/orgRole";
 import { logger } from "../utils/sharedLogger";
 
 // ============================================================================
@@ -443,7 +444,7 @@ export async function getOrganizationMembersWithGitHub(
         id: dbm ? dbm.id : unclaimedMemberId(gm.id),
         username: gm.login,
         avatarUrl: gm.avatar_url,
-        role: gm.role === "admin" ? "owner" : "member",
+        role: keywayRoleFromGitHub(gm.role),
         joinedAt: dbm ? dbm.createdAt.toISOString() : null,
         onKeyway: Boolean(dbm),
       };

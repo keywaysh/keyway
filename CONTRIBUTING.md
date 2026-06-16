@@ -7,7 +7,7 @@ it locally — pick one and stick to it:
 | Mode | Command | URLs | When |
 |------|---------|------|------|
 | **Docker + Caddy** (recommended) | `make docker` | `https://app.keyway.local` / `https://api.keyway.local` | Default. Matches production topology (pg16, TLS, same hostnames). |
-| Native | `make dev` | `http://localhost:3001` (dashboard) / `http://localhost:3000` (backend) | Only if you can't use Docker. Needs a **localhost** env profile (see below). |
+| Native | `make dev` | open **http://localhost:3001** (the app; backend runs on :3000) | Only if you can't use Docker. Needs **localhost** env values — set `DATABASE_URL` and `CRYPTO_SERVICE_URL` to `localhost` (not `db`/`crypto`). |
 
 > ⚠️ The two modes need **different** env values. Mixing them is the #1 source of
 > local-setup pain. Run `make doctor` anytime to see which mode your `.env` is

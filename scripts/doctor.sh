@@ -22,7 +22,7 @@ echo "  Environment:"
 if [ -f "$ENV_FILE" ]; then
   ok ".env present"
   set -a; # shellcheck disable=SC1090
-  . "$ENV_FILE"; set +a
+  . "$ENV_FILE" 2>/dev/null; set +a
 else
   bad ".env missing — run 'make setup' or 'keyway pull -e dev'"
 fi
@@ -58,8 +58,12 @@ if [ -f "$ROOT_DIR/certs/local.pem" ] && [ -f "$ROOT_DIR/certs/local-key.pem" ];
 echo ""
 echo "  Dashboard:"
 DASH_ENV="$ROOT_DIR/packages/dashboard/.env.local"
-if [ -f "$DASH_ENV" ] && grep -q "NEXT_PUBLIC_KEYWAY_API_URL" "$DASH_ENV" 2>/dev/null; then
-  ok "dashboard .env.local sets NEXT_PUBLIC_KEYWAY_API_URL"
+if [ -f "$DASH_ENV" ] && grep -q "^NEXT_PUBLIC_KEYWAY_API_URL=" "$DASH_ENV" 2>/dev/null; then
+  DASH_URL="$(grep "^NEXT_PUBLIC_KEYWAY_API_URL=" "$DASH_ENV" | tail -1 | cut -d= -f2-)"
+  case "$DASH_URL" in
+    *api.keyway.sh*) warn "dashboard .env.local points at PRODUCTION ($DASH_URL) — your local dashboard will talk to prod";;
+    *) ok "dashboard .env.local → $DASH_URL";;
+  esac
 else
   ok "no .env.local override — dashboard defaults to localhost in dev"
 fi
