@@ -13,6 +13,7 @@ Working notes so we don't forget. Legend: ✅ done · 🔜 todo · 🤔 needs de
 - **P4 polish**: `migrate.ts` console lint (eslint-disable for the CLI script); `unclaimedMemberId` helper centralizes the `github:` sentinel.
 
 ### Surfaced by the 3-axis review (DX/security/perennity) — deferred fast-follows
+- **`refreshCachedOrgRole` conflates "GitHub unreachable" with "no longer a member"** (both → `null`). Owner-gated **actions** fail closed (correct), but `GET /:org` falls back to the cached role for a removed-from-GitHub user (view-only staleness; Keyway membership is a DB cache revoked by sync/webhook, not this read). Heavy lift: have `getOrgMembershipForCurrentUser` distinguish 404 (not a member → revoke) from network/5xx (transient → keep cached).
 - **CSP `'unsafe-inline'` in prod `script-src`**: bigger XSS-hardening win than `unsafe-eval`, but needs nonce-based CSP (non-trivial with Next.js bootstrap). Separate task.
 - **ConnectOrgModal `needs_install` / `contact_admin` statuses**: the modal only renders `ready` orgs; partition by status so members of not-yet-installed orgs get an actionable message (data already on the API).
 - **`admin→owner` mapping in the other ~6 sites** (`vaults.routes.ts`, `github.routes.ts`, `github.provider.ts`, …): migrate to `keywayRoleFromGitHub`.

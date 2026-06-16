@@ -51,7 +51,12 @@ esac
 # --- Caddy local dev prerequisites ---
 echo ""
 echo "  Caddy local dev (make docker):"
-if grep -q "keyway.local" /etc/hosts 2>/dev/null; then ok "/etc/hosts has *.keyway.local"; else warn "/etc/hosts missing keyway.local — run 'make setup'"; fi
+if grep -qE '^[^#]*\bapp\.keyway\.local\b' /etc/hosts 2>/dev/null \
+   && grep -qE '^[^#]*\bapi\.keyway\.local\b' /etc/hosts 2>/dev/null; then
+  ok "/etc/hosts maps app/api.keyway.local"
+else
+  warn "/etc/hosts missing app/api.keyway.local — run 'make setup'"
+fi
 if [ -f "$ROOT_DIR/certs/local.pem" ] && [ -f "$ROOT_DIR/certs/local-key.pem" ]; then ok "mkcert certs present"; else warn "certs/local.pem missing — run 'make setup' (needs mkcert)"; fi
 
 # --- dashboard target ---

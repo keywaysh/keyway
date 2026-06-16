@@ -600,7 +600,8 @@ describe('Organization Billing Routes', () => {
     });
 
     it('should return 403 when user is not a member of the organization', async () => {
-      mockGetOrgMembershipForCurrentUser.mockResolvedValue({ role: 'member', state: 'active' });
+      // GitHub reports no membership for the caller → live admin check denies.
+      mockGetOrgMembershipForCurrentUser.mockResolvedValue(null);
       mockGetOrganizationMembership.mockResolvedValue(null);
 
       const response = await app.inject({

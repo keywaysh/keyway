@@ -35,6 +35,9 @@ export function ConnectOrgModal({ isOpen, onClose, onConnect }: ConnectOrgModalP
       setInstallUrl(response.install_url)
       setError(null)
     } catch (err) {
+      // Clear stale data so a failed reopen/retry doesn't show old orgs/install URL.
+      setOrgs([])
+      setInstallUrl(null)
       setError(err instanceof Error ? err.message : 'Failed to load organizations')
     } finally {
       setIsLoading(false)
