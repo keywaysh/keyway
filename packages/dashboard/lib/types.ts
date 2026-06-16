@@ -205,7 +205,9 @@ export interface OrganizationMember {
   username: string
   avatar_url: string
   role: OrganizationRole
-  joined_at: string
+  // null when the person is a GitHub org member who hasn't signed into Keyway yet
+  joined_at: string | null
+  on_keyway: boolean
 }
 
 export interface TrialInfo {

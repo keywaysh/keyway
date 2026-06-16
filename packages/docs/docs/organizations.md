@@ -69,15 +69,21 @@ Keyway doesn't have separate member management. Add/remove people from your GitH
 ### Syncing Members
 
 Members sync automatically when:
-- Someone accesses a vault
-- App webhooks fire
-- Manual sync is triggered
+
+- A repo owned by the organization is first connected (initial sync)
+- GitHub organization membership changes (member added/removed) and a webhook fires
+- A manual sync is triggered
 
 Force a manual sync:
 
 ```http
 POST /v1/orgs/:org/members/sync
 ```
+
+:::info Two requirements for someone to appear
+1. **They must be a member of the GitHub *organization*** — repo collaborators added directly to a repository (Settings → Collaborators) are not organization members and won't sync. (Repos under a personal account have no organization at all.)
+2. **They must have signed into Keyway at least once.** GitHub's API doesn't let us provision accounts on someone's behalf, so a teammate only appears after their first login. Ask them to sign in at [app.keyway.sh](https://app.keyway.sh), then re-sync.
+:::
 
 ---
 

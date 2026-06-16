@@ -845,21 +845,23 @@ export async function listOrgMembers(accessToken: string, org: string): Promise<
     listOrgMembersByRole(accessToken, org, "member"),
   ]);
 
-  const members: GitHubOrgMember[] = [];
-
-  // Add admins with 'admin' role
+  // Dedupe by id. The ?role= filter is only honored when the token has the org
+  // "Members" permission; without it both queries return the full list, so the
+  // same person would otherwise appear twice. Admin role takes precedence.
+  const byId = new Map<number, GitHubOrgMember>();
   for (const admin of admins) {
-    members.push({
+    byId.set(admin.id, {
       id: admin.id,
       login: admin.login,
       avatar_url: admin.avatar_url,
       role: "admin",
     });
   }
-
-  // Add regular members with 'member' role
   for (const member of regularMembers) {
-    members.push({
+    if (byId.has(member.id)) {
+      continue;
+    }
+    byId.set(member.id, {
       id: member.id,
       login: member.login,
       avatar_url: member.avatar_url,
@@ -867,8 +869,14 @@ export async function listOrgMembers(accessToken: string, org: string): Promise<
     });
   }
 
+  const members = [...byId.values()];
   logger.info(
-    { org, adminCount: admins.length, memberCount: regularMembers.length },
+    {
+      org,
+      adminCount: admins.length,
+      memberCount: regularMembers.length,
+      uniqueCount: members.length,
+    },
     "Listed org members"
   );
 
@@ -987,6 +995,16 @@ export async function listUserOrganizations(accessToken: string): Promise<GitHub
       for (let i = 0; i < orgInstallations.length; i++) {
         const inst = orgInstallations[i];
         const membership = memberships[i];
+        if (!membership) {
+          // Don't silently demote: a failed read (e.g. the App lacks org
+          // "Members" permission) is NOT the same as "this user is a member".
+          // We still fall back to "member" for safety, but surface it so a real
+          // owner being under-privileged is debuggable.
+          logger.warn(
+            { org: inst.account.login },
+            "Could not read caller's org role; defaulting to 'member' (App may lack org Members permission)"
+          );
+        }
         orgs.push({
           id: inst.account.id,
           login: inst.account.login,

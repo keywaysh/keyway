@@ -6,10 +6,34 @@ import { validateMigrations } from "./validateMigrations";
 
 dotenv.config();
 
+// On redeploy the database may still be booting (Railway sleeps the dev DB and
+// wakes it slowly). Retry the connection before migrating; rethrow the last
+// error once retries are exhausted so a genuine misconfig still surfaces.
+const waitForDatabase = async (connectionString: string) => {
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= 30; attempt++) {
+    const probe = postgres(connectionString, { max: 1, connect_timeout: 5 });
+    try {
+      await probe`SELECT 1`;
+      return;
+    } catch (err) {
+      lastError = err;
+      console.log(`Database not ready, retry ${attempt}/30...`);
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+    } finally {
+      await probe.end({ timeout: 5 }).catch(() => {});
+    }
+  }
+  throw lastError;
+};
+
 const runMigrations = async () => {
   if (!process.env.DATABASE_URL) {
     throw new Error("DATABASE_URL is not defined");
   }
+
+  console.log("Waiting for database to accept connections...");
+  await waitForDatabase(process.env.DATABASE_URL);
 
   // Validate that all SQL files have journal entries
   console.log("Validating migrations...");

@@ -88,18 +88,20 @@ class OrganizationsApiClient extends BaseApiClient {
       data: Array<{
         id: string
         username: string
-        avatarUrl: string
+        avatarUrl: string | null
         role: 'owner' | 'member'
-        joinedAt: string
+        joinedAt: string | null
+        onKeyway: boolean
       }>
       meta: { requestId: string }
     }>(`/v1/orgs/${orgLogin}/members`)
     return response.data.map(m => ({
       id: m.id,
       username: m.username,
-      avatar_url: m.avatarUrl,
+      avatar_url: m.avatarUrl ?? '',
       role: m.role,
       joined_at: m.joinedAt,
+      on_keyway: m.onKeyway,
     }))
   }
 

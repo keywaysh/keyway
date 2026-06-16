@@ -7,7 +7,7 @@ import {
   getOrganizationsForUser,
   getOrganizationByLogin,
   getOrganizationDetails,
-  getOrganizationMembers,
+  getOrganizationMembersWithGitHub,
   updateOrganization,
   isOrganizationOwner,
   syncOrganizationMembers,
@@ -18,7 +18,12 @@ import {
 import { startTrial, getTrialInfo, TRIAL_DURATION_DAYS } from "../../../services/trial.service";
 import { detectPlatform } from "../../../services/activity.service";
 import { sendTrialStartedEmail } from "../../../utils/email";
-import { listOrgMembers, listUserOrganizations } from "../../../utils/github";
+import {
+  listOrgMembers,
+  listUserOrganizations,
+  getOrgMembershipForCurrentUser,
+  getOrgMembership,
+} from "../../../utils/github";
 import {
   getInstallationToken,
   findOrgInstallationViaGitHubAPI,
@@ -183,8 +188,25 @@ export async function organizationsRoutes(fastify: FastifyInstance) {
       // Get installation token to fetch org info
       const installToken = await getInstallationToken(installation.installationId);
 
+      // Resolve the caller's role authoritatively via the installation token
+      // (which has org Members access) rather than trusting targetOrg.role from
+      // the user-to-server token — that read can silently fail and demote a real
+      // owner to "member". Fall back to the user-token-derived role on failure.
+      let keywayRole: "owner" | "member" = targetOrg.role === "admin" ? "owner" : "member";
+      try {
+        const authoritative = await getOrgMembership(installToken, orgLogin, user.username);
+        if (authoritative?.role) {
+          keywayRole = authoritative.role === "admin" ? "owner" : "member";
+        }
+      } catch {
+        // Keep the user-token-derived role if the authoritative read fails.
+      }
+
       // Create the organization using existing service function
-      const org = await ensureOrganizationExists(orgLogin, installToken, user.id);
+      const org = await ensureOrganizationExists(orgLogin, installToken, {
+        userId: user.id,
+        keywayRole,
+      });
 
       if (!org) {
         throw new BadRequestError(
@@ -245,13 +267,33 @@ export async function organizationsRoutes(fastify: FastifyInstance) {
         throw new ForbiddenError("You are not a member of this organization");
       }
 
+      // Self-heal the caller's role from live GitHub. The cached org_role can go
+      // stale — e.g. it's set to "member" at connect time if the App didn't yet
+      // have the org Members permission to read the real role. GitHub is the
+      // source of truth, so refresh the cache on access. Non-fatal on failure.
+      let role = membership.orgRole;
+      if (request.accessToken) {
+        try {
+          const live = await getOrgMembershipForCurrentUser(request.accessToken, orgLogin);
+          if (live?.state === "active") {
+            const liveRole = live.role === "admin" ? "owner" : "member";
+            if (liveRole !== role) {
+              await upsertOrganizationMember(org.id, user.id, liveRole);
+              role = liveRole;
+            }
+          }
+        } catch {
+          // Keep the cached role if the live refresh fails.
+        }
+      }
+
       // Get full details
       const details = await getOrganizationDetails(org.id);
       return sendData(
         reply,
         {
           ...details,
-          role: membership.orgRole, // Include current user's role
+          role, // Current user's role, refreshed from GitHub above
           trialDurationDays: TRIAL_DURATION_DAYS, // For "Start X-day trial" display
         },
         { requestId: request.id }
@@ -302,10 +344,19 @@ export async function organizationsRoutes(fastify: FastifyInstance) {
         throw new NotFoundError("Organization not found");
       }
 
-      // Check if user is org owner
-      const isOwner = await isOrganizationOwner(org.id, user.id);
-      if (!isOwner) {
-        throw new ForbiddenError("Only organization owners can update settings");
+      // Authorization: require live GitHub admin on the org.
+      // The local organization_members.org_role column is treated as a
+      // mirror of GitHub state, not a source of truth — defaultPermissions
+      // can grant write access to every vault in the org, so a stale or
+      // forged owner row in the DB must not be sufficient. Fail closed if
+      // GitHub is unreachable; legitimate admins can retry.
+      const accessToken = request.accessToken;
+      if (!accessToken) {
+        throw new ForbiddenError("Authentication required to update organization settings");
+      }
+      const membership = await getOrgMembershipForCurrentUser(accessToken, orgLogin);
+      if (!membership || membership.state !== "active" || membership.role !== "admin") {
+        throw new ForbiddenError("Only organization admins can update settings");
       }
 
       // Update organization
@@ -363,7 +414,12 @@ export async function organizationsRoutes(fastify: FastifyInstance) {
         throw new ForbiddenError("You are not a member of this organization");
       }
 
-      const members = await getOrganizationMembers(org.id);
+      // Pass the caller's token so the live roster respects GitHub's own
+      // per-user visibility (no elevated installation token for a user read).
+      const members = await getOrganizationMembersWithGitHub(
+        { id: org.id, login: org.login },
+        request.accessToken
+      );
       return sendData(reply, members, { requestId: request.id });
     }
   );

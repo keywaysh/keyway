@@ -51,9 +51,16 @@ function MemberCard({ member, orgLogin }: MemberCardProps) {
               Owner
             </Badge>
           )}
+          {!member.on_keyway && (
+            <Badge variant="secondary" className="text-xs">
+              Not on Keyway
+            </Badge>
+          )}
         </div>
         <p className="text-sm text-muted-foreground">
-          Joined {new Date(member.joined_at).toLocaleDateString()}
+          {member.on_keyway && member.joined_at
+            ? `Joined ${new Date(member.joined_at).toLocaleDateString()}`
+            : 'GitHub organization member · hasn’t signed in yet'}
         </p>
       </div>
 

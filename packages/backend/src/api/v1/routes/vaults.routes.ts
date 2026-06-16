@@ -84,6 +84,7 @@ import {
   getRepoInfoWithApp,
   getRepoCollaboratorsWithApp,
   getUserRoleWithApp,
+  getOrgMembershipForCurrentUser,
 } from "../../../utils/github";
 import { config } from "../../../config";
 import { trackEvent, AnalyticsEvents } from "../../../utils/analytics";
@@ -246,8 +247,28 @@ export async function vaultsRoutes(fastify: FastifyInstance) {
       if (repoInfo.isOrganization) {
         // Get installation token for this repo to fetch org info
         const installToken = await getTokenForRepo(repoOwner, body.repoFullName.split("/")[1]);
-        // Pass user.id to add them as org member automatically
-        org = await ensureOrganizationExists(repoOwner, installToken, user.id);
+
+        // Resolve the caller's true GitHub org role before granting any
+        // Keyway org membership. requireAdminAccess gates this route on
+        // *repo* admin, which is not the same as org admin (e.g., outside
+        // collaborators). If the caller is not a GitHub org member at all,
+        // we still create the org row for trial/plan accounting but do not
+        // register them as a Keyway member.
+        let currentUser: { userId: string; keywayRole: "owner" | "member" } | undefined;
+        if (request.accessToken) {
+          const membership = await getOrgMembershipForCurrentUser(
+            request.accessToken,
+            repoOwner
+          );
+          if (membership && membership.state === "active") {
+            currentUser = {
+              userId: user.id,
+              keywayRole: membership.role === "admin" ? "owner" : "member",
+            };
+          }
+        }
+
+        org = await ensureOrganizationExists(repoOwner, installToken, currentUser);
 
         // Calculate trial eligibility for error response
         if (org) {

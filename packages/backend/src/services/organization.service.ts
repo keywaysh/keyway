@@ -9,7 +9,9 @@ import {
   TRIAL_DURATION_DAYS,
   type TrialInfo,
 } from "./trial.service";
-import { getGitHubOrgInfoWithToken } from "../utils/github";
+import { getGitHubOrgInfoWithToken, listOrgMembers } from "../utils/github";
+import type { GitHubOrgMember } from "../utils/github";
+import { logger } from "../utils/sharedLogger";
 
 // ============================================================================
 // Types
@@ -23,7 +25,7 @@ export interface OrganizationInfo {
   displayName: string | null;
   avatarUrl: string | null;
   plan: UserPlan;
-  memberCount: number;
+  memberCount: number; // Keyway accounts (members table rows)
   vaultCount: number;
   createdAt: string;
 }
@@ -348,6 +350,104 @@ export async function getOrganizationMembers(orgId: string): Promise<Organizatio
   }));
 }
 
+export interface OrganizationMemberWithStatus {
+  id: string;
+  username: string;
+  avatarUrl: string | null;
+  role: OrgRole;
+  // null when the person is a GitHub org member who hasn't signed into Keyway yet
+  joinedAt: string | null;
+  onKeyway: boolean;
+}
+
+/**
+ * List organization members for display: the full GitHub org membership, each
+ * annotated with whether the person already has a Keyway account.
+ *
+ * GitHub is the source of truth for who belongs to the org. We can only persist
+ * a member row once they have a Keyway account (organization_members.user_id is
+ * a required FK), so the DB alone under-reports the team. Reading live from
+ * GitHub and overlaying the Keyway status gives an accurate roster.
+ *
+ * The roster is fetched with the CALLER's token so GitHub's own per-user
+ * visibility and authorization apply — we never expose members the caller
+ * couldn't see on GitHub, and we don't rely on an elevated installation token.
+ * Falls back to DB-only members if the live list is unavailable so the page
+ * never breaks.
+ */
+export async function getOrganizationMembersWithGitHub(
+  org: { id: string; login: string },
+  accessToken: string | undefined
+): Promise<OrganizationMemberWithStatus[]> {
+  const dbMembers = await db.query.organizationMembers.findMany({
+    where: eq(organizationMembers.orgId, org.id),
+    with: { user: true },
+    orderBy: [desc(organizationMembers.createdAt)],
+  });
+  // Key the overlay on the GitHub numeric id (stored as text). Guard on forge so
+  // a non-GitHub member row can never mis-attribute onKeyway/joinedAt.
+  const dbByForgeId = new Map(
+    dbMembers.filter((m) => m.user.forgeType === "github").map((m) => [m.user.forgeUserId, m])
+  );
+
+  let githubMembers: GitHubOrgMember[] = [];
+  if (accessToken) {
+    try {
+      githubMembers = await listOrgMembers(accessToken, org.login);
+    } catch (err) {
+      logger.warn(
+        { org: org.login, error: err instanceof Error ? err.message : "unknown" },
+        "Live GitHub member fetch failed; falling back to Keyway-only members"
+      );
+    }
+  }
+
+  // No live roster (no token, no access, or API error) → show what we have.
+  if (githubMembers.length === 0) {
+    return dbMembers.map((m) => ({
+      id: m.id,
+      username: m.user.username,
+      avatarUrl: m.user.avatarUrl,
+      role: m.orgRole,
+      joinedAt: m.createdAt.toISOString(),
+      onKeyway: true,
+    }));
+  }
+
+  // GitHub is authoritative for both membership and role. Dedupe by id (a
+  // degraded ?role= filter can return overlapping pages) and always take the
+  // role from GitHub — the DB org_role can be stale (set once at connect time,
+  // never re-synced locally without webhooks).
+  const seen = new Set<number>();
+  const uniqueMembers = githubMembers.filter((m) => {
+    if (seen.has(m.id)) {
+      return false;
+    }
+    seen.add(m.id);
+    return true;
+  });
+
+  // Overlay Keyway status onto the full GitHub roster. Owners first, then by login.
+  return uniqueMembers
+    .map((gm): OrganizationMemberWithStatus => {
+      const dbm = dbByForgeId.get(String(gm.id));
+      return {
+        id: dbm ? dbm.id : `github:${gm.id}`,
+        username: gm.login,
+        avatarUrl: gm.avatar_url,
+        role: gm.role === "admin" ? "owner" : "member",
+        joinedAt: dbm ? dbm.createdAt.toISOString() : null,
+        onKeyway: Boolean(dbm),
+      };
+    })
+    .sort((a, b) => {
+      if (a.role !== b.role) {
+        return a.role === "owner" ? -1 : 1;
+      }
+      return a.username.localeCompare(b.username);
+    });
+}
+
 // ============================================================================
 // Vault Operations
 // ============================================================================
@@ -493,23 +593,34 @@ export interface TrialEligibility {
  *
  * @param orgLogin - The GitHub organization login (e.g., "keywaysh")
  * @param token - GitHub installation token to fetch org info
- * @param currentUserId - Optional user ID to add as member if org is created
+ * @param currentUser - Optional caller info to register as a member.
+ *   The caller MUST resolve the user's true GitHub org role
+ *   (admin → "owner", member → "member") and pass it explicitly.
+ *   Never default to "owner" here — doing so promotes the first
+ *   GitHub member who triggers org creation to a Keyway owner.
  * @returns The organization (existing or newly created), or null if not an org
  */
 export async function ensureOrganizationExists(
   orgLogin: string,
   token: string,
-  currentUserId?: string
+  currentUser?: { userId: string; keywayRole: "owner" | "member" }
 ): Promise<Organization | null> {
   // First, check if org already exists in DB
   const existingOrg = await getOrganizationByLogin(orgLogin);
   if (existingOrg) {
-    // If user provided, ensure they're a member
-    if (currentUserId) {
-      const membership = await getOrganizationMembership(existingOrg.id, currentUserId);
+    if (currentUser) {
+      const membership = await getOrganizationMembership(existingOrg.id, currentUser.userId);
+      // Intentionally insert-only: never rewrite an EXISTING member's role here.
+      // A connect/vault-create flow must not silently change roles. Role drift is
+      // reconciled elsewhere — the GET /:org self-heal (caller's own role) and the
+      // webhook member sync (org-wide). Don't "fix" this into an unconditional
+      // upsert, or it becomes a privilege-escalation vector.
       if (!membership) {
-        // Add user as member (not owner - we don't know their GitHub role)
-        await upsertOrganizationMember(existingOrg.id, currentUserId, "member");
+        await upsertOrganizationMember(
+          existingOrg.id,
+          currentUser.userId,
+          currentUser.keywayRole
+        );
       }
     }
     return existingOrg;
@@ -531,9 +642,8 @@ export async function ensureOrganizationExists(
     githubOrg.avatar_url
   );
 
-  // Add the current user as owner (they're creating the org entry)
-  if (currentUserId && org) {
-    await upsertOrganizationMember(org.id, currentUserId, "owner");
+  if (currentUser && org) {
+    await upsertOrganizationMember(org.id, currentUser.userId, currentUser.keywayRole);
   }
 
   return org;
