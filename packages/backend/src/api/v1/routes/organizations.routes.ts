@@ -9,7 +9,6 @@ import {
   getOrganizationDetails,
   getOrganizationMembersWithGitHub,
   updateOrganization,
-  isOrganizationOwner,
   syncOrganizationMembers,
   getOrganizationMembership,
   ensureOrganizationExists,
@@ -45,6 +44,36 @@ import {
  * GET /api/v1/orgs/:org/members - List organization members
  * POST /api/v1/orgs/:org/members/sync - Force sync members from GitHub
  */
+
+/**
+ * Authorize an owner-gated action by re-checking LIVE GitHub admin on the org.
+ * The local `organization_members.org_role` column is a stale-able mirror of
+ * GitHub, not a source of truth, so it must not be sufficient on its own (a
+ * stale/forged owner row, or a member mis-recorded at connect time, would
+ * otherwise grant or deny incorrectly — the latter being the bootstrap deadlock
+ * where a real admin recorded as "member" can't run owner-only actions).
+ *
+ * Fails closed if the token is missing or GitHub is unreachable. On success it
+ * self-heals the cached role so DB-based reads (member list, UI) stay consistent.
+ */
+async function requireLiveOrgAdmin(
+  accessToken: string | undefined,
+  orgLogin: string,
+  orgId: string,
+  userId: string,
+  action: string
+): Promise<void> {
+  if (!accessToken) {
+    throw new ForbiddenError(`Authentication required to ${action}`);
+  }
+  const membership = await getOrgMembershipForCurrentUser(accessToken, orgLogin);
+  if (!membership || membership.state !== "active" || membership.role !== "admin") {
+    throw new ForbiddenError(`Only organization admins can ${action}`);
+  }
+  // Self-heal the cached role (non-fatal) so subsequent DB reads agree with GitHub.
+  await upsertOrganizationMember(orgId, userId, "owner").catch(() => {});
+}
+
 export async function organizationsRoutes(fastify: FastifyInstance) {
   /**
    * GET /
@@ -458,11 +487,7 @@ export async function organizationsRoutes(fastify: FastifyInstance) {
         throw new NotFoundError("Organization not found");
       }
 
-      // Check if user is org owner
-      const isOwner = await isOrganizationOwner(org.id, user.id);
-      if (!isOwner) {
-        throw new ForbiddenError("Only organization owners can sync members");
-      }
+      await requireLiveOrgAdmin(request.accessToken, orgLogin, org.id, user.id, "sync members");
 
       // Fetch members from GitHub using the user's OAuth token
       // This allows seeing private members (the user is a member of the org)
@@ -631,11 +656,7 @@ export async function organizationsRoutes(fastify: FastifyInstance) {
         throw new NotFoundError("Organization not found");
       }
 
-      // Check if user is org owner
-      const isOwner = await isOrganizationOwner(org.id, user.id);
-      if (!isOwner) {
-        throw new ForbiddenError("Only organization owners can manage billing");
-      }
+      await requireLiveOrgAdmin(request.accessToken, orgLogin, org.id, user.id, "manage billing");
 
       // Create checkout session
       const sessionUrl = await createOrgCheckoutSession(
@@ -697,11 +718,7 @@ export async function organizationsRoutes(fastify: FastifyInstance) {
         throw new NotFoundError("Organization not found");
       }
 
-      // Check if user is org owner
-      const isOwner = await isOrganizationOwner(org.id, user.id);
-      if (!isOwner) {
-        throw new ForbiddenError("Only organization owners can manage billing");
-      }
+      await requireLiveOrgAdmin(request.accessToken, orgLogin, org.id, user.id, "manage billing");
 
       // Create portal session
       const portalUrl = await createOrgPortalSession(org.id, returnUrl);
@@ -802,11 +819,7 @@ export async function organizationsRoutes(fastify: FastifyInstance) {
         throw new NotFoundError("Organization not found");
       }
 
-      // Only organization owners can start a trial
-      const isOwner = await isOrganizationOwner(org.id, user.id);
-      if (!isOwner) {
-        throw new ForbiddenError("Only organization owners can start a trial");
-      }
+      await requireLiveOrgAdmin(request.accessToken, orgLogin, org.id, user.id, "start a trial");
 
       // Start the trial
       const result = await startTrial({
