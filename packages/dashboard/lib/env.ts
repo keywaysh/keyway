@@ -24,12 +24,18 @@ const serverEnvSchema = z.object({
   POSTHOG_HOST: optionalUrl(),
 })
 
+// Default the API URL to the local backend in development so a local dashboard
+// doesn't silently talk to production (NODE_ENV is 'development' under `next dev`
+// and 'production' under `next build`). An explicit env var always wins.
+const defaultApiUrl =
+  process.env.NODE_ENV === 'production' ? 'https://api.keyway.sh' : 'http://localhost:3000'
+
 // Schema for client-side environment variables (NEXT_PUBLIC_*)
 const clientEnvSchema = z.object({
   // Keyway API
   NEXT_PUBLIC_KEYWAY_API_URL: z.preprocess(
     emptyToUndefined,
-    z.string().url().default('https://api.keyway.sh'),
+    z.string().url().default(defaultApiUrl),
   ),
 
   // PostHog analytics (optional)
