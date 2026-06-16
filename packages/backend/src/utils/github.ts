@@ -858,7 +858,9 @@ export async function listOrgMembers(accessToken: string, org: string): Promise<
     });
   }
   for (const member of regularMembers) {
-    if (byId.has(member.id)) continue;
+    if (byId.has(member.id)) {
+      continue;
+    }
     byId.set(member.id, {
       id: member.id,
       login: member.login,

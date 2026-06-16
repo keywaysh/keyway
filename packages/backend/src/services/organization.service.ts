@@ -420,7 +420,9 @@ export async function getOrganizationMembersWithGitHub(
   // never re-synced locally without webhooks).
   const seen = new Set<number>();
   const uniqueMembers = githubMembers.filter((m) => {
-    if (seen.has(m.id)) return false;
+    if (seen.has(m.id)) {
+      return false;
+    }
     seen.add(m.id);
     return true;
   });
@@ -439,7 +441,9 @@ export async function getOrganizationMembersWithGitHub(
       };
     })
     .sort((a, b) => {
-      if (a.role !== b.role) return a.role === "owner" ? -1 : 1;
+      if (a.role !== b.role) {
+        return a.role === "owner" ? -1 : 1;
+      }
       return a.username.localeCompare(b.username);
     });
 }
