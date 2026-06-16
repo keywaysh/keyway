@@ -610,6 +610,11 @@ export async function ensureOrganizationExists(
   if (existingOrg) {
     if (currentUser) {
       const membership = await getOrganizationMembership(existingOrg.id, currentUser.userId);
+      // Intentionally insert-only: never rewrite an EXISTING member's role here.
+      // A connect/vault-create flow must not silently change roles. Role drift is
+      // reconciled elsewhere — the GET /:org self-heal (caller's own role) and the
+      // webhook member sync (org-wide). Don't "fix" this into an unconditional
+      // upsert, or it becomes a privilege-escalation vector.
       if (!membership) {
         await upsertOrganizationMember(
           existingOrg.id,

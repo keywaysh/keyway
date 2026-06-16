@@ -26,6 +26,7 @@ const mocks = vi.hoisted(() => ({
   ensureOrganizationExists: vi.fn(),
   listUserOrganizations: vi.fn(),
   getOrgMembershipForCurrentUser: vi.fn(),
+  getOrgMembership: vi.fn(),
   getInstallationToken: vi.fn(),
   getOrganizationByLogin: vi.fn(),
   getOrganizationMembership: vi.fn(),
@@ -132,6 +133,7 @@ vi.mock("../../src/services/github-app.service", () => ({
 vi.mock("../../src/utils/github", () => ({
   listUserOrganizations: mocks.listUserOrganizations,
   getOrgMembershipForCurrentUser: mocks.getOrgMembershipForCurrentUser,
+  getOrgMembership: mocks.getOrgMembership,
   listOrgMembers: vi.fn().mockResolvedValue([]),
   listOrgMembersWithApp: vi.fn().mockResolvedValue([]),
   getRepoInfoWithApp: mocks.getRepoInfoWithApp,
@@ -283,6 +285,32 @@ describe("POST /v1/orgs/connect — privilege escalation regression", () => {
     expect(response.statusCode).toBe(200);
     const [, , currentUser] = mocks.ensureOrganizationExists.mock.calls[0];
     expect(currentUser).toEqual({ userId: bobUser.id, keywayRole: "owner" });
+  });
+
+  it("prefers the authoritative installation-token role over the user-token role", async () => {
+    // User-token view (listUserOrganizations) says "member"...
+    mocks.listUserOrganizations.mockResolvedValue([
+      { id: 98765, login: "acme-corp", role: "member", avatar_url: null, description: null },
+    ]);
+    // ...but the authoritative installation-token read says the caller is an admin.
+    mocks.getOrgMembership.mockResolvedValue({
+      role: "admin",
+      state: "active",
+      organization: { id: 98765, login: "acme-corp", avatar_url: "" },
+    });
+    mocks.getOrganizationByLogin.mockResolvedValue(null);
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/v1/orgs/connect",
+      payload: { orgLogin: "acme-corp" },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(mocks.getOrgMembership).toHaveBeenCalledWith("install-token", "acme-corp", bobUser.username);
+    const [, , currentUser] = mocks.ensureOrganizationExists.mock.calls[0];
+    // Authoritative read wins → owner, not the user-token "member".
+    expect(currentUser.keywayRole).toBe("owner");
   });
 });
 
