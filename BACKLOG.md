@@ -4,6 +4,23 @@ Working notes so we don't forget. Legend: ✅ done · 🔜 todo · 🤔 needs de
 
 ---
 
+## ✅ Followup PR (post-#18) — resolved here
+
+- **P0 security**: CSP `unsafe-eval` scoped to dev; auth-callback error normalization via `Object.hasOwn`; Topbar feedback `aria-label`.
+- **P1 authz**: owner-gated endpoints (sync/billing/trial) now authorize via **live GitHub admin** (`requireLiveOrgAdmin`, fail-closed + self-heal) — closes the bootstrap deadlock (#4) and the stale-DB-role over-authorization.
+- **P2 UX**: ConnectOrgModal now lists connectable orgs and calls `POST /orgs/connect` (was install-only / dead-end #3).
+- **P3 DX**: dashboard API URL defaults to localhost in dev; `make doctor` (`scripts/doctor.sh`); `CONTRIBUTING.md`; `.env.example` clarifications.
+- **P4 polish**: `migrate.ts` console lint (eslint-disable for the CLI script); `unclaimedMemberId` helper centralizes the `github:` sentinel.
+
+### Deliberately deferred (with reason)
+- **`make dev` preflight / honest banner**: editing the large existing `dev` target unsupervised is risky; `make doctor` covers the diagnostic need.
+- **Webhook forwarding wiring**: inherently runtime/external (GitHub App webhook URL + tunnel); documented in `CONTRIBUTING.md` rather than hard-wired.
+- **`listOrgMembersWithApp` returns `[]` on error**: changing error semantics affects the webhook sync caller; low value, deferred.
+- **`getOrganizationDetails` embedded `members[].orgRole` still DB-stale**: low; the members page reads the live roster.
+- **Test mocks → shared `tests/helpers/mocks.ts`**: heavy refactor, low value, regression risk; deferred.
+
+---
+
 ## ✅ Done this session (in working tree, not yet split into PRs)
 
 - **migrate.ts wait-for-db** retry loop → PR #17 (`fix/migrate-wait-for-db`), CI green, not merged.

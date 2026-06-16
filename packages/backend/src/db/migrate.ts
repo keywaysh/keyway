@@ -1,3 +1,4 @@
+/* eslint-disable no-console -- standalone migration CLI: console output is the intended interface */
 import { drizzle } from "drizzle-orm/postgres-js";
 import { migrate } from "drizzle-orm/postgres-js/migrator";
 import postgres from "postgres";

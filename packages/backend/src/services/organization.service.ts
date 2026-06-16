@@ -361,6 +361,14 @@ export interface OrganizationMemberWithStatus {
 }
 
 /**
+ * Synthetic, stable id for a GitHub org member who has no Keyway account yet
+ * (used as a list key in the UI). Centralized so the `github:` prefix can't
+ * drift between here and anything that pattern-matches it.
+ */
+export const unclaimedMemberId = (githubUserId: number | string): string =>
+  `github:${githubUserId}`;
+
+/**
  * List organization members for display: the full GitHub org membership, each
  * annotated with whether the person already has a Keyway account.
  *
@@ -432,7 +440,7 @@ export async function getOrganizationMembersWithGitHub(
     .map((gm): OrganizationMemberWithStatus => {
       const dbm = dbByForgeId.get(String(gm.id));
       return {
-        id: dbm ? dbm.id : `github:${gm.id}`,
+        id: dbm ? dbm.id : unclaimedMemberId(gm.id),
         username: gm.login,
         avatarUrl: gm.avatar_url,
         role: gm.role === "admin" ? "owner" : "member",
