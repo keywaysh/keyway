@@ -74,7 +74,9 @@ describe('ConnectOrgModal', () => {
       await waitFor(() => {
         expect(screen.getByText('Connect an Organization')).toBeInTheDocument();
       });
-      expect(screen.getByText(/Install Keyway on your GitHub organization/)).toBeInTheDocument();
+      expect(
+        screen.getByText(/Connect a GitHub organization where the Keyway app is installed/)
+      ).toBeInTheDocument();
     });
 
     it('should track modal open event', async () => {
@@ -126,22 +128,50 @@ describe('ConnectOrgModal', () => {
     });
   });
 
-  describe('installation steps', () => {
-    it('should show numbered steps', async () => {
-      render(
-        <ConnectOrgModal
-          isOpen={true}
-          onClose={mockOnClose}
-          onConnect={mockOnConnect}
-        />
-      );
+  describe('connect flow', () => {
+    const readyOrg = {
+      login: 'acme',
+      display_name: 'Acme Inc',
+      avatar_url: 'https://avatar/acme.png',
+      status: 'ready' as const,
+      user_role: 'admin' as const,
+      already_connected: false,
+    };
+
+    it('lists connectable orgs and connects on click', async () => {
+      mockGetAvailableOrganizations.mockResolvedValue({
+        organizations: [readyOrg],
+        install_url: installUrl,
+      });
+
+      render(<ConnectOrgModal isOpen={true} onClose={mockOnClose} onConnect={mockOnConnect} />);
 
       await waitFor(() => {
-        expect(screen.getByText('Click the button below')).toBeInTheDocument();
+        expect(screen.getByText('Acme Inc')).toBeInTheDocument();
       });
-      expect(screen.getByText('Select your organization on GitHub')).toBeInTheDocument();
-      expect(screen.getByText('Choose which repositories to enable')).toBeInTheDocument();
-      expect(screen.getByText("You'll be redirected back automatically")).toBeInTheDocument();
+
+      fireEvent.click(screen.getByRole('button', { name: /Connect/i }));
+
+      await waitFor(() => {
+        expect(mockOnConnect).toHaveBeenCalledWith('acme');
+      });
+      await waitFor(() => {
+        expect(mockOnClose).toHaveBeenCalled();
+      });
+    });
+
+    it('does not list orgs that are already connected', async () => {
+      mockGetAvailableOrganizations.mockResolvedValue({
+        organizations: [{ ...readyOrg, already_connected: true }],
+        install_url: installUrl,
+      });
+
+      render(<ConnectOrgModal isOpen={true} onClose={mockOnClose} onConnect={mockOnConnect} />);
+
+      await waitFor(() => {
+        expect(screen.getByText(/No organizations are ready to connect/i)).toBeInTheDocument();
+      });
+      expect(screen.queryByRole('button', { name: /^Connect$/i })).not.toBeInTheDocument();
     });
   });
 
@@ -195,7 +225,7 @@ describe('ConnectOrgModal', () => {
       expect(trackEvent).toHaveBeenCalledWith(AnalyticsEvents.ORG_APP_INSTALL_CLICK);
     });
 
-    it('should show disabled button when URL fails to load', async () => {
+    it('shows no install link when loading fails', async () => {
       mockGetAvailableOrganizations.mockRejectedValue(new Error('Failed'));
 
       render(
@@ -207,8 +237,12 @@ describe('ConnectOrgModal', () => {
       );
 
       await waitFor(() => {
-        expect(screen.getByRole('button', { name: /Unable to load install link/i })).toBeInTheDocument();
+        expect(screen.getByText('Failed')).toBeInTheDocument();
       });
+      // installUrl never loaded → no install CTA rendered.
+      expect(
+        screen.queryByRole('link', { name: /Install Keyway GitHub App/i })
+      ).not.toBeInTheDocument();
     });
   });
 

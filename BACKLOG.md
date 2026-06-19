@@ -4,6 +4,32 @@ Working notes so we don't forget. Legend: ✅ done · 🔜 todo · 🤔 needs de
 
 ---
 
+## ✅ Followup PR (post-#18) — resolved here
+
+- **P0 security**: CSP `unsafe-eval` scoped to dev; auth-callback error normalization via `Object.hasOwn`; Topbar feedback `aria-label`.
+- **P1 authz**: owner-gated endpoints (sync/billing/trial) now authorize via **live GitHub admin** (`requireLiveOrgAdmin`, fail-closed + self-heal) — closes the bootstrap deadlock (#4) and the stale-DB-role over-authorization.
+- **P2 UX**: ConnectOrgModal now lists connectable orgs and calls `POST /orgs/connect` (was install-only / dead-end #3).
+- **P3 DX**: dashboard API URL defaults to localhost in dev; `make doctor` (`scripts/doctor.sh`); `CONTRIBUTING.md`; `.env.example` clarifications.
+- **P4 polish**: `migrate.ts` console lint (eslint-disable for the CLI script); `unclaimedMemberId` helper centralizes the `github:` sentinel.
+
+### Surfaced by the 3-axis review (DX/security/perennity) — deferred fast-follows
+- **`refreshCachedOrgRole` conflates "GitHub unreachable" with "no longer a member"** (both → `null`). Owner-gated **actions** fail closed (correct), but `GET /:org` falls back to the cached role for a removed-from-GitHub user (view-only staleness; Keyway membership is a DB cache revoked by sync/webhook, not this read). Heavy lift: have `getOrgMembershipForCurrentUser` distinguish 404 (not a member → revoke) from network/5xx (transient → keep cached).
+- **CSP `'unsafe-inline'` in prod `script-src`**: bigger XSS-hardening win than `unsafe-eval`, but needs nonce-based CSP (non-trivial with Next.js bootstrap). Separate task.
+- **ConnectOrgModal `needs_install` / `contact_admin` statuses**: the modal only renders `ready` orgs; partition by status so members of not-yet-installed orgs get an actionable message (data already on the API).
+- **`admin→owner` mapping in the other ~6 sites** (`vaults.routes.ts`, `github.routes.ts`, `github.provider.ts`, …): migrate to `keywayRoleFromGitHub`.
+- **`exposure.routes.ts` still authorizes off DB `org_role`** (not live GitHub) — intentional? lower-stakes reads — but document the inconsistency or align it.
+- **`doctor.sh` required-env list** is a manual mirror of `config/index.ts` (Zod) — soft-fails on drift; add a cross-ref comment or a backend `--check-env` mode.
+- **`getOrganizationDetails` embedded `members[].orgRole`** stays DB-stale while the caller's role self-heals — add a comment that the asymmetry is intentional (members page reads the live roster).
+
+### Deliberately deferred (with reason)
+- **`make dev` preflight / honest banner**: editing the large existing `dev` target unsupervised is risky; `make doctor` covers the diagnostic need.
+- **Webhook forwarding wiring**: inherently runtime/external (GitHub App webhook URL + tunnel); documented in `CONTRIBUTING.md` rather than hard-wired.
+- **`listOrgMembersWithApp` returns `[]` on error**: changing error semantics affects the webhook sync caller; low value, deferred.
+- **`getOrganizationDetails` embedded `members[].orgRole` still DB-stale**: low; the members page reads the live roster.
+- **Test mocks → shared `tests/helpers/mocks.ts`**: heavy refactor, low value, regression risk; deferred.
+
+---
+
 ## ✅ Done this session (in working tree, not yet split into PRs)
 
 - **migrate.ts wait-for-db** retry loop → PR #17 (`fix/migrate-wait-for-db`), CI green, not merged.

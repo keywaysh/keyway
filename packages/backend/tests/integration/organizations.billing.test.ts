@@ -9,6 +9,8 @@ const mockGetOrganizationByLogin = vi.hoisted(() => vi.fn());
 const mockGetOrganizationDetails = vi.hoisted(() => vi.fn());
 const mockGetOrganizationMembership = vi.hoisted(() => vi.fn());
 const mockIsOrganizationOwner = vi.hoisted(() => vi.fn());
+const mockGetOrgMembershipForCurrentUser = vi.hoisted(() => vi.fn());
+const mockUpsertOrganizationMember = vi.hoisted(() => vi.fn());
 const mockCreateOrgCheckoutSession = vi.hoisted(() => vi.fn());
 const mockCreateOrgPortalSession = vi.hoisted(() => vi.fn());
 const mockGetTrialInfo = vi.hoisted(() => vi.fn());
@@ -43,6 +45,7 @@ vi.mock('../../src/services/organization.service', () => ({
   isOrganizationOwner: mockIsOrganizationOwner,
   syncOrganizationMembers: vi.fn(),
   getOrganizationMembership: mockGetOrganizationMembership,
+  upsertOrganizationMember: mockUpsertOrganizationMember,
 }));
 
 // Mock trial service
@@ -67,6 +70,7 @@ vi.mock('../../src/utils/email', () => ({
 vi.mock('../../src/utils/github', () => ({
   listOrgMembers: vi.fn(),
   getOrgMembership: vi.fn(),
+  getOrgMembershipForCurrentUser: mockGetOrgMembershipForCurrentUser,
 }));
 
 // Mock github app service
@@ -104,6 +108,7 @@ vi.mock('../../src/middleware/auth', () => ({
       forgeUserId: '12345',
       username: 'testuser',
     };
+    request.accessToken = 'test-access-token';
   }),
 }));
 
@@ -173,7 +178,7 @@ describe('Organization Billing Routes', () => {
       id: 'membership-123',
       orgRole: 'member',
     });
-    mockIsOrganizationOwner.mockResolvedValue(false);
+    mockGetOrgMembershipForCurrentUser.mockResolvedValue({ role: 'member', state: 'active' });
     mockCreateOrgCheckoutSession.mockResolvedValue('https://checkout.stripe.com/session/123');
     mockCreateOrgPortalSession.mockResolvedValue('https://billing.stripe.com/portal/123');
     mockGetTrialInfo.mockReturnValue({
@@ -184,6 +189,7 @@ describe('Organization Billing Routes', () => {
       daysRemaining: null,
     });
     mockFindFirst.mockResolvedValue(mockUser);
+    mockUpsertOrganizationMember.mockResolvedValue({});
 
     app = await createTestApp();
 
@@ -375,7 +381,7 @@ describe('Organization Billing Routes', () => {
   describe('POST /v1/orgs/:org/billing/checkout', () => {
     beforeEach(() => {
       // Owner is required for billing operations
-      mockIsOrganizationOwner.mockResolvedValue(true);
+      mockGetOrgMembershipForCurrentUser.mockResolvedValue({ role: 'admin', state: 'active' });
       mockGetOrganizationMembership.mockResolvedValue({
         id: 'membership-123',
         orgRole: 'owner',
@@ -404,7 +410,7 @@ describe('Organization Billing Routes', () => {
     });
 
     it('should return 403 when user is not owner', async () => {
-      mockIsOrganizationOwner.mockResolvedValue(false);
+      mockGetOrgMembershipForCurrentUser.mockResolvedValue({ role: 'member', state: 'active' });
       mockGetOrganizationMembership.mockResolvedValue({
         id: 'membership-123',
         orgRole: 'member',
@@ -465,7 +471,7 @@ describe('Organization Billing Routes', () => {
 
   describe('POST /v1/orgs/:org/billing/portal', () => {
     beforeEach(() => {
-      mockIsOrganizationOwner.mockResolvedValue(true);
+      mockGetOrgMembershipForCurrentUser.mockResolvedValue({ role: 'admin', state: 'active' });
       mockGetOrganizationMembership.mockResolvedValue({
         id: 'membership-123',
         orgRole: 'owner',
@@ -492,7 +498,7 @@ describe('Organization Billing Routes', () => {
     });
 
     it('should return 403 when user is not owner', async () => {
-      mockIsOrganizationOwner.mockResolvedValue(false);
+      mockGetOrgMembershipForCurrentUser.mockResolvedValue({ role: 'member', state: 'active' });
       mockGetOrganizationMembership.mockResolvedValue({
         id: 'membership-123',
         orgRole: 'member',
@@ -549,7 +555,7 @@ describe('Organization Billing Routes', () => {
     });
 
     it('should allow organization owner to start a trial', async () => {
-      mockIsOrganizationOwner.mockResolvedValue(true);
+      mockGetOrgMembershipForCurrentUser.mockResolvedValue({ role: 'admin', state: 'active' });
       mockGetOrganizationMembership.mockResolvedValue({
         id: 'membership-123',
         orgRole: 'owner',
@@ -574,7 +580,7 @@ describe('Organization Billing Routes', () => {
     });
 
     it('should return 403 when user is a member but not owner', async () => {
-      mockIsOrganizationOwner.mockResolvedValue(false);
+      mockGetOrgMembershipForCurrentUser.mockResolvedValue({ role: 'member', state: 'active' });
       mockGetOrganizationMembership.mockResolvedValue({
         id: 'membership-123',
         orgRole: 'member',
@@ -589,12 +595,13 @@ describe('Organization Billing Routes', () => {
       const body = JSON.parse(response.body);
 
       expect(body).toHaveProperty('detail');
-      expect(body.detail).toContain('owner');
+      expect(body.detail).toContain('admin');
       expect(mockStartTrial).not.toHaveBeenCalled();
     });
 
     it('should return 403 when user is not a member of the organization', async () => {
-      mockIsOrganizationOwner.mockResolvedValue(false);
+      // GitHub reports no membership for the caller → live admin check denies.
+      mockGetOrgMembershipForCurrentUser.mockResolvedValue(null);
       mockGetOrganizationMembership.mockResolvedValue(null);
 
       const response = await app.inject({

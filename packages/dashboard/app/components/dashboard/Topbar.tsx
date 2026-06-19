@@ -37,7 +37,7 @@ export function Topbar({ onMenuClick, title = 'Vaults', showNewVault = true }: T
             asChild
             className="text-muted-foreground hover:text-foreground"
           >
-            <a href="mailto:hello@keyway.sh">
+            <a href="mailto:hello@keyway.sh" aria-label="Send feedback">
               <MessageSquare className="h-4 w-4 sm:mr-1.5" />
               <span className="hidden sm:inline">Feedback</span>
             </a>

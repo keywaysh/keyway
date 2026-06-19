@@ -1,6 +1,6 @@
 SHELL := /bin/bash
 
-.PHONY: help setup install dev dev-backend dev-dashboard dev-crypto dev-docker \
+.PHONY: help setup doctor install dev dev-backend dev-dashboard dev-crypto dev-docker \
 	build build-cli build-crypto test test-backend test-dashboard test-cli test-crypto \
 	lint format docker docker-build clean
 
@@ -360,3 +360,7 @@ clean:
 	@if [ -d "$(CLI)" ]; then $(MAKE) -C $(CLI) clean; fi
 	@if [ -d "$(CRYPTO)" ]; then $(MAKE) -C $(CRYPTO) clean; fi
 	@echo -e "$(GREEN)Cleaned.$(NC)"
+
+## doctor: Diagnose local dev setup (env, hosts, certs, tooling)
+doctor:
+	@bash $(ROOT_DIR)/scripts/doctor.sh
