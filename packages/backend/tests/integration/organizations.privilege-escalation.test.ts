@@ -465,8 +465,8 @@ describe("PUT /v1/orgs/:org — fail-closed authorization", () => {
   it("rejects a DB-local owner who is not a current GitHub admin (the defense-in-depth)", async () => {
     // Bob is owner in our DB (hypothetical pre-fix promotion) ...
     mocks.isOrganizationOwner.mockResolvedValue(true);
-    // ... but GitHub says he's only a member now.
-    mocks.getOrgMembershipForCurrentUser.mockResolvedValue({
+    // ... but GitHub (read via the installation token) says he's only a member now.
+    mocks.getOrgMembership.mockResolvedValue({
       role: "member",
       state: "active",
     });
@@ -483,7 +483,7 @@ describe("PUT /v1/orgs/:org — fail-closed authorization", () => {
 
   it("rejects a DB-local owner whose GitHub membership has lapsed (404 on /user/memberships)", async () => {
     mocks.isOrganizationOwner.mockResolvedValue(true);
-    mocks.getOrgMembershipForCurrentUser.mockResolvedValue(null);
+    mocks.getOrgMembership.mockResolvedValue(null);
 
     const response = await app.inject({
       method: "PUT",
@@ -496,7 +496,7 @@ describe("PUT /v1/orgs/:org — fail-closed authorization", () => {
   });
 
   it("rejects when GitHub membership is pending (not yet active)", async () => {
-    mocks.getOrgMembershipForCurrentUser.mockResolvedValue({
+    mocks.getOrgMembership.mockResolvedValue({
       role: "admin",
       state: "pending",
     });
@@ -512,7 +512,7 @@ describe("PUT /v1/orgs/:org — fail-closed authorization", () => {
   });
 
   it("accepts a current GitHub admin (the legitimate path)", async () => {
-    mocks.getOrgMembershipForCurrentUser.mockResolvedValue({
+    mocks.getOrgMembership.mockResolvedValue({
       role: "admin",
       state: "active",
     });
