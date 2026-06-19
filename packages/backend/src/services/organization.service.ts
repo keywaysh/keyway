@@ -544,7 +544,11 @@ export async function syncOrganizationMembers(
     }
   }
 
-  // Remove members no longer in VCS org
+  // An empty VCS list means a failed/unauthorized fetch, not an empty org — never purge on it.
+  if (vcsMembers.length === 0) {
+    return { added, updated, removed };
+  }
+
   for (const member of currentMembers) {
     if (!vcsMemberIds.has(member.user.forgeUserId)) {
       await removeOrganizationMember(orgId, member.userId);

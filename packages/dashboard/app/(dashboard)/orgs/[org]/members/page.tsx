@@ -16,6 +16,9 @@ import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { toast } from 'sonner'
 
+// Manual sync temporarily disabled; membership syncs automatically via webhooks.
+const SYNC_ENABLED = false
+
 function MemberRowSkeleton() {
   return (
     <div className="flex items-center gap-4 py-3 px-4">
@@ -178,7 +181,7 @@ export default function OrganizationMembersPage() {
           </div>
         </div>
 
-        {isOwner && (
+        {isOwner && SYNC_ENABLED && (
           <Button
             variant="outline"
             onClick={handleSync}
@@ -206,7 +209,7 @@ export default function OrganizationMembersPage() {
             <div className="p-8 text-center">
               <Users className="h-12 w-12 mx-auto text-muted-foreground/50" />
               <p className="mt-2 text-muted-foreground">No members found</p>
-              {isOwner && (
+              {isOwner && SYNC_ENABLED && (
                 <Button
                   variant="outline"
                   className="mt-4"
@@ -252,7 +255,7 @@ export default function OrganizationMembersPage() {
       <div className="text-sm text-muted-foreground text-center">
         <p>
           Members are automatically synced from GitHub.{' '}
-          {isOwner && (
+          {isOwner && SYNC_ENABLED && (
             <span>Click &quot;Sync from GitHub&quot; to update the member list.</span>
           )}
         </p>
