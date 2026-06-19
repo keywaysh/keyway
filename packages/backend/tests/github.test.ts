@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { getRepoCollaborators, getUserRole } from '../src/utils/github';
+import { getRepoCollaborators, getUserRole, listOrgMembers } from '../src/utils/github';
 
 // Mock fetch globally
 const mockFetch = vi.fn();
@@ -504,6 +504,36 @@ describe('GitHub Utils', () => {
       await expect(getUserRoleWithApp('unknown/repo', 'user')).rejects.toThrow(
         'GitHub App not installed'
       );
+    });
+  });
+
+  describe('listOrgMembers (partial-fetch safety)', () => {
+    const ok = (data: any) => ({ ok: true, status: 200, json: async () => data });
+
+    it('throws on a non-OK response instead of returning a truncated roster', async () => {
+      mockFetch.mockResolvedValue({ ok: false, status: 502, text: async () => 'Bad Gateway' });
+      await expect(listOrgMembers('token', 'my-org')).rejects.toThrow(/fetch failed/i);
+    });
+
+    it('throws when a fetch rejects mid-pagination', async () => {
+      mockFetch.mockRejectedValue(new Error('network down'));
+      await expect(listOrgMembers('token', 'my-org')).rejects.toThrow('network down');
+    });
+
+    it('returns the full deduped roster on success', async () => {
+      mockFetch.mockImplementation((url: string) =>
+        Promise.resolve(
+          ok(
+            String(url).includes('role=admin')
+              ? [{ id: 1, login: 'alice', avatar_url: 'a' }]
+              : [{ id: 2, login: 'bob', avatar_url: 'b' }]
+          )
+        )
+      );
+      const members = await listOrgMembers('token', 'my-org');
+      expect(members).toHaveLength(2);
+      expect(members.find((m) => m.login === 'alice')?.role).toBe('admin');
+      expect(members.find((m) => m.login === 'bob')?.role).toBe('member');
     });
   });
 });

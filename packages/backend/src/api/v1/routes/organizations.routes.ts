@@ -509,11 +509,11 @@ export async function organizationsRoutes(fastify: FastifyInstance) {
         throw new ForbiddenError("You are not a member of this organization");
       }
 
-      // Pass the caller's token so the live roster respects GitHub's own
-      // per-user visibility (no elevated installation token for a user read).
+      // Installation token returns the full roster; the user token under-reports in prod.
+      const installToken = await getOrgInstallationToken(orgLogin);
       const members = await getOrganizationMembersWithGitHub(
         { id: org.id, login: org.login },
-        request.accessToken
+        installToken ?? request.accessToken
       );
       return sendData(reply, members, { requestId: request.id });
     }
@@ -533,7 +533,6 @@ export async function organizationsRoutes(fastify: FastifyInstance) {
     async (request, reply) => {
       const { org: orgLogin } = request.params;
       const vcsUser = request.vcsUser || request.githubUser!;
-      const accessToken = request.accessToken!;
 
       // Get user from database
       const user = await db.query.users.findFirst({
@@ -555,10 +554,12 @@ export async function organizationsRoutes(fastify: FastifyInstance) {
 
       await requireLiveOrgAdmin(orgLogin, org.id, user.id, user.username, "sync members", request.log);
 
-      // Fetch members from GitHub using the user's OAuth token
-      // This allows seeing private members (the user is a member of the org)
-      // Requires the read:org OAuth scope
-      const githubMembers = await listOrgMembers(accessToken, orgLogin);
+      // Sync against the installation-token roster (full + reliable), not the user token.
+      const installToken = await getOrgInstallationToken(orgLogin);
+      if (!installToken) {
+        throw new ForbiddenError("Keyway App is not installed on this organization");
+      }
+      const githubMembers = await listOrgMembers(installToken, orgLogin);
 
       // Convert GitHub members to VCS format (id as string)
       const vcsMembers = githubMembers.map((m) => ({

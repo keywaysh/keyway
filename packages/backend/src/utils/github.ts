@@ -805,7 +805,9 @@ async function listOrgMembersByRole(
           { org, role, status: response.status, error: errorBody.substring(0, 500) },
           "Failed to list org members by role"
         );
-        break;
+        // Throw rather than return a partial roster: a truncated list would make
+        // a member sync delete everyone it omits. Callers must see the failure.
+        throw new Error(`GitHub org members fetch failed (${role}): ${response.status}`);
       }
 
       const data = (await response.json()) as Array<{
@@ -829,6 +831,7 @@ async function listOrgMembersByRole(
       { error: error instanceof Error ? error.message : "Unknown error", org, role },
       "Error listing org members by role"
     );
+    throw error;
   }
 
   return members;
