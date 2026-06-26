@@ -75,6 +75,8 @@ function OrgPlanCard({
   onChoose: (priceId: string) => void
 }) {
   const sym = currencySymbol(prices.monthly.currency)
+  // Derive the annual discount from the actual prices (they come from Stripe).
+  const yearlySavingsPct = Math.round((1 - prices.yearly.price / (prices.monthly.price * 12)) * 100)
   return (
     <Card className={highlight ? 'border-2 border-primary relative' : 'border-2'}>
       {highlight && (
@@ -89,7 +91,7 @@ function OrgPlanCard({
           <span className="text-muted-foreground">/month</span>
         </div>
         <p className="text-sm text-muted-foreground mt-1">
-          or {sym}{prices.yearly.price / 100}/yr (save 17%)
+          or {sym}{prices.yearly.price / 100}/yr{yearlySavingsPct > 0 ? ` (save ${yearlySavingsPct}%)` : ''}
         </p>
         <ul className="space-y-1.5 mt-4">
           {features.map((feature) => (
@@ -348,9 +350,10 @@ export default function OrganizationBillingPage() {
         )}
       </Card>
 
-      {/* Plan selection — only for orgs without an active subscription (avoids
-          creating a second subscription; paid orgs change plans via the portal). */}
-      {isOwner && org.effective_plan === 'free' && !hasActiveSubscription && (billing?.prices?.team || billing?.prices?.business) && (
+      {/* Plan selection — for orgs without a paid subscription. Active trials are
+          included so owners can convert before the trial ends (the backend allows
+          it); paid orgs change plans via the portal instead (avoids a 2nd sub). */}
+      {isOwner && (org.effective_plan === 'free' || org.trial.status === 'active') && !hasActiveSubscription && (billing?.prices?.team || billing?.prices?.business) && (
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">

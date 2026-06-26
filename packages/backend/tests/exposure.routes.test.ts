@@ -55,8 +55,8 @@ describe('Exposure Routes Authorization', () => {
       expect(error.type).toContain('plan-limit-reached');
     });
 
-    it('should allow Team plan to access exposure reports', () => {
-      // Mock org with Team plan
+    it('should allow Business plan to access exposure reports', () => {
+      // Mock org with Business plan
       vi.mocked(getEffectivePlanWithTrial).mockReturnValue('business');
       const result = getEffectivePlanWithTrial(mockOrgPaid);
       expect(result).toBe('business');

@@ -5,6 +5,7 @@ import { config } from "../config";
 import { trackEvent, identifyUser, AnalyticsEvents } from "../utils/analytics";
 import { logActivity } from "./activity.service";
 import { logger } from "../utils/sharedLogger";
+import { BadRequestError } from "../lib";
 import {
   updateOrganizationPlan,
   setOrganizationStripeCustomerId,
@@ -82,12 +83,16 @@ function toResolvedPrice(
   price: Stripe.Price | undefined,
   interval: "month" | "year"
 ): ResolvedPrice | null {
-  if (!price) {
+  // Only surface a recurring, per-unit price billed on the expected cadence.
+  // A misconfigured tiered/metered price has a null unit_amount, and the
+  // interval must match what the lookup_key promised — otherwise hide the tier
+  // rather than render a wrong (e.g. €0 or mislabelled) price.
+  if (!price || price.unit_amount == null || price.recurring?.interval !== interval) {
     return null;
   }
   return {
     id: price.id,
-    amount: price.unit_amount ?? 0,
+    amount: price.unit_amount,
     currency: price.currency,
     interval,
   };
@@ -708,7 +713,7 @@ export async function createOrgCheckoutSession(
     prices?.business.yearly?.id,
   ].filter(Boolean);
   if (!orgPriceIds.includes(priceId)) {
-    throw new Error("Organizations can subscribe to the Team or Business plan");
+    throw new BadRequestError("Organizations can subscribe to the Team or Business plan");
   }
 
   // Get or create customer
