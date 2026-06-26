@@ -170,14 +170,19 @@ describe('Organization Billing Routes', () => {
 
     // Default mock implementations
     mockStripeEnabled.mockReturnValue(true);
-    mockGetAvailablePrices.mockReturnValue({
+    // getAvailablePrices is async; orgs subscribe to the Business tier
+    mockGetAvailablePrices.mockResolvedValue({
       pro: {
-        monthly: 'price_pro_monthly',
-        yearly: 'price_pro_yearly',
+        monthly: { id: 'price_pro_monthly', amount: 900, currency: 'eur', interval: 'month' },
+        yearly: { id: 'price_pro_yearly', amount: 9000, currency: 'eur', interval: 'year' },
       },
       team: {
-        monthly: 'price_team_monthly',
-        yearly: 'price_team_yearly',
+        monthly: { id: 'price_team_monthly', amount: 1900, currency: 'eur', interval: 'month' },
+        yearly: { id: 'price_team_yearly', amount: 19000, currency: 'eur', interval: 'year' },
+      },
+      business: {
+        monthly: { id: 'price_business_monthly', amount: 3900, currency: 'eur', interval: 'month' },
+        yearly: { id: 'price_business_yearly', amount: 39000, currency: 'eur', interval: 'year' },
       },
     });
     mockGetOrganizationByLogin.mockResolvedValue(mockOrg);
@@ -250,7 +255,7 @@ describe('Organization Billing Routes', () => {
 
       mockGetOrganizationDetails.mockResolvedValue({
         ...mockOrgDetails,
-        effectivePlan: 'team',
+        effectivePlan: 'business',
         trial: {
           status: 'active',
           startedAt: trialStartedAt,
@@ -273,7 +278,7 @@ describe('Organization Billing Routes', () => {
       expect(body.data.trial.endsAt).toBe('2024-12-16T00:00:00.000Z');
       expect(body.data.trial.daysRemaining).toBe(10);
       expect(body.data.trial.trialDurationDays).toBe(15);
-      expect(body.data.effectivePlan).toBe('team');
+      expect(body.data.effectivePlan).toBe('business');
     });
 
     it('should return prices when Stripe is configured', async () => {
@@ -285,17 +290,15 @@ describe('Organization Billing Routes', () => {
       expect(response.statusCode).toBe(200);
       const body = JSON.parse(response.body);
 
-      expect(body.data.prices).not.toBeNull();
-      expect(body.data.prices.monthly).toHaveProperty('id');
-      expect(body.data.prices.monthly).toHaveProperty('price');
-      expect(body.data.prices.monthly.price).toBe(2900); // $29.00
-      expect(body.data.prices.yearly).toHaveProperty('id');
-      expect(body.data.prices.yearly).toHaveProperty('price');
-      expect(body.data.prices.yearly.price).toBe(29000); // $290.00
+      // Orgs can subscribe to Team or Business; both tiers are returned
+      expect(body.data.prices.team.monthly.price).toBe(1900); // €19.00 (Team)
+      expect(body.data.prices.team.yearly.price).toBe(19000); // €190.00 (Team)
+      expect(body.data.prices.business.monthly.price).toBe(3900); // €39.00 (Business)
+      expect(body.data.prices.business.yearly.price).toBe(39000); // €390.00 (Business)
     });
 
-    it('should return null prices when Stripe prices not configured', async () => {
-      mockGetAvailablePrices.mockReturnValue(null);
+    it('should return null tier prices when Stripe prices not configured', async () => {
+      mockGetAvailablePrices.mockResolvedValue(null);
 
       const response = await app.inject({
         method: 'GET',
@@ -305,7 +308,8 @@ describe('Organization Billing Routes', () => {
       expect(response.statusCode).toBe(200);
       const body = JSON.parse(response.body);
 
-      expect(body.data.prices).toBeNull();
+      expect(body.data.prices.team).toBeNull();
+      expect(body.data.prices.business).toBeNull();
     });
 
     it('should return 400 when Stripe is disabled', async () => {
@@ -360,17 +364,17 @@ describe('Organization Billing Routes', () => {
       expect(body.data.subscription).toBeNull();
     });
 
-    it('should return team plan when org has paid subscription', async () => {
+    it('should return business plan when org has paid subscription', async () => {
       mockGetOrganizationByLogin.mockResolvedValue({
         ...mockOrg,
-        plan: 'team',
+        plan: 'business',
         stripeCustomerId: 'cus_123',
       });
 
       mockGetOrganizationDetails.mockResolvedValue({
         ...mockOrgDetails,
-        plan: 'team',
-        effectivePlan: 'team',
+        plan: 'business',
+        effectivePlan: 'business',
       });
 
       const response = await app.inject({
@@ -381,8 +385,8 @@ describe('Organization Billing Routes', () => {
       expect(response.statusCode).toBe(200);
       const body = JSON.parse(response.body);
 
-      expect(body.data.plan).toBe('team');
-      expect(body.data.effectivePlan).toBe('team');
+      expect(body.data.plan).toBe('business');
+      expect(body.data.effectivePlan).toBe('business');
     });
   });
 
@@ -404,7 +408,7 @@ describe('Organization Billing Routes', () => {
           'content-type': 'application/json',
         },
         payload: {
-          priceId: 'price_team_monthly',
+          priceId: 'price_business_monthly',
           successUrl: 'https://app.keyway.sh/dashboard/orgs/test-org/billing?success=true',
           cancelUrl: 'https://app.keyway.sh/dashboard/orgs/test-org/billing',
         },
@@ -415,6 +419,64 @@ describe('Organization Billing Routes', () => {
 
       expect(body.data).toHaveProperty('url');
       expect(body.data.url).toBe('https://checkout.stripe.com/session/123');
+    });
+
+    it('should reject checkout when org already has a paid subscription', async () => {
+      // Paid org: has a Stripe customer + a paid plan, and is not on an active trial
+      mockGetOrganizationByLogin.mockResolvedValue({
+        ...mockOrg,
+        plan: 'business',
+        stripeCustomerId: 'cus_123',
+      });
+
+      const response = await app.inject({
+        method: 'POST',
+        url: '/v1/orgs/test-org/billing/checkout',
+        headers: {
+          'content-type': 'application/json',
+        },
+        payload: {
+          priceId: 'price_business_monthly',
+          successUrl: 'https://app.keyway.sh/dashboard/orgs/test-org/billing?success=true',
+          cancelUrl: 'https://app.keyway.sh/dashboard/orgs/test-org/billing',
+        },
+      });
+
+      expect(response.statusCode).toBe(400);
+      expect(mockCreateOrgCheckoutSession).not.toHaveBeenCalled();
+    });
+
+    it('should allow checkout for an org on an active trial (conversion)', async () => {
+      // Active trial: plan is 'business' and a Stripe customer may exist from an
+      // abandoned checkout, but the org must still be able to convert to paid.
+      mockGetOrganizationByLogin.mockResolvedValue({
+        ...mockOrg,
+        plan: 'business',
+        stripeCustomerId: 'cus_123',
+      });
+      mockGetTrialInfo.mockReturnValue({
+        status: 'active',
+        startedAt: new Date(),
+        endsAt: new Date(),
+        convertedAt: null,
+        daysRemaining: 10,
+      });
+
+      const response = await app.inject({
+        method: 'POST',
+        url: '/v1/orgs/test-org/billing/checkout',
+        headers: {
+          'content-type': 'application/json',
+        },
+        payload: {
+          priceId: 'price_business_monthly',
+          successUrl: 'https://app.keyway.sh/dashboard/orgs/test-org/billing?success=true',
+          cancelUrl: 'https://app.keyway.sh/dashboard/orgs/test-org/billing',
+        },
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(mockCreateOrgCheckoutSession).toHaveBeenCalled();
     });
 
     it('should return 403 when user is not owner', async () => {
@@ -431,7 +493,7 @@ describe('Organization Billing Routes', () => {
           'content-type': 'application/json',
         },
         payload: {
-          priceId: 'price_team_monthly',
+          priceId: 'price_business_monthly',
           successUrl: 'https://app.keyway.sh/dashboard/orgs/test-org/billing?success=true',
           cancelUrl: 'https://app.keyway.sh/dashboard/orgs/test-org/billing',
         },
@@ -466,7 +528,7 @@ describe('Organization Billing Routes', () => {
           'content-type': 'application/json',
         },
         payload: {
-          priceId: 'price_team_monthly',
+          priceId: 'price_business_monthly',
           successUrl: 'not-a-url',
           cancelUrl: 'https://app.keyway.sh/billing',
         },

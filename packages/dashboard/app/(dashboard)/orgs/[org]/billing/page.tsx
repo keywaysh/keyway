@@ -28,10 +28,13 @@ import { toast } from 'sonner'
 const teamFeatures = [
   'Unlimited repositories',
   'Unlimited environments',
-  'Unlimited secrets per vault',
-  'Unlimited provider integrations',
   'Organization-wide permissions',
   'Activity audit logs',
+]
+
+const businessFeatures = [
+  'Everything in Team',
+  'Exposure reports (secret access tracking)',
   'Priority support',
 ]
 
@@ -39,9 +42,77 @@ const freeFeatures = [
   'Unlimited public repositories',
   '1 private repository',
   '3 environments per vault',
-  '15 collaborators per repo',
+  'Unlimited collaborators',
   'CLI & Dashboard access',
 ]
+
+const CURRENCY_SYMBOLS: Record<string, string> = { eur: '€', usd: '$' }
+
+function currencySymbol(currency?: string): string {
+  return (currency && CURRENCY_SYMBOLS[currency.toLowerCase()]) || '€'
+}
+
+function planLabel(plan: 'free' | 'team' | 'business'): string {
+  return plan === 'business' ? 'Business' : plan === 'team' ? 'Team' : 'Free'
+}
+
+type TierPrices = NonNullable<OrganizationBillingStatus['prices']['team']>
+
+/** A selectable org plan tier (Team or Business) with monthly + yearly checkout. */
+function OrgPlanCard({
+  name,
+  prices,
+  features,
+  highlight,
+  disabled,
+  onChoose,
+}: {
+  name: string
+  prices: TierPrices
+  features: string[]
+  highlight?: boolean
+  disabled?: boolean
+  onChoose: (priceId: string) => void
+}) {
+  const sym = currencySymbol(prices.monthly.currency)
+  return (
+    <Card className={highlight ? 'border-2 border-primary relative' : 'border-2'}>
+      {highlight && (
+        <div className="absolute -top-3 left-4">
+          <Badge className="bg-primary text-primary-foreground">Most features</Badge>
+        </div>
+      )}
+      <CardContent className="p-4">
+        <div className="font-semibold mb-1">{name}</div>
+        <div className="flex items-baseline gap-1">
+          <span className="text-3xl font-bold">{sym}{prices.monthly.price / 100}</span>
+          <span className="text-muted-foreground">/month</span>
+        </div>
+        <p className="text-sm text-muted-foreground mt-1">
+          or {sym}{prices.yearly.price / 100}/yr (save 17%)
+        </p>
+        <ul className="space-y-1.5 mt-4">
+          {features.map((feature) => (
+            <li key={feature} className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Check className="h-4 w-4 text-primary shrink-0" />
+              {feature}
+            </li>
+          ))}
+        </ul>
+        <div className="flex gap-2 mt-4">
+          <Button variant="outline" className="flex-1" onClick={() => onChoose(prices.monthly.id)} disabled={disabled}>
+            <Zap className="h-4 w-4 mr-1.5" />
+            Monthly
+          </Button>
+          <Button className="flex-1" onClick={() => onChoose(prices.yearly.id)} disabled={disabled}>
+            <Sparkles className="h-4 w-4 mr-1.5" />
+            Yearly
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
 
 export default function OrganizationBillingPage() {
   const params = useParams()
@@ -191,8 +262,8 @@ export default function OrganizationBillingPage() {
                 Your organization&apos;s subscription details
               </CardDescription>
             </div>
-            <Badge variant={org.effective_plan === 'team' ? 'default' : 'secondary'} className="text-sm">
-              {org.effective_plan === 'team' ? 'Team' : 'Free'}
+            <Badge variant={org.effective_plan !== 'free' ? 'default' : 'secondary'} className="text-sm">
+              {planLabel(org.effective_plan)}
               {org.trial.status === 'active' && ' (Trial)'}
             </Badge>
           </div>
@@ -239,7 +310,12 @@ export default function OrganizationBillingPage() {
             <div>
               <p className="text-sm font-medium mb-2">Included features:</p>
               <ul className="space-y-1.5">
-                {(org.effective_plan === 'team' ? teamFeatures : freeFeatures).map((feature) => (
+                {(org.effective_plan === 'business'
+                  ? [...teamFeatures, ...businessFeatures]
+                  : org.effective_plan === 'team'
+                  ? teamFeatures
+                  : freeFeatures
+                ).map((feature) => (
                   <li key={feature} className="flex items-center gap-2 text-sm text-muted-foreground">
                     <Check className="h-4 w-4 text-primary shrink-0" />
                     {feature}
@@ -250,7 +326,7 @@ export default function OrganizationBillingPage() {
           </div>
         </CardContent>
         {isOwner && hasActiveSubscription && (
-          <CardFooter className="border-t pt-4">
+          <CardFooter className="border-t pt-4 flex flex-col items-start gap-2">
             <Button
               variant="outline"
               onClick={handleManageBilling}
@@ -263,83 +339,49 @@ export default function OrganizationBillingPage() {
               )}
               Manage Subscription
             </Button>
+            {org.effective_plan === 'team' && (
+              <p className="text-xs text-muted-foreground">
+                Need Exposure reports? Switch to Business from Manage Subscription.
+              </p>
+            )}
           </CardFooter>
         )}
       </Card>
 
-      {/* Upgrade Options */}
-      {isOwner && org.effective_plan === 'free' && billing?.prices && (
+      {/* Plan selection — only for orgs without an active subscription (avoids
+          creating a second subscription; paid orgs change plans via the portal). */}
+      {isOwner && org.effective_plan === 'free' && !hasActiveSubscription && (billing?.prices?.team || billing?.prices?.business) && (
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Sparkles className="h-5 w-5" />
-              Upgrade to Team
+              Choose a plan
             </CardTitle>
             <CardDescription>
-              Unlock unlimited repos, environments, and secrets for your organization
+              Subscribe your organization to Team or Business.
             </CardDescription>
           </CardHeader>
           <CardContent>
             <div className="grid md:grid-cols-2 gap-4">
-              {/* Monthly */}
-              <Card className="border-2">
-                <CardContent className="p-4">
-                  <div className="flex items-baseline gap-1">
-                    <span className="text-3xl font-bold">
-                      ${billing.prices.monthly.price / 100}
-                    </span>
-                    <span className="text-muted-foreground">/month</span>
-                  </div>
-                  <p className="text-sm text-muted-foreground mt-1">
-                    Billed monthly
-                  </p>
-                  <Button
-                    className="w-full mt-4"
-                    variant="outline"
-                    onClick={() => handleUpgrade(billing.prices!.monthly.id)}
-                    disabled={isRedirecting}
-                  >
-                    {isRedirecting ? (
-                      <RefreshCw className="h-4 w-4 mr-1.5 animate-spin" />
-                    ) : (
-                      <Zap className="h-4 w-4 mr-1.5" />
-                    )}
-                    Choose Monthly
-                  </Button>
-                </CardContent>
-              </Card>
-
-              {/* Yearly */}
-              <Card className="border-2 border-primary relative">
-                <div className="absolute -top-3 left-4">
-                  <Badge className="bg-primary text-primary-foreground">
-                    Save 17%
-                  </Badge>
-                </div>
-                <CardContent className="p-4">
-                  <div className="flex items-baseline gap-1">
-                    <span className="text-3xl font-bold">
-                      ${billing.prices.yearly.price / 100}
-                    </span>
-                    <span className="text-muted-foreground">/year</span>
-                  </div>
-                  <p className="text-sm text-muted-foreground mt-1">
-                    Billed annually (${Math.round(billing.prices.yearly.price / 12 / 100)}/mo)
-                  </p>
-                  <Button
-                    className="w-full mt-4"
-                    onClick={() => handleUpgrade(billing.prices!.yearly.id)}
-                    disabled={isRedirecting}
-                  >
-                    {isRedirecting ? (
-                      <RefreshCw className="h-4 w-4 mr-1.5 animate-spin" />
-                    ) : (
-                      <Sparkles className="h-4 w-4 mr-1.5" />
-                    )}
-                    Choose Yearly
-                  </Button>
-                </CardContent>
-              </Card>
+              {billing?.prices?.team && (
+                <OrgPlanCard
+                  name="Team"
+                  prices={billing.prices.team}
+                  features={teamFeatures}
+                  disabled={isRedirecting}
+                  onChoose={handleUpgrade}
+                />
+              )}
+              {billing?.prices?.business && (
+                <OrgPlanCard
+                  name="Business"
+                  prices={billing.prices.business}
+                  features={businessFeatures}
+                  highlight
+                  disabled={isRedirecting}
+                  onChoose={handleUpgrade}
+                />
+              )}
             </div>
           </CardContent>
         </Card>

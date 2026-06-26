@@ -41,6 +41,7 @@ interface OrgRowProps {
 
 function OrgRow({ org }: OrgRowProps) {
   const planBadgeConfig = {
+    business: { label: 'Business', variant: 'default' as const },
     team: { label: 'Team', variant: 'default' as const },
     free: { label: 'Free', variant: 'secondary' as const },
   }

@@ -246,10 +246,10 @@ function UpgradePrompt() {
             audits.
           </p>
           <p className="text-sm text-muted-foreground mb-6">
-            Upgrade to Team plan to unlock exposure tracking across all your vaults.
+            Upgrade to the Business plan to unlock exposure tracking across all your vaults.
           </p>
           <Button asChild>
-            <Link href="/settings/billing">Upgrade to Team</Link>
+            <Link href="/settings/billing">Upgrade to Business</Link>
           </Button>
         </div>
       </CardContent>
@@ -272,12 +272,12 @@ export function SecurityExposureTab() {
   const [isExporting, setIsExporting] = useState(false)
   const hasFiredView = useRef(false)
 
-  // Check if user has team plan
-  const hasTeamPlan = user?.plan === 'team'
+  // Exposure reports require the Business plan (top tier)
+  const canViewExposure = user?.plan === 'business'
 
   // Fetch organizations
   useEffect(() => {
-    if (!hasTeamPlan) {
+    if (!canViewExposure) {
       setIsLoadingOrgs(false)
       return
     }
@@ -293,11 +293,11 @@ export function SecurityExposureTab() {
       .finally(() => {
         setIsLoadingOrgs(false)
       })
-  }, [hasTeamPlan])
+  }, [canViewExposure])
 
   // Fetch exposure data
   const loadExposure = useCallback(async () => {
-    if (!hasTeamPlan) {
+    if (!canViewExposure) {
       setIsLoading(false)
       return
     }
@@ -320,7 +320,7 @@ export function SecurityExposureTab() {
     } finally {
       setIsLoading(false)
     }
-  }, [hasTeamPlan, selectedOrg])
+  }, [canViewExposure, selectedOrg])
 
   useEffect(() => {
     if (!hasFiredView.current) {
@@ -428,8 +428,8 @@ export function SecurityExposureTab() {
     }
   }
 
-  // Show upgrade prompt if not on team plan
-  if (!hasTeamPlan && !isLoading) {
+  // Show upgrade prompt if not on a plan with exposure access
+  if (!canViewExposure && !isLoading) {
     return <UpgradePrompt />
   }
 
@@ -451,7 +451,7 @@ export function SecurityExposureTab() {
   }
 
   // Check if error is plan-related
-  const isPlanError = error?.toLowerCase().includes('team plan') || error?.toLowerCase().includes('upgrade')
+  const isPlanError = error?.toLowerCase().includes('business plan') || error?.toLowerCase().includes('upgrade')
 
   if (error && !isPlanError) {
     return (
@@ -561,13 +561,13 @@ export function SecurityExposureTab() {
               </h3>
               <p className="text-muted-foreground mb-4">
                 {selectedOrg === 'all'
-                  ? 'Exposure reports require a Team plan to track which secrets your team members have accessed.'
-                  : `${selectedOrg} needs a Team plan to access exposure reports.`}
+                  ? 'Exposure reports require the Business plan to track which secrets your team members have accessed.'
+                  : `${selectedOrg} needs the Business plan to access exposure reports.`}
               </p>
               <p className="text-sm text-muted-foreground mb-6">
                 {organizations.length > 0
                   ? 'Select another organization above, or upgrade to unlock exposure tracking.'
-                  : 'Upgrade to Team plan to unlock exposure tracking.'}
+                  : 'Upgrade to the Business plan to unlock exposure tracking.'}
               </p>
               <Button asChild>
                 <Link

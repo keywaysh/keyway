@@ -1,4 +1,4 @@
-export type UserPlan = 'free' | 'pro' | 'team' | 'startup'
+export type UserPlan = 'free' | 'pro' | 'team' | 'business'
 
 export type ReadonlyReason = 'plan_limit_exceeded' | 'org_free_plan' | null
 
@@ -184,7 +184,8 @@ export interface CreateApiKeyResponse extends ApiKey {
 }
 
 // Organization types
-export type OrganizationPlan = 'free' | 'team'
+// Organizations subscribe to the Business tier (top tier with advanced team features).
+export type OrganizationPlan = 'free' | 'team' | 'business'
 export type OrganizationRole = 'owner' | 'member'
 export type TrialStatus = 'none' | 'active' | 'expired' | 'converted'
 
@@ -239,10 +240,16 @@ export interface OrganizationBillingStatus {
     cancel_at_period_end: boolean
   } | null
   trial: TrialInfo
+  // Org-capable tiers (Team and Business). Either may be null if not configured in Stripe.
   prices: {
-    monthly: { id: string; price: number; interval: string }
-    yearly: { id: string; price: number; interval: string }
-  } | null
+    team: OrgTierPrices | null
+    business: OrgTierPrices | null
+  }
+}
+
+export interface OrgTierPrices {
+  monthly: { id: string; price: number; currency?: string; interval: string }
+  yearly: { id: string; price: number; currency?: string; interval: string }
 }
 
 export interface SyncMembersResult {

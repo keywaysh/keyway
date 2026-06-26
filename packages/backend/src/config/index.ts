@@ -73,14 +73,10 @@ const envSchema = z
     RESEND_API_KEY: z.string().optional(),
 
     // Stripe Billing
+    // Prices are resolved at runtime via Stripe lookup_keys (see billing.service.ts),
+    // which are identical across Test and Live — so no per-price env vars are needed.
     STRIPE_SECRET_KEY: z.string().optional(),
     STRIPE_WEBHOOK_SECRET: z.string().optional(),
-    STRIPE_PRICE_PRO_MONTHLY: z.string().optional(),
-    STRIPE_PRICE_PRO_YEARLY: z.string().optional(),
-    STRIPE_PRICE_TEAM_MONTHLY: z.string().optional(),
-    STRIPE_PRICE_TEAM_YEARLY: z.string().optional(),
-    STRIPE_PRICE_STARTUP_MONTHLY: z.string().optional(),
-    STRIPE_PRICE_STARTUP_YEARLY: z.string().optional(),
 
     // Frontend URLs (for redirects after auth)
     FRONTEND_URL: optionalUrl(), // Landing page (marketing)
@@ -253,14 +249,6 @@ export const config = {
     ? {
         secretKey: env.STRIPE_SECRET_KEY,
         webhookSecret: env.STRIPE_WEBHOOK_SECRET,
-        prices: {
-          proMonthly: env.STRIPE_PRICE_PRO_MONTHLY,
-          proYearly: env.STRIPE_PRICE_PRO_YEARLY,
-          teamMonthly: env.STRIPE_PRICE_TEAM_MONTHLY,
-          teamYearly: env.STRIPE_PRICE_TEAM_YEARLY,
-          startupMonthly: env.STRIPE_PRICE_STARTUP_MONTHLY,
-          startupYearly: env.STRIPE_PRICE_STARTUP_YEARLY,
-        },
       }
     : undefined,
 

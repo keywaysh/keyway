@@ -15,16 +15,17 @@ export interface PlanLimits {
   maxEnvironmentsPerVault: number;
   /** Maximum number of secrets per private vault (public vaults are unlimited) */
   maxSecretsPerPrivateVault: number;
-  /** Maximum number of collaborators per vault */
-  maxCollaboratorsPerVault: number;
 }
 
 /**
- * Plan definitions
- * - free: 1 private repo, 2 providers, 3 envs, 15 collaborators
- * - pro: 5 private repos, unlimited providers/envs, 15 collaborators ($4/month)
- * - team: 10 private repos, unlimited providers/envs, 15 collaborators ($15/month)
- * - startup: 40 private repos, unlimited providers/envs, 30 collaborators ($39/month)
+ * Plan definitions. Pricing is flat per tier — collaborators/team members are
+ * never capped (access mirrors GitHub: repo access = secret access). The only
+ * scaling lever is private repos.
+ * - free: 1 private repo, 2 providers, 3 envs
+ * - pro: 10 private repos, unlimited providers/envs (€9/month)
+ * - team: 20 private repos, unlimited providers/envs (€19/month)
+ * - business: 50 private repos, unlimited providers/envs (€39/month)
+ *   Top tier — unlocks advanced team features (Exposure reports). Organizations subscribe to this tier.
  */
 export const PLANS: Record<UserPlan, PlanLimits> = {
   free: {
@@ -33,33 +34,56 @@ export const PLANS: Record<UserPlan, PlanLimits> = {
     maxProviders: 2,
     maxEnvironmentsPerVault: 3,
     maxSecretsPerPrivateVault: Infinity,
-    maxCollaboratorsPerVault: 15,
   },
   pro: {
-    maxPublicRepos: Infinity,
-    maxPrivateRepos: 5,
-    maxProviders: Infinity,
-    maxEnvironmentsPerVault: Infinity,
-    maxSecretsPerPrivateVault: Infinity,
-    maxCollaboratorsPerVault: 15,
-  },
-  team: {
     maxPublicRepos: Infinity,
     maxPrivateRepos: 10,
     maxProviders: Infinity,
     maxEnvironmentsPerVault: Infinity,
     maxSecretsPerPrivateVault: Infinity,
-    maxCollaboratorsPerVault: 15,
   },
-  startup: {
+  team: {
     maxPublicRepos: Infinity,
-    maxPrivateRepos: 40,
+    maxPrivateRepos: 20,
     maxProviders: Infinity,
     maxEnvironmentsPerVault: Infinity,
     maxSecretsPerPrivateVault: Infinity,
-    maxCollaboratorsPerVault: 30,
+  },
+  business: {
+    maxPublicRepos: Infinity,
+    maxPrivateRepos: 50,
+    maxProviders: Infinity,
+    maxEnvironmentsPerVault: Infinity,
+    maxSecretsPerPrivateVault: Infinity,
   },
 } as const;
+
+/**
+ * Plan hierarchy ranking (free < pro < team < business).
+ * Used to gate features by "tier or higher" rather than exact plan match.
+ */
+const PLAN_RANK: Record<UserPlan, number> = {
+  free: 0,
+  pro: 1,
+  team: 2,
+  business: 3,
+};
+
+/**
+ * Numeric rank for a plan, for hierarchical comparisons.
+ */
+export function planRank(plan: UserPlan): number {
+  return PLAN_RANK[plan] ?? 0;
+}
+
+/**
+ * Whether a plan unlocks advanced team features (Exposure reports, etc.).
+ * These live on the top tier (Business) — the most expensive plan — and on
+ * organizations (which subscribe to the Business tier).
+ */
+export function hasExposureAccess(plan: UserPlan): boolean {
+  return planRank(plan) >= planRank("business");
+}
 
 /**
  * Get limits for a specific plan

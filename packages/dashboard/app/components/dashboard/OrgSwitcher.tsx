@@ -184,8 +184,10 @@ export function OrgSwitcher({ onContextChange, className }: OrgSwitcherProps) {
                     <span className="text-sm font-medium text-foreground truncate">
                       {currentDisplay.display_name || currentDisplay.login}
                     </span>
-                    {currentDisplay.plan === 'team' && (
-                      <Badge variant="secondary" className="text-[10px] px-1.5 py-0">Team</Badge>
+                    {currentDisplay.plan !== 'free' && (
+                      <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
+                        {currentDisplay.plan === 'business' ? 'Business' : 'Team'}
+                      </Badge>
                     )}
                   </div>
                   <div className="text-xs text-muted-foreground">Organization</div>
@@ -238,8 +240,10 @@ export function OrgSwitcher({ onContextChange, className }: OrgSwitcherProps) {
                 </Avatar>
                 <span className="truncate flex-1">{org.display_name || org.login}</span>
                 <div className="flex items-center gap-1.5 ml-auto">
-                  {org.plan === 'team' ? (
-                    <Badge variant="secondary" className="text-xs px-1.5 py-0">Team</Badge>
+                  {org.plan !== 'free' ? (
+                    <Badge variant="secondary" className="text-xs px-1.5 py-0">
+                      {org.plan === 'business' ? 'Business' : 'Team'}
+                    </Badge>
                   ) : (
                     <span title="Start trial">
                       <Sparkles className="h-3 w-3 text-muted-foreground" />

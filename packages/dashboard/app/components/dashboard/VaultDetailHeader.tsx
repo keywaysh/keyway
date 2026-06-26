@@ -16,9 +16,9 @@ import type { Vault, ReadonlyReason, UserPlan } from '@/lib/types'
 // Plan limits for contextual messages
 const PLAN_LIMITS: Record<UserPlan, number> = {
   free: 1,
-  pro: 5,
-  team: 10,
-  startup: 40,
+  pro: 10,
+  team: 20,
+  business: 50,
 }
 
 // Get contextual read-only message based on reason and plan
@@ -29,7 +29,7 @@ function getReadonlyInfo(reason: ReadonlyReason, plan: UserPlan, repoOwner: stri
 } {
   if (reason === 'plan_limit_exceeded') {
     const limit = PLAN_LIMITS[plan]
-    const nextPlan = plan === 'free' ? 'Pro' : plan === 'pro' ? 'Team' : plan === 'team' ? 'Startup' : null
+    const nextPlan = plan === 'free' ? 'Pro' : plan === 'pro' ? 'Team' : plan === 'team' ? 'Business' : null
     return {
       message: `You've exceeded your ${plan} plan limit of ${limit} private vault${limit === 1 ? '' : 's'}. Your oldest vaults remain writable.`,
       linkText: nextPlan ? `Upgrade to ${nextPlan}` : 'Manage subscription',

@@ -63,18 +63,19 @@ describe('Billing Routes', () => {
 
     // Default mock implementations
     mockStripeEnabled.mockReturnValue(true);
-    mockGetAvailablePrices.mockReturnValue({
+    // getAvailablePrices is async and returns resolved prices (id/amount/currency/interval)
+    mockGetAvailablePrices.mockResolvedValue({
       pro: {
-        monthly: 'price_pro_monthly',
-        yearly: 'price_pro_yearly',
+        monthly: { id: 'price_pro_monthly', amount: 900, currency: 'eur', interval: 'month' },
+        yearly: { id: 'price_pro_yearly', amount: 9000, currency: 'eur', interval: 'year' },
       },
       team: {
-        monthly: 'price_team_monthly',
-        yearly: 'price_team_yearly',
+        monthly: { id: 'price_team_monthly', amount: 1900, currency: 'eur', interval: 'month' },
+        yearly: { id: 'price_team_yearly', amount: 19000, currency: 'eur', interval: 'year' },
       },
-      startup: {
-        monthly: 'price_startup_monthly',
-        yearly: 'price_startup_yearly',
+      business: {
+        monthly: { id: 'price_business_monthly', amount: 3900, currency: 'eur', interval: 'month' },
+        yearly: { id: 'price_business_yearly', amount: 39000, currency: 'eur', interval: 'year' },
       },
     });
     mockGetUserSubscription.mockResolvedValue(null);

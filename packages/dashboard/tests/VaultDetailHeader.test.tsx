@@ -207,7 +207,7 @@ describe('VaultDetailHeader', () => {
           />
         )
 
-        expect(screen.getByText(/exceeded your pro plan limit of 5 private vaults/)).toBeInTheDocument()
+        expect(screen.getByText(/exceeded your pro plan limit of 10 private vaults/)).toBeInTheDocument()
         expect(screen.getByText('Upgrade to Team')).toBeInTheDocument()
       })
 
@@ -225,11 +225,11 @@ describe('VaultDetailHeader', () => {
           />
         )
 
-        expect(screen.getByText(/exceeded your team plan limit of 10 private vaults/)).toBeInTheDocument()
-        expect(screen.getByText('Upgrade to Startup')).toBeInTheDocument()
+        expect(screen.getByText(/exceeded your team plan limit of 20 private vaults/)).toBeInTheDocument()
+        expect(screen.getByText('Upgrade to Business')).toBeInTheDocument()
       })
 
-      it('should show "Manage subscription" for startup plan (highest tier)', () => {
+      it('should show "Manage subscription" for business plan (highest tier)', () => {
         const readOnlyVault = {
           ...mockVault,
           is_read_only: true,
@@ -239,11 +239,11 @@ describe('VaultDetailHeader', () => {
           <VaultDetailHeader
             {...defaultProps}
             vault={readOnlyVault}
-            userPlan="startup"
+            userPlan="business"
           />
         )
 
-        expect(screen.getByText(/exceeded your startup plan limit of 40 private vaults/)).toBeInTheDocument()
+        expect(screen.getByText(/exceeded your business plan limit of 50 private vaults/)).toBeInTheDocument()
         expect(screen.getByText('Manage subscription')).toBeInTheDocument()
       })
 

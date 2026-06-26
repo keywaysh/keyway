@@ -58,7 +58,7 @@ vi.mock('../../app/components/dashboard/ExposureStatCard', () => ({
 let mockUser = {
   id: 'user-1',
   name: 'Test User',
-  plan: 'team',
+  plan: 'business',
 }
 
 vi.mock('../../lib/auth', () => ({
@@ -134,7 +134,7 @@ const mockOrganizations: Organization[] = [
     login: 'testorg',
     avatar_url: 'https://avatar.example.com/testorg.png',
     display_name: 'Test Organization',
-    plan: 'team',
+    plan: 'business',
   },
 ]
 
@@ -164,7 +164,7 @@ describe('SecurityExposureTab', () => {
     mockUser = {
       id: 'user-1',
       name: 'Test User',
-      plan: 'team',
+      plan: 'business',
     }
     mockExposureResponse = mockExposure
     mockApiError = null
@@ -172,13 +172,13 @@ describe('SecurityExposureTab', () => {
   })
 
   describe('Upgrade Prompt', () => {
-    it('should show upgrade prompt when user is not on team plan', async () => {
+    it('should show upgrade prompt when user is not on startup plan', async () => {
       mockUser = { id: 'user-1', name: 'Test User', plan: 'free' }
       render(<SecurityExposureTab />)
 
       await waitFor(() => {
         expect(screen.getByText('Exposure Tracking')).toBeInTheDocument()
-        expect(screen.getByText('Upgrade to Team')).toBeInTheDocument()
+        expect(screen.getByText('Upgrade to Business')).toBeInTheDocument()
       })
     })
   })

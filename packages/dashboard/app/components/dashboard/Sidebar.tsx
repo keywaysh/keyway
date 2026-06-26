@@ -123,7 +123,7 @@ function UserProfile({ onClose, isCollapsed }: { onClose?: () => void; isCollaps
                   {user.name || user.github_username}
                 </div>
                 <div className="text-xs text-muted-foreground">
-                  {{ free: 'Free Plan', pro: 'Pro Plan', team: 'Team Plan', startup: 'Startup Plan' }[user.plan] || 'Free Plan'}
+                  {{ free: 'Free Plan', pro: 'Pro Plan', team: 'Team Plan', business: 'Business Plan' }[user.plan] || 'Free Plan'}
                 </div>
               </div>
               <ChevronDown className="size-4 text-muted-foreground shrink-0" />

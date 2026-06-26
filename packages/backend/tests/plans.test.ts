@@ -1,7 +1,36 @@
 import { describe, it, expect } from 'vitest';
-import { PLANS, getPlanLimits, canCreateRepo, formatLimit } from '../src/config/plans';
+import { PLANS, getPlanLimits, canCreateRepo, formatLimit, planRank, hasExposureAccess } from '../src/config/plans';
 import { PlanLimitError } from '../src/lib';
 import type { UserPlan } from '../src/db/schema';
+
+describe('Plan hierarchy & feature gating', () => {
+  describe('planRank', () => {
+    it('should order plans free < pro < team < business', () => {
+      expect(planRank('free')).toBeLessThan(planRank('pro'));
+      expect(planRank('pro')).toBeLessThan(planRank('team'));
+      expect(planRank('team')).toBeLessThan(planRank('business'));
+    });
+  });
+
+  describe('hasExposureAccess (security-critical gate for secret access tracking)', () => {
+    it('should grant access ONLY to the top tier (business)', () => {
+      expect(hasExposureAccess('business')).toBe(true);
+    });
+
+    it('should deny all lower tiers (free, pro, team)', () => {
+      expect(hasExposureAccess('free')).toBe(false);
+      expect(hasExposureAccess('pro')).toBe(false);
+      expect(hasExposureAccess('team')).toBe(false);
+    });
+
+    it('should fail closed for every non-business plan', () => {
+      const plans: UserPlan[] = ['free', 'pro', 'team', 'business'];
+      plans.forEach((plan) => {
+        expect(hasExposureAccess(plan)).toBe(plan === 'business');
+      });
+    });
+  });
+});
 
 describe('Plans Configuration', () => {
   describe('PLANS constant', () => {
@@ -10,23 +39,23 @@ describe('Plans Configuration', () => {
       expect(PLANS.free.maxPublicRepos).toBe(Infinity);
     });
 
-    it('should define pro plan with 5 private repos', () => {
-      expect(PLANS.pro.maxPrivateRepos).toBe(5);
+    it('should define pro plan with 10 private repos', () => {
+      expect(PLANS.pro.maxPrivateRepos).toBe(10);
       expect(PLANS.pro.maxPublicRepos).toBe(Infinity);
     });
 
-    it('should define team plan with 10 private repos', () => {
-      expect(PLANS.team.maxPrivateRepos).toBe(10);
+    it('should define team plan with 20 private repos', () => {
+      expect(PLANS.team.maxPrivateRepos).toBe(20);
       expect(PLANS.team.maxPublicRepos).toBe(Infinity);
     });
 
-    it('should define startup plan with 40 private repos', () => {
-      expect(PLANS.startup.maxPrivateRepos).toBe(40);
-      expect(PLANS.startup.maxPublicRepos).toBe(Infinity);
+    it('should define business plan with 50 private repos', () => {
+      expect(PLANS.business.maxPrivateRepos).toBe(50);
+      expect(PLANS.business.maxPublicRepos).toBe(Infinity);
     });
 
     it('should have all plan types defined', () => {
-      const planTypes: UserPlan[] = ['free', 'pro', 'team', 'startup'];
+      const planTypes: UserPlan[] = ['free', 'pro', 'team', 'business'];
       planTypes.forEach((plan) => {
         expect(PLANS[plan]).toBeDefined();
         expect(PLANS[plan].maxPublicRepos).toBeDefined();
@@ -44,19 +73,19 @@ describe('Plans Configuration', () => {
 
     it('should return correct limits for pro plan', () => {
       const limits = getPlanLimits('pro');
-      expect(limits.maxPrivateRepos).toBe(5);
+      expect(limits.maxPrivateRepos).toBe(10);
       expect(limits.maxPublicRepos).toBe(Infinity);
     });
 
     it('should return correct limits for team plan', () => {
       const limits = getPlanLimits('team');
-      expect(limits.maxPrivateRepos).toBe(10);
+      expect(limits.maxPrivateRepos).toBe(20);
       expect(limits.maxPublicRepos).toBe(Infinity);
     });
 
-    it('should return correct limits for startup plan', () => {
-      const limits = getPlanLimits('startup');
-      expect(limits.maxPrivateRepos).toBe(40);
+    it('should return correct limits for business plan', () => {
+      const limits = getPlanLimits('business');
+      expect(limits.maxPrivateRepos).toBe(50);
       expect(limits.maxPublicRepos).toBe(Infinity);
     });
   });
@@ -114,18 +143,18 @@ describe('Plans Configuration', () => {
     });
 
     describe('pro plan', () => {
-      it('should allow up to 5 private repos', () => {
+      it('should allow up to 10 private repos', () => {
         const result1 = canCreateRepo('pro', 0, 0, true);
         expect(result1.allowed).toBe(true);
 
-        const result2 = canCreateRepo('pro', 0, 4, true);
+        const result2 = canCreateRepo('pro', 0, 9, true);
         expect(result2.allowed).toBe(true);
       });
 
-      it('should deny 6th private repo', () => {
-        const result = canCreateRepo('pro', 0, 5, true);
+      it('should deny 11th private repo', () => {
+        const result = canCreateRepo('pro', 0, 10, true);
         expect(result.allowed).toBe(false);
-        expect(result.reason).toContain('pro plan allows 5 private repos');
+        expect(result.reason).toContain('pro plan allows 10 private repos');
       });
 
       it('should allow unlimited public repos', () => {
@@ -138,18 +167,18 @@ describe('Plans Configuration', () => {
     });
 
     describe('team plan', () => {
-      it('should allow up to 10 private repos', () => {
+      it('should allow up to 20 private repos', () => {
         const result1 = canCreateRepo('team', 0, 0, true);
         expect(result1.allowed).toBe(true);
 
-        const result2 = canCreateRepo('team', 0, 9, true);
+        const result2 = canCreateRepo('team', 0, 19, true);
         expect(result2.allowed).toBe(true);
       });
 
-      it('should deny 11th private repo', () => {
-        const result = canCreateRepo('team', 0, 10, true);
+      it('should deny 21st private repo', () => {
+        const result = canCreateRepo('team', 0, 20, true);
         expect(result.allowed).toBe(false);
-        expect(result.reason).toContain('team plan allows 10 private repos');
+        expect(result.reason).toContain('team plan allows 20 private repos');
       });
 
       it('should allow unlimited public repos', () => {
@@ -161,26 +190,26 @@ describe('Plans Configuration', () => {
       });
     });
 
-    describe('startup plan', () => {
-      it('should allow up to 40 private repos', () => {
-        const result1 = canCreateRepo('startup', 0, 0, true);
+    describe('business plan', () => {
+      it('should allow up to 50 private repos', () => {
+        const result1 = canCreateRepo('business', 0, 0, true);
         expect(result1.allowed).toBe(true);
 
-        const result2 = canCreateRepo('startup', 0, 39, true);
+        const result2 = canCreateRepo('business', 0, 49, true);
         expect(result2.allowed).toBe(true);
       });
 
-      it('should deny 41st private repo', () => {
-        const result = canCreateRepo('startup', 0, 40, true);
+      it('should deny 51st private repo', () => {
+        const result = canCreateRepo('business', 0, 50, true);
         expect(result.allowed).toBe(false);
-        expect(result.reason).toContain('startup plan allows 40 private repos');
+        expect(result.reason).toContain('business plan allows 50 private repos');
       });
 
       it('should allow unlimited public repos', () => {
-        const result1 = canCreateRepo('startup', 0, 0, false);
+        const result1 = canCreateRepo('business', 0, 0, false);
         expect(result1.allowed).toBe(true);
 
-        const result2 = canCreateRepo('startup', 500, 0, false);
+        const result2 = canCreateRepo('business', 500, 0, false);
         expect(result2.allowed).toBe(true);
       });
     });

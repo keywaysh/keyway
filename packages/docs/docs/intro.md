@@ -101,7 +101,7 @@ GitHub repo permissions = Keyway permissions. No separate invitations.
 
 For teams, install the [Keyway GitHub App](https://github.com/apps/keyway-sh) on your organization to unlock:
 
-- Centralized billing (Team plan for the whole org)
+- Centralized billing (Business plan for the whole org)
 - Member sync from GitHub
 - 14-day free trial
 - Permission overrides per environment
@@ -119,14 +119,15 @@ keyway pull -e staging
 
 ## Plans
 
-| | Free | Pro ($4/mo) | Team ($15/mo) | Startup ($39/mo) |
+| | Free | Pro (€9/mo) | Team (€19/mo) | Business (€39/mo) |
 |--|:--:|:--:|:--:|:--:|
 | Public repos | Unlimited | Unlimited | Unlimited | Unlimited |
-| Private repos | 1 | 5 | 10 | 40 |
+| Private repos | 1 | 10 | 20 | 50 |
 | Environments | 3 | Unlimited | Unlimited | Unlimited |
-| Collaborators/repo | 15 | 15 | 15 | 30 |
+| Collaborators/repo | Unlimited | Unlimited | Unlimited | Unlimited |
 | Providers | 2 | Unlimited | Unlimited | Unlimited |
 | Audit logs | - | - | ✓ | ✓ |
+| Exposure reports | - | - | - | ✓ |
 | Priority support | - | - | - | ✓ |
 
 Upgrade: [keyway.sh/settings](https://keyway.sh/settings)

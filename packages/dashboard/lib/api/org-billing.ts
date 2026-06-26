@@ -5,8 +5,8 @@ class OrgBillingApiClient extends BaseApiClient {
   async getOrganizationBilling(orgLogin: string): Promise<OrganizationBillingStatus> {
     const response = await this.request<{
       data: {
-        plan: 'free' | 'team'
-        effectivePlan: 'free' | 'team'
+        plan: 'free' | 'team' | 'business'
+        effectivePlan: 'free' | 'team' | 'business'
         billingStatus: 'active' | 'past_due' | 'canceled' | 'trialing' | null
         stripeCustomerId: string | null
         subscription: {
@@ -24,9 +24,9 @@ class OrgBillingApiClient extends BaseApiClient {
           trialDurationDays: number
         }
         prices: {
-          monthly: { id: string; price: number; interval: string }
-          yearly: { id: string; price: number; interval: string }
-        } | null
+          team: { monthly: { id: string; price: number; currency?: string; interval: string }; yearly: { id: string; price: number; currency?: string; interval: string } } | null
+          business: { monthly: { id: string; price: number; currency?: string; interval: string }; yearly: { id: string; price: number; currency?: string; interval: string } } | null
+        }
       }
       meta: { requestId: string }
     }>(`/v1/orgs/${orgLogin}/billing`)

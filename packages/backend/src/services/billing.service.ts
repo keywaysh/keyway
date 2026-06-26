@@ -16,6 +16,84 @@ import { convertTrial, hasHadTrial } from "./trial.service";
 const stripe = config.stripe ? new Stripe(config.stripe.secretKey) : null;
 
 /**
+ * Stripe lookup_keys per plan/interval.
+ *
+ * lookup_keys are stable identifiers we choose, and are IDENTICAL across Stripe
+ * Test and Live modes (unlike price IDs, which differ). That lets us hardcode
+ * them here and resolve the concrete price (id, amount, currency) at runtime
+ * against whichever Stripe key is active.
+ *
+ * Currency is EUR for now; additional currencies would add more lookup_keys
+ * (e.g. `pro_month_usd`) and a currency dimension to this map.
+ */
+const LOOKUP_KEYS = {
+  pro: { monthly: "pro_month_eur", yearly: "pro_year_eur" },
+  team: { monthly: "team_month_eur", yearly: "team_year_eur" },
+  business: { monthly: "business_month_eur", yearly: "business_year_eur" },
+} as const;
+
+/** Reverse map: lookup_key -> plan, for resolving subscriptions back to a plan. */
+const LOOKUP_KEY_TO_PLAN: Record<string, UserPlan> = {
+  pro_month_eur: "pro",
+  pro_year_eur: "pro",
+  team_month_eur: "team",
+  team_year_eur: "team",
+  business_month_eur: "business",
+  business_year_eur: "business",
+};
+
+/** Resolved price details exposed to API consumers. */
+export interface ResolvedPrice {
+  id: string;
+  /** Amount in the smallest currency unit (cents). */
+  amount: number;
+  /** ISO 4217 currency code (e.g. "eur"). */
+  currency: string;
+  interval: "month" | "year";
+}
+
+// Cache resolved prices for the process lifetime (lookup_keys are static).
+let priceCache: Map<string, Stripe.Price> | null = null;
+
+/**
+ * Resolve all configured lookup_keys to their Stripe Price objects.
+ * Cached after the first call.
+ */
+async function resolvePrices(): Promise<Map<string, Stripe.Price>> {
+  if (priceCache) {
+    return priceCache;
+  }
+  const s = getStripe();
+  const lookupKeys = Object.values(LOOKUP_KEYS).flatMap((p) => [p.monthly, p.yearly]);
+  const res = await s.prices.list({ lookup_keys: lookupKeys, active: true, limit: 100 });
+
+  const map = new Map<string, Stripe.Price>();
+  for (const price of res.data) {
+    if (price.lookup_key) {
+      map.set(price.lookup_key, price);
+    }
+  }
+  priceCache = map;
+  return map;
+}
+
+/** Convert a Stripe Price to the API-facing shape. */
+function toResolvedPrice(
+  price: Stripe.Price | undefined,
+  interval: "month" | "year"
+): ResolvedPrice | null {
+  if (!price) {
+    return null;
+  }
+  return {
+    id: price.id,
+    amount: price.unit_amount ?? 0,
+    currency: price.currency,
+    interval,
+  };
+}
+
+/**
  * Check if Stripe billing is enabled
  */
 export function isStripeEnabled(): boolean {
@@ -33,22 +111,29 @@ function getStripe(): Stripe {
 }
 
 /**
- * Map Stripe price ID to plan
+ * Map a Stripe Price (from a subscription) to a plan.
+ * Prefers the price's lookup_key (present on webhook payloads); falls back to
+ * resolving the price ID against our configured lookup_keys.
  */
-function getPlanFromPriceId(priceId: string): UserPlan | null {
+async function getPlanFromPrice(price: Stripe.Price): Promise<UserPlan | null> {
+  if (price.lookup_key && LOOKUP_KEY_TO_PLAN[price.lookup_key]) {
+    return LOOKUP_KEY_TO_PLAN[price.lookup_key];
+  }
+  return getPlanFromPriceId(price.id);
+}
+
+/**
+ * Map Stripe price ID to plan by resolving our lookup_keys.
+ */
+async function getPlanFromPriceId(priceId: string): Promise<UserPlan | null> {
   if (!config.stripe) {
     return null;
   }
-
-  const { prices } = config.stripe;
-  if (priceId === prices.proMonthly || priceId === prices.proYearly) {
-    return "pro";
-  }
-  if (priceId === prices.teamMonthly || priceId === prices.teamYearly) {
-    return "team";
-  }
-  if (priceId === prices.startupMonthly || priceId === prices.startupYearly) {
-    return "startup";
+  const prices = await resolvePrices();
+  for (const [lookupKey, price] of prices) {
+    if (price.id === priceId) {
+      return LOOKUP_KEY_TO_PLAN[lookupKey] ?? null;
+    }
   }
   return null;
 }
@@ -224,13 +309,14 @@ async function handleSubscriptionChange(subscription: Stripe.Subscription): Prom
     return;
   }
 
-  const priceId = subscription.items.data[0]?.price.id;
-  if (!priceId) {
+  const price = subscription.items.data[0]?.price;
+  if (!price) {
     logger.warn({ subscriptionId: subscription.id }, "Subscription missing price");
     return;
   }
+  const priceId = price.id;
 
-  const plan = getPlanFromPriceId(priceId);
+  const plan = await getPlanFromPrice(price);
   if (!plan) {
     logger.warn({ priceId }, "Unknown price ID");
     return;
@@ -320,7 +406,7 @@ async function handleSubscriptionChange(subscription: Stripe.Subscription): Prom
 }
 
 /**
- * Get numeric rank for plan comparison (free=0, pro=1, team=2, startup=3)
+ * Get numeric rank for plan comparison (free=0, pro=1, team=2, business=3)
  */
 function getPlanRank(plan: UserPlan): number {
   switch (plan) {
@@ -330,7 +416,7 @@ function getPlanRank(plan: UserPlan): number {
       return 1;
     case "team":
       return 2;
-    case "startup":
+    case "business":
       return 3;
     default:
       return 0;
@@ -522,25 +608,28 @@ export async function handleWebhookEvent(event: Stripe.Event): Promise<void> {
 }
 
 /**
- * Get available prices for checkout
+ * Get available prices for checkout, resolved from Stripe via lookup_keys.
+ * Amounts and currency come straight from Stripe (single source of truth).
  */
-export function getAvailablePrices() {
+export async function getAvailablePrices() {
   if (!config.billing.enabled || !config.stripe) {
     return null;
   }
 
+  const prices = await resolvePrices();
+
   return {
     pro: {
-      monthly: config.stripe.prices.proMonthly,
-      yearly: config.stripe.prices.proYearly,
+      monthly: toResolvedPrice(prices.get(LOOKUP_KEYS.pro.monthly), "month"),
+      yearly: toResolvedPrice(prices.get(LOOKUP_KEYS.pro.yearly), "year"),
     },
     team: {
-      monthly: config.stripe.prices.teamMonthly,
-      yearly: config.stripe.prices.teamYearly,
+      monthly: toResolvedPrice(prices.get(LOOKUP_KEYS.team.monthly), "month"),
+      yearly: toResolvedPrice(prices.get(LOOKUP_KEYS.team.yearly), "year"),
     },
-    startup: {
-      monthly: config.stripe.prices.startupMonthly,
-      yearly: config.stripe.prices.startupYearly,
+    business: {
+      monthly: toResolvedPrice(prices.get(LOOKUP_KEYS.business.monthly), "month"),
+      yearly: toResolvedPrice(prices.get(LOOKUP_KEYS.business.yearly), "year"),
     },
   };
 }
@@ -591,7 +680,8 @@ export async function getOrCreateOrgStripeCustomer(
 
 /**
  * Create a Stripe Checkout session for organization subscription
- * Note: Organizations can only subscribe to Team plan
+ * Note: Organizations can subscribe to the Team or Business plan. Business is the
+ * top tier and unlocks advanced team features (Exposure reports).
  */
 export async function createOrgCheckoutSession(
   orgId: string,
@@ -606,13 +696,19 @@ export async function createOrgCheckoutSession(
   }
   const s = getStripe();
 
-  // Validate that the price is a Team plan price
+  // Validate the price is one of the org-capable tiers (Team or Business)
   if (!config.stripe) {
     throw new Error("Stripe is not configured");
   }
-  const teamPrices = [config.stripe.prices.teamMonthly, config.stripe.prices.teamYearly];
-  if (!teamPrices.includes(priceId)) {
-    throw new Error("Organizations can only subscribe to the Team plan");
+  const prices = await getAvailablePrices();
+  const orgPriceIds = [
+    prices?.team.monthly?.id,
+    prices?.team.yearly?.id,
+    prices?.business.monthly?.id,
+    prices?.business.yearly?.id,
+  ].filter(Boolean);
+  if (!orgPriceIds.includes(priceId)) {
+    throw new Error("Organizations can subscribe to the Team or Business plan");
   }
 
   // Get or create customer
@@ -689,13 +785,14 @@ export async function handleOrgSubscriptionChange(
     return;
   }
 
-  const priceId = subscription.items.data[0]?.price.id;
-  if (!priceId) {
+  const price = subscription.items.data[0]?.price;
+  if (!price) {
     logger.warn({ subscriptionId: subscription.id }, "Org subscription missing price");
     return;
   }
+  const priceId = price.id;
 
-  const plan = getPlanFromPriceId(priceId);
+  const plan = await getPlanFromPrice(price);
   if (!plan) {
     logger.warn({ priceId }, "Unknown price ID for org");
     return;
@@ -741,7 +838,7 @@ export async function handleOrgSubscriptionDeleted(
 export async function getOrgBillingStatus(orgId: string) {
   if (!config.billing.enabled) {
     return {
-      plan: "team" as const,
+      plan: "business" as const,
       hasStripeCustomer: false,
     };
   }

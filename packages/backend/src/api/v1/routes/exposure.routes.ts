@@ -1,6 +1,6 @@
 import { FastifyInstance } from "fastify";
 import { authenticateGitHub } from "../../../middleware/auth";
-import { db, users, vaults } from "../../../db";
+import { db, users, vaults, type UserPlan } from "../../../db";
 import { sendData, NotFoundError, ForbiddenError } from "../../../lib";
 import { eq, and } from "drizzle-orm";
 import {
@@ -10,9 +10,11 @@ import {
 } from "../../../services/exposure.service";
 import {
   getOrganizationByLogin,
+  getOrganizationById,
   isOrganizationOwner,
 } from "../../../services/organization.service";
-import { getEffectivePlanWithTrial } from "../../../services/trial.service";
+import { getEffectivePlanWithTrial, getEffectivePlanForUser } from "../../../services/trial.service";
+import { hasExposureAccess } from "../../../config/plans";
 import { PlanLimitError } from "../../../lib";
 
 /**
@@ -71,11 +73,11 @@ export async function exposureRoutes(fastify: FastifyInstance) {
         throw new ForbiddenError("Only organization owners can view exposure reports");
       }
 
-      // Exposure reports require Team plan
+      // Exposure reports require the Business plan (top tier)
       const effectivePlan = getEffectivePlanWithTrial(org);
-      if (effectivePlan !== "team") {
+      if (!hasExposureAccess(effectivePlan)) {
         throw new PlanLimitError(
-          "Exposure reports require a Team plan. Upgrade to track which secrets your team members have accessed."
+          "Exposure reports require the Business plan. Upgrade to track which secrets your team members have accessed."
         );
       }
 
@@ -133,11 +135,11 @@ export async function exposureRoutes(fastify: FastifyInstance) {
         throw new ForbiddenError("Only organization owners can view exposure reports");
       }
 
-      // Exposure reports require Team plan
+      // Exposure reports require the Business plan (top tier)
       const effectivePlan = getEffectivePlanWithTrial(org);
-      if (effectivePlan !== "team") {
+      if (!hasExposureAccess(effectivePlan)) {
         throw new PlanLimitError(
-          "Exposure reports require a Team plan. Upgrade to track which secrets your team members have accessed."
+          "Exposure reports require the Business plan. Upgrade to track which secrets your team members have accessed."
         );
       }
 
@@ -209,9 +211,27 @@ export async function exposureRoutes(fastify: FastifyInstance) {
         }
       }
 
+      // Secret access tracking is a Business (top-tier) feature, gated on the
+      // owning org's plan for org vaults, or the user's effective plan otherwise.
+      let effectivePlan: UserPlan = "free";
+      if (vault.orgId) {
+        const org = await getOrganizationById(vault.orgId);
+        if (org) {
+          effectivePlan = getEffectivePlanWithTrial(org);
+        }
+      } else {
+        effectivePlan = await getEffectivePlanForUser(user.id);
+      }
+      if (!hasExposureAccess(effectivePlan)) {
+        throw new PlanLimitError(
+          "Exposure reports require the Business plan. Upgrade to track which secrets your team members have accessed."
+        );
+      }
+
+      // Clamp pagination to avoid unbounded result sets
       const accessHistory = await getSecretAccessHistory(secretId, {
-        limit: limit ? parseInt(limit, 10) : 50,
-        offset: offset ? parseInt(offset, 10) : 0,
+        limit: Math.min(Math.max(parseInt(limit ?? "", 10) || 50, 1), 200),
+        offset: Math.max(parseInt(offset ?? "", 10) || 0, 0),
       });
 
       return sendData(reply, accessHistory, { requestId: request.id });

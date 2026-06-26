@@ -3,6 +3,7 @@ import { eq, and } from "drizzle-orm";
 import type { Organization, UserPlan } from "../db/schema";
 import { logActivity } from "./activity.service";
 import type { ActivityPlatform } from "../db/schema";
+import { planRank } from "../config/plans";
 
 // ============================================================================
 // Constants
@@ -140,9 +141,10 @@ export async function startTrial(input: StartTrialInput): Promise<StartTrialResu
     return { success: false, error: "Organization not found" };
   }
 
-  // Check if already on paid Team plan
-  if (org.plan === "team" && org.stripeCustomerId) {
-    return { success: false, error: "Organization already has a paid Team plan" };
+  // Check if already on a paid plan (Team or Business). A paid org must not be
+  // able to start a free Business trial (would be a free upgrade / downgrade).
+  if (org.stripeCustomerId && (org.plan === "team" || org.plan === "business")) {
+    return { success: false, error: "Organization already has a paid plan" };
   }
 
   // Check if already had a trial
@@ -158,7 +160,7 @@ export async function startTrial(input: StartTrialInput): Promise<StartTrialResu
   const [updated] = await db
     .update(organizations)
     .set({
-      plan: "team",
+      plan: "business",
       trialStartedAt: now,
       trialEndsAt,
       updatedAt: now,
@@ -312,23 +314,26 @@ export async function expireTrial(input: ExpireTrialInput): Promise<StartTrialRe
 /**
  * Get the effective plan for an organization considering trial status
  *
+ * Organizations subscribe to the Business tier (top tier with advanced team
+ * features like Exposure reports).
+ *
  * Logic:
  * - If org has Stripe customer ID (paid) -> return actual plan
- * - If trial is active -> return 'team'
+ * - If trial is active -> return 'business'
  * - If trial is expired (not converted) -> return 'free'
  * - Otherwise -> return actual plan
  */
-export function getEffectivePlanWithTrial(org: Organization): "free" | "pro" | "team" | "startup" {
-  // Paid customer takes precedence
-  if (org.stripeCustomerId && org.plan === "team") {
-    return "team";
+export function getEffectivePlanWithTrial(org: Organization): "free" | "pro" | "team" | "business" {
+  // Paid customer takes precedence — return their actual org tier (Team or Business)
+  if (org.stripeCustomerId && (org.plan === "team" || org.plan === "business")) {
+    return org.plan;
   }
 
   const trialInfo = getTrialInfo(org);
 
   switch (trialInfo.status) {
     case "active":
-      return "team";
+      return "business";
     case "expired":
       return "free";
     case "converted":
@@ -343,11 +348,12 @@ export function getEffectivePlanWithTrial(org: Organization): "free" | "pro" | "
 // ============================================================================
 
 /**
- * Get the effective plan for a user considering:
+ * Get the effective plan for a user, considering:
  * - User's personal plan
- * - Any organization where user is owner with Team plan
+ * - Any organization where the user is an owner (orgs grant the Business tier)
  *
- * Returns 'team' if user has access to team features via any path
+ * Returns the highest-ranked plan the user has access to via any path, so that
+ * hierarchical feature gates (e.g. Exposure on Business) resolve correctly.
  */
 export async function getEffectivePlanForUser(userId: string): Promise<UserPlan> {
   // Get user's personal plan
@@ -356,12 +362,9 @@ export async function getEffectivePlanForUser(userId: string): Promise<UserPlan>
     columns: { plan: true },
   });
 
-  // If user has team plan personally, return it
-  if (user?.plan === "team") {
-    return "team";
-  }
+  let best: UserPlan = user?.plan ?? "free";
 
-  // Check if user is owner of any org with effective team plan
+  // Consider any org the user owns — orgs grant the Business tier.
   const ownedOrgs = await db.query.organizationMembers.findMany({
     where: and(eq(organizationMembers.userId, userId), eq(organizationMembers.orgRole, "owner")),
     with: {
@@ -371,13 +374,12 @@ export async function getEffectivePlanForUser(userId: string): Promise<UserPlan>
 
   for (const membership of ownedOrgs) {
     if (membership.organization) {
-      const effectivePlan = getEffectivePlanWithTrial(membership.organization);
-      if (effectivePlan === "team") {
-        return "team";
+      const orgPlan = getEffectivePlanWithTrial(membership.organization);
+      if (planRank(orgPlan) > planRank(best)) {
+        best = orgPlan;
       }
     }
   }
 
-  // Fall back to user's personal plan
-  return user?.plan ?? "free";
+  return best;
 }

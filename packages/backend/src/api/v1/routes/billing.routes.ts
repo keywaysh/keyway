@@ -11,6 +11,7 @@ import {
   constructWebhookEvent,
   handleWebhookEvent,
   getAvailablePrices,
+  type ResolvedPrice,
 } from "../../../services";
 import { config } from "../../../config";
 import { sendData } from "../../../lib/response";
@@ -41,6 +42,22 @@ const manageSchema = z.object({
 });
 
 /**
+ * Shape a resolved Stripe price for the API response.
+ * Keeps the historical `price` field (amount in cents) and adds `currency`.
+ */
+function toApiPrice(price: ResolvedPrice | null | undefined) {
+  if (!price) {
+    return null;
+  }
+  return {
+    id: price.id,
+    price: price.amount,
+    currency: price.currency,
+    interval: price.interval,
+  };
+}
+
+/**
  * Billing routes for Stripe subscription management
  */
 export async function billingRoutes(fastify: FastifyInstance) {
@@ -53,47 +70,25 @@ export async function billingRoutes(fastify: FastifyInstance) {
       throw new ServiceUnavailableError("Billing is not currently available");
     }
 
-    const prices = getAvailablePrices();
+    // Amounts and currency are resolved directly from Stripe (single source of
+    // truth) via lookup_keys — no hardcoded prices here.
+    const prices = await getAvailablePrices();
 
     return sendData(
       reply,
       {
         prices: {
           pro: {
-            monthly: {
-              id: prices?.pro.monthly,
-              price: 400, // $4.00 in cents
-              interval: "month",
-            },
-            yearly: {
-              id: prices?.pro.yearly,
-              price: 4000, // $40.00 in cents
-              interval: "year",
-            },
+            monthly: toApiPrice(prices?.pro.monthly),
+            yearly: toApiPrice(prices?.pro.yearly),
           },
           team: {
-            monthly: {
-              id: prices?.team.monthly,
-              price: 1500, // $15.00 in cents
-              interval: "month",
-            },
-            yearly: {
-              id: prices?.team.yearly,
-              price: 15000, // $150.00 in cents
-              interval: "year",
-            },
+            monthly: toApiPrice(prices?.team.monthly),
+            yearly: toApiPrice(prices?.team.yearly),
           },
-          startup: {
-            monthly: {
-              id: prices?.startup.monthly,
-              price: 3900, // $39.00 in cents
-              interval: "month",
-            },
-            yearly: {
-              id: prices?.startup.yearly,
-              price: 39000, // $390.00 in cents
-              interval: "year",
-            },
+          business: {
+            monthly: toApiPrice(prices?.business.monthly),
+            yearly: toApiPrice(prices?.business.yearly),
           },
         },
       },
@@ -210,13 +205,15 @@ export async function billingRoutes(fastify: FastifyInstance) {
         );
       }
 
-      // Validate price ID is one we recognize
-      const prices = getAvailablePrices();
+      // Validate price ID is one we recognize (all individual plans)
+      const prices = await getAvailablePrices();
       const validPriceIds = [
-        prices?.pro.monthly,
-        prices?.pro.yearly,
-        prices?.team.monthly,
-        prices?.team.yearly,
+        prices?.pro.monthly?.id,
+        prices?.pro.yearly?.id,
+        prices?.team.monthly?.id,
+        prices?.team.yearly?.id,
+        prices?.business.monthly?.id,
+        prices?.business.yearly?.id,
       ].filter(Boolean);
 
       if (!validPriceIds.includes(priceId)) {
