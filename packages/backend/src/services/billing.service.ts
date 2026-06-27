@@ -719,6 +719,17 @@ export async function createOrgCheckoutSession(
   // Get or create customer
   const customerId = await getOrCreateOrgStripeCustomer(orgId, orgLogin, ownerEmail);
 
+  // Authoritative double-subscription guard: org.plan lags the webhook, so check
+  // Stripe directly for an existing live subscription before opening a new one.
+  // (Active trials are Keyway-internal and have no Stripe subscription, so they
+  // still convert here.)
+  const activeSubs = await s.subscriptions.list({ customer: customerId, status: "active", limit: 1 });
+  if (activeSubs.data.length > 0) {
+    throw new BadRequestError(
+      "Organization already has an active subscription. Use the billing portal to change plans."
+    );
+  }
+
   // Create checkout session
   const session = await s.checkout.sessions.create({
     customer: customerId,
