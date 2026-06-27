@@ -87,7 +87,7 @@ function toResolvedPrice(
   // A misconfigured tiered/metered price has a null unit_amount, and the
   // interval must match what the lookup_key promised — otherwise hide the tier
   // rather than render a wrong (e.g. €0 or mislabelled) price.
-  if (!price || price.unit_amount == null || price.recurring?.interval !== interval) {
+  if (!price || price.unit_amount === null || price.recurring?.interval !== interval) {
     return null;
   }
   return {
