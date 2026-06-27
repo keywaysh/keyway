@@ -58,10 +58,6 @@ export const PLANS: Record<UserPlan, PlanLimits> = {
   },
 } as const;
 
-/**
- * Plan hierarchy ranking (free < pro < team < business).
- * Used to gate features by "tier or higher" rather than exact plan match.
- */
 const PLAN_RANK: Record<UserPlan, number> = {
   free: 0,
   pro: 1,
@@ -69,18 +65,10 @@ const PLAN_RANK: Record<UserPlan, number> = {
   business: 3,
 };
 
-/**
- * Numeric rank for a plan, for hierarchical comparisons.
- */
 export function planRank(plan: UserPlan): number {
   return PLAN_RANK[plan] ?? 0;
 }
 
-/**
- * Whether a plan unlocks advanced team features (Exposure reports, etc.).
- * These live on the top tier (Business) — the most expensive plan — and on
- * organizations (which subscribe to the Business tier).
- */
 export function hasExposureAccess(plan: UserPlan): boolean {
   return planRank(plan) >= planRank("business");
 }

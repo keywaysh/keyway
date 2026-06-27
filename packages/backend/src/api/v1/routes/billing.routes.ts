@@ -41,10 +41,6 @@ const manageSchema = z.object({
   returnUrl: z.string().url("Valid return URL required"),
 });
 
-/**
- * Shape a resolved Stripe price for the API response.
- * Keeps the historical `price` field (amount in cents) and adds `currency`.
- */
 function toApiPrice(price: ResolvedPrice | null | undefined) {
   if (!price) {
     return null;
@@ -70,8 +66,6 @@ export async function billingRoutes(fastify: FastifyInstance) {
       throw new ServiceUnavailableError("Billing is not currently available");
     }
 
-    // Amounts and currency are resolved directly from Stripe (single source of
-    // truth) via lookup_keys — no hardcoded prices here.
     const prices = await getAvailablePrices();
 
     return sendData(
@@ -205,7 +199,6 @@ export async function billingRoutes(fastify: FastifyInstance) {
         );
       }
 
-      // Validate price ID is one we recognize (all individual plans)
       const prices = await getAvailablePrices();
       const validPriceIds = [
         prices?.pro.monthly?.id,

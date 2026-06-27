@@ -38,10 +38,6 @@ import {
   type ResolvedPrice,
 } from "../../../services/billing.service";
 
-/**
- * Shape a resolved org tier (monthly + yearly) for the billing API response.
- * Returns null if either interval is missing in Stripe.
- */
 function toOrgTierPrices(
   tier?: { monthly: ResolvedPrice | null; yearly: ResolvedPrice | null }
 ) {
@@ -675,8 +671,6 @@ export async function organizationsRoutes(fastify: FastifyInstance) {
             daysRemaining: trialInfo.daysRemaining,
             trialDurationDays: TRIAL_DURATION_DAYS,
           },
-          // Organizations can subscribe to Team or Business. Amounts/currency
-          // come straight from Stripe (resolved via lookup_keys).
           prices: {
             team: toOrgTierPrices(prices?.team),
             business: toOrgTierPrices(prices?.business),
@@ -737,10 +731,6 @@ export async function organizationsRoutes(fastify: FastifyInstance) {
 
       await requireLiveOrgAdmin(orgLogin, org.id, user.id, user.username, "manage billing", request.log);
 
-      // Guard against creating a second subscription: an org already paying must
-      // change plans via the portal. Exclude active trials (their plan is 'business'
-      // and a Stripe customer may exist from an abandoned checkout, but they still
-      // need to be able to convert to a paid subscription).
       if (
         org.stripeCustomerId &&
         (org.plan === "team" || org.plan === "business") &&

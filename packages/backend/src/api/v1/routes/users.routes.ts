@@ -271,7 +271,6 @@ export async function usersRoutes(fastify: FastifyInstance) {
         throw new ForbiddenError("User not found");
       }
 
-      // Exposure reports require the Business plan (top tier)
       const effectivePlan = await getEffectivePlanForUser(user.id);
       if (!hasExposureAccess(effectivePlan)) {
         throw new PlanLimitError(
@@ -314,7 +313,6 @@ export async function usersRoutes(fastify: FastifyInstance) {
         throw new ForbiddenError("User not found");
       }
 
-      // Exposure reports require the Business plan (top tier)
       const effectivePlan = await getEffectivePlanForUser(user.id);
       if (!hasExposureAccess(effectivePlan)) {
         throw new PlanLimitError(

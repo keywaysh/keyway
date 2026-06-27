@@ -184,7 +184,6 @@ export interface CreateApiKeyResponse extends ApiKey {
 }
 
 // Organization types
-// Organizations subscribe to the Business tier (top tier with advanced team features).
 export type OrganizationPlan = 'free' | 'team' | 'business'
 export type OrganizationRole = 'owner' | 'member'
 export type TrialStatus = 'none' | 'active' | 'expired' | 'converted'
@@ -240,7 +239,6 @@ export interface OrganizationBillingStatus {
     cancel_at_period_end: boolean
   } | null
   trial: TrialInfo
-  // Org-capable tiers (Team and Business). Either may be null if not configured in Stripe.
   prices: {
     team: OrgTierPrices | null
     business: OrgTierPrices | null

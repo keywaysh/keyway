@@ -141,8 +141,7 @@ export async function startTrial(input: StartTrialInput): Promise<StartTrialResu
     return { success: false, error: "Organization not found" };
   }
 
-  // Check if already on a paid plan (Team or Business). A paid org must not be
-  // able to start a free Business trial (would be a free upgrade / downgrade).
+  // Check if already on a paid plan (Team or Business)
   if (org.stripeCustomerId && (org.plan === "team" || org.plan === "business")) {
     return { success: false, error: "Organization already has a paid plan" };
   }
@@ -314,9 +313,6 @@ export async function expireTrial(input: ExpireTrialInput): Promise<StartTrialRe
 /**
  * Get the effective plan for an organization considering trial status
  *
- * Organizations subscribe to the Business tier (top tier with advanced team
- * features like Exposure reports).
- *
  * Logic:
  * - If org has Stripe customer ID (paid) -> return actual plan
  * - If trial is active -> return 'business'
@@ -324,7 +320,7 @@ export async function expireTrial(input: ExpireTrialInput): Promise<StartTrialRe
  * - Otherwise -> return actual plan
  */
 export function getEffectivePlanWithTrial(org: Organization): "free" | "pro" | "team" | "business" {
-  // Paid customer takes precedence — return their actual org tier (Team or Business)
+  // Paid customer takes precedence
   if (org.stripeCustomerId && (org.plan === "team" || org.plan === "business")) {
     return org.plan;
   }

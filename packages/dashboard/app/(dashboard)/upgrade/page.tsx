@@ -14,7 +14,6 @@ type BillingInterval = 'monthly' | 'yearly'
 
 type Price = { id: string; price: number; currency?: string; interval: string }
 
-// Each resolved price can be null if its Stripe lookup_key isn't configured.
 type PlanPrices = { monthly: Price | null; yearly: Price | null }
 
 type PriceData = {

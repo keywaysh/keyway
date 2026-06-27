@@ -73,7 +73,6 @@ export async function exposureRoutes(fastify: FastifyInstance) {
         throw new ForbiddenError("Only organization owners can view exposure reports");
       }
 
-      // Exposure reports require the Business plan (top tier)
       const effectivePlan = getEffectivePlanWithTrial(org);
       if (!hasExposureAccess(effectivePlan)) {
         throw new PlanLimitError(
@@ -135,7 +134,6 @@ export async function exposureRoutes(fastify: FastifyInstance) {
         throw new ForbiddenError("Only organization owners can view exposure reports");
       }
 
-      // Exposure reports require the Business plan (top tier)
       const effectivePlan = getEffectivePlanWithTrial(org);
       if (!hasExposureAccess(effectivePlan)) {
         throw new PlanLimitError(
@@ -211,8 +209,6 @@ export async function exposureRoutes(fastify: FastifyInstance) {
         }
       }
 
-      // Secret access tracking is a Business (top-tier) feature, gated on the
-      // owning org's plan for org vaults, or the user's effective plan otherwise.
       let effectivePlan: UserPlan = "free";
       if (vault.orgId) {
         const org = await getOrganizationById(vault.orgId);
@@ -228,7 +224,6 @@ export async function exposureRoutes(fastify: FastifyInstance) {
         );
       }
 
-      // Clamp pagination to avoid unbounded result sets
       const accessHistory = await getSecretAccessHistory(secretId, {
         limit: Math.min(Math.max(parseInt(limit ?? "", 10) || 50, 1), 200),
         offset: Math.max(parseInt(offset ?? "", 10) || 0, 0),

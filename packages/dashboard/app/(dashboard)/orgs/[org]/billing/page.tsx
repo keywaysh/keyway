@@ -58,7 +58,6 @@ function planLabel(plan: 'free' | 'team' | 'business'): string {
 
 type TierPrices = NonNullable<OrganizationBillingStatus['prices']['team']>
 
-/** A selectable org plan tier (Team or Business) with monthly + yearly checkout. */
 function OrgPlanCard({
   name,
   prices,
@@ -75,7 +74,6 @@ function OrgPlanCard({
   onChoose: (priceId: string) => void
 }) {
   const sym = currencySymbol(prices.monthly.currency)
-  // Derive the annual discount from the actual prices (they come from Stripe).
   const yearlySavingsPct = Math.round((1 - prices.yearly.price / (prices.monthly.price * 12)) * 100)
   return (
     <Card className={highlight ? 'border-2 border-primary relative' : 'border-2'}>

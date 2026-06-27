@@ -16,24 +16,12 @@ import { convertTrial, hasHadTrial } from "./trial.service";
 // Initialize Stripe client (only if configured)
 const stripe = config.stripe ? new Stripe(config.stripe.secretKey) : null;
 
-/**
- * Stripe lookup_keys per plan/interval.
- *
- * lookup_keys are stable identifiers we choose, and are IDENTICAL across Stripe
- * Test and Live modes (unlike price IDs, which differ). That lets us hardcode
- * them here and resolve the concrete price (id, amount, currency) at runtime
- * against whichever Stripe key is active.
- *
- * Currency is EUR for now; additional currencies would add more lookup_keys
- * (e.g. `pro_month_usd`) and a currency dimension to this map.
- */
 const LOOKUP_KEYS = {
   pro: { monthly: "pro_month_eur", yearly: "pro_year_eur" },
   team: { monthly: "team_month_eur", yearly: "team_year_eur" },
   business: { monthly: "business_month_eur", yearly: "business_year_eur" },
 } as const;
 
-/** Reverse map: lookup_key -> plan, for resolving subscriptions back to a plan. */
 const LOOKUP_KEY_TO_PLAN: Record<string, UserPlan> = {
   pro_month_eur: "pro",
   pro_year_eur: "pro",
@@ -43,23 +31,15 @@ const LOOKUP_KEY_TO_PLAN: Record<string, UserPlan> = {
   business_year_eur: "business",
 };
 
-/** Resolved price details exposed to API consumers. */
 export interface ResolvedPrice {
   id: string;
-  /** Amount in the smallest currency unit (cents). */
   amount: number;
-  /** ISO 4217 currency code (e.g. "eur"). */
   currency: string;
   interval: "month" | "year";
 }
 
-// Cache resolved prices for the process lifetime (lookup_keys are static).
 let priceCache: Map<string, Stripe.Price> | null = null;
 
-/**
- * Resolve all configured lookup_keys to their Stripe Price objects.
- * Cached after the first call.
- */
 async function resolvePrices(): Promise<Map<string, Stripe.Price>> {
   if (priceCache) {
     return priceCache;
@@ -78,15 +58,10 @@ async function resolvePrices(): Promise<Map<string, Stripe.Price>> {
   return map;
 }
 
-/** Convert a Stripe Price to the API-facing shape. */
 function toResolvedPrice(
   price: Stripe.Price | undefined,
   interval: "month" | "year"
 ): ResolvedPrice | null {
-  // Only surface a recurring, per-unit price billed on the expected cadence.
-  // A misconfigured tiered/metered price has a null unit_amount, and the
-  // interval must match what the lookup_key promised — otherwise hide the tier
-  // rather than render a wrong (e.g. €0 or mislabelled) price.
   if (!price || price.unit_amount === null || price.recurring?.interval !== interval) {
     return null;
   }
@@ -115,11 +90,6 @@ function getStripe(): Stripe {
   return stripe;
 }
 
-/**
- * Map a Stripe Price (from a subscription) to a plan.
- * Prefers the price's lookup_key (present on webhook payloads); falls back to
- * resolving the price ID against our configured lookup_keys.
- */
 async function getPlanFromPrice(price: Stripe.Price): Promise<UserPlan | null> {
   if (price.lookup_key && LOOKUP_KEY_TO_PLAN[price.lookup_key]) {
     return LOOKUP_KEY_TO_PLAN[price.lookup_key];
@@ -614,7 +584,6 @@ export async function handleWebhookEvent(event: Stripe.Event): Promise<void> {
 
 /**
  * Get available prices for checkout, resolved from Stripe via lookup_keys.
- * Amounts and currency come straight from Stripe (single source of truth).
  */
 export async function getAvailablePrices() {
   if (!config.billing.enabled || !config.stripe) {
@@ -685,8 +654,6 @@ export async function getOrCreateOrgStripeCustomer(
 
 /**
  * Create a Stripe Checkout session for organization subscription
- * Note: Organizations can subscribe to the Team or Business plan. Business is the
- * top tier and unlocks advanced team features (Exposure reports).
  */
 export async function createOrgCheckoutSession(
   orgId: string,
@@ -701,7 +668,6 @@ export async function createOrgCheckoutSession(
   }
   const s = getStripe();
 
-  // Validate the price is one of the org-capable tiers (Team or Business)
   if (!config.stripe) {
     throw new Error("Stripe is not configured");
   }
@@ -719,10 +685,6 @@ export async function createOrgCheckoutSession(
   // Get or create customer
   const customerId = await getOrCreateOrgStripeCustomer(orgId, orgLogin, ownerEmail);
 
-  // Authoritative double-subscription guard: org.plan lags the webhook, so check
-  // Stripe directly for an existing live subscription before opening a new one.
-  // (Active trials are Keyway-internal and have no Stripe subscription, so they
-  // still convert here.)
   const activeSubs = await s.subscriptions.list({ customer: customerId, status: "active", limit: 1 });
   if (activeSubs.data.length > 0) {
     throw new BadRequestError(

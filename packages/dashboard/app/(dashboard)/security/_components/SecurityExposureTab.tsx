@@ -272,7 +272,6 @@ export function SecurityExposureTab() {
   const [isExporting, setIsExporting] = useState(false)
   const hasFiredView = useRef(false)
 
-  // Exposure reports require the Business plan (top tier)
   const canViewExposure = user?.plan === 'business'
 
   // Fetch organizations
@@ -428,7 +427,6 @@ export function SecurityExposureTab() {
     }
   }
 
-  // Show upgrade prompt if not on a plan with exposure access
   if (!canViewExposure && !isLoading) {
     return <UpgradePrompt />
   }
