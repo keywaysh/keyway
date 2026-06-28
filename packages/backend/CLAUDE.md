@@ -85,8 +85,9 @@ throw new NotFoundError('Vault not found');
 
 **Plan Limits** (`src/config/plans.ts`):
 ```typescript
-// Free: 1 private repo, 2 providers, 2 envs, 20 secrets/private vault
-// Pro/Team: unlimited
+// Free: 1 private repo, 2 providers, 3 envs, unlimited secrets
+// Pro/Team/Business: 10/20/50 private repos, unlimited providers/envs/secrets
+// (collaborators are never capped on any plan; Business adds Exposure reports)
 const check = canCreateSecret(user.plan, count, isPrivate);
 if (!check.allowed) throw new PlanLimitError(check.reason);
 ```

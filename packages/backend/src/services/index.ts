@@ -71,6 +71,7 @@ export {
   constructWebhookEvent,
   handleWebhookEvent,
   getAvailablePrices,
+  type ResolvedPrice,
 } from "./billing.service";
 
 // GitHub App service

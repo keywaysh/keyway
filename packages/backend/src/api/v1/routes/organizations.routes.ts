@@ -35,7 +35,23 @@ import {
   createOrgCheckoutSession,
   createOrgPortalSession,
   getAvailablePrices,
+  type ResolvedPrice,
 } from "../../../services/billing.service";
+
+function toOrgTierPrices(
+  tier?: { monthly: ResolvedPrice | null; yearly: ResolvedPrice | null }
+) {
+  if (!tier?.monthly || !tier?.yearly) {
+    return null;
+  }
+  const shape = (p: ResolvedPrice) => ({
+    id: p.id,
+    price: p.amount,
+    currency: p.currency,
+    interval: p.interval,
+  });
+  return { monthly: shape(tier.monthly), yearly: shape(tier.yearly) };
+}
 
 /**
  * Organization routes
@@ -636,7 +652,7 @@ export async function organizationsRoutes(fastify: FastifyInstance) {
         throw new NotFoundError("Organization not found");
       }
 
-      const prices = getAvailablePrices();
+      const prices = await getAvailablePrices();
       const trialInfo = getTrialInfo(org);
 
       return sendData(
@@ -655,20 +671,10 @@ export async function organizationsRoutes(fastify: FastifyInstance) {
             daysRemaining: trialInfo.daysRemaining,
             trialDurationDays: TRIAL_DURATION_DAYS,
           },
-          prices: prices?.team
-            ? {
-                monthly: {
-                  id: prices.team.monthly,
-                  price: 2900, // $29.00 in cents
-                  interval: "month",
-                },
-                yearly: {
-                  id: prices.team.yearly,
-                  price: 29000, // $290.00 in cents
-                  interval: "year",
-                },
-              }
-            : null,
+          prices: {
+            team: toOrgTierPrices(prices?.team),
+            business: toOrgTierPrices(prices?.business),
+          },
         },
         { requestId: request.id }
       );
@@ -724,6 +730,16 @@ export async function organizationsRoutes(fastify: FastifyInstance) {
       }
 
       await requireLiveOrgAdmin(orgLogin, org.id, user.id, user.username, "manage billing", request.log);
+
+      if (
+        org.stripeCustomerId &&
+        (org.plan === "team" || org.plan === "business") &&
+        getTrialInfo(org).status !== "active"
+      ) {
+        throw new BadRequestError(
+          "Organization already has an active subscription. Use the billing portal to change plans."
+        );
+      }
 
       // Create checkout session
       const sessionUrl = await createOrgCheckoutSession(

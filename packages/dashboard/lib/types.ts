@@ -1,4 +1,4 @@
-export type UserPlan = 'free' | 'pro' | 'team' | 'startup'
+export type UserPlan = 'free' | 'pro' | 'team' | 'business'
 
 export type ReadonlyReason = 'plan_limit_exceeded' | 'org_free_plan' | null
 
@@ -184,7 +184,7 @@ export interface CreateApiKeyResponse extends ApiKey {
 }
 
 // Organization types
-export type OrganizationPlan = 'free' | 'team'
+export type OrganizationPlan = 'free' | 'team' | 'business'
 export type OrganizationRole = 'owner' | 'member'
 export type TrialStatus = 'none' | 'active' | 'expired' | 'converted'
 
@@ -240,9 +240,14 @@ export interface OrganizationBillingStatus {
   } | null
   trial: TrialInfo
   prices: {
-    monthly: { id: string; price: number; interval: string }
-    yearly: { id: string; price: number; interval: string }
-  } | null
+    team: OrgTierPrices | null
+    business: OrgTierPrices | null
+  }
+}
+
+export interface OrgTierPrices {
+  monthly: { id: string; price: number; currency?: string; interval: string }
+  yearly: { id: string; price: number; currency?: string; interval: string }
 }
 
 export interface SyncMembersResult {

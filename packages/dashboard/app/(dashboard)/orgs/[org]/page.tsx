@@ -151,8 +151,8 @@ export default function OrganizationDashboardPage() {
               <h1 className="text-xl sm:text-2xl font-bold tracking-tight truncate">
                 {org.display_name || org.login}
               </h1>
-              <Badge variant={org.effective_plan === 'team' ? 'default' : 'secondary'}>
-                {org.effective_plan === 'team' ? 'Team' : 'Free'}
+              <Badge variant={org.effective_plan !== 'free' ? 'default' : 'secondary'}>
+                {org.effective_plan === 'business' ? 'Business' : org.effective_plan === 'team' ? 'Team' : 'Free'}
               </Badge>
               {org.trial.status === 'active' && (
                 <Badge variant="outline" className="gap-1">
@@ -203,10 +203,12 @@ export default function OrganizationDashboardPage() {
           value={org.vault_count}
         />
         <StatCard
-          icon={org.effective_plan === 'team' ? Sparkles : Clock}
-          label={org.effective_plan === 'team' ? 'Plan' : 'Trial Status'}
+          icon={org.effective_plan !== 'free' ? Sparkles : Clock}
+          label={org.effective_plan !== 'free' ? 'Plan' : 'Trial Status'}
           value={
-            org.effective_plan === 'team'
+            org.effective_plan === 'business'
+              ? 'Business'
+              : org.effective_plan === 'team'
               ? 'Team'
               : org.trial.status === 'active'
               ? `${org.trial.days_remaining} days left`

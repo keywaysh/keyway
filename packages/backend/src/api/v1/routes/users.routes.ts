@@ -4,7 +4,7 @@ import { db, users } from "../../../db";
 import { eq, and } from "drizzle-orm";
 import { sendData, ForbiddenError } from "../../../lib";
 import { getUserUsageResponse } from "../../../services";
-import { getPlanLimits, formatLimit } from "../../../config/plans";
+import { getPlanLimits, formatLimit, hasExposureAccess } from "../../../config/plans";
 import {
   getSecurityAlertsForUser,
   getSecurityOverview,
@@ -271,11 +271,10 @@ export async function usersRoutes(fastify: FastifyInstance) {
         throw new ForbiddenError("User not found");
       }
 
-      // Check Team plan
       const effectivePlan = await getEffectivePlanForUser(user.id);
-      if (effectivePlan !== "team") {
+      if (!hasExposureAccess(effectivePlan)) {
         throw new PlanLimitError(
-          "Exposure reports require a Team plan. Upgrade to track which secrets your team members have accessed."
+          "Exposure reports require the Business plan. Upgrade to track which secrets your team members have accessed."
         );
       }
 
@@ -314,11 +313,10 @@ export async function usersRoutes(fastify: FastifyInstance) {
         throw new ForbiddenError("User not found");
       }
 
-      // Check Team plan
       const effectivePlan = await getEffectivePlanForUser(user.id);
-      if (effectivePlan !== "team") {
+      if (!hasExposureAccess(effectivePlan)) {
         throw new PlanLimitError(
-          "Exposure reports require a Team plan. Upgrade to track which secrets your team members have accessed."
+          "Exposure reports require the Business plan. Upgrade to track which secrets your team members have accessed."
         );
       }
 

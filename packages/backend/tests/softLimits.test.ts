@@ -12,16 +12,16 @@ describe('Soft Limits - Business Logic', () => {
       expect(PLANS.free.maxPrivateRepos).toBe(1);
     });
 
-    it('pro plan should have maxPrivateRepos = 5', () => {
-      expect(PLANS.pro.maxPrivateRepos).toBe(5);
+    it('pro plan should have maxPrivateRepos = 10', () => {
+      expect(PLANS.pro.maxPrivateRepos).toBe(10);
     });
 
-    it('team plan should have maxPrivateRepos = 10', () => {
-      expect(PLANS.team.maxPrivateRepos).toBe(10);
+    it('team plan should have maxPrivateRepos = 20', () => {
+      expect(PLANS.team.maxPrivateRepos).toBe(20);
     });
 
-    it('startup plan should have maxPrivateRepos = 40', () => {
-      expect(PLANS.startup.maxPrivateRepos).toBe(40);
+    it('business plan should have maxPrivateRepos = 50', () => {
+      expect(PLANS.business.maxPrivateRepos).toBe(50);
     });
   });
 
@@ -153,7 +153,7 @@ describe('Soft Limits - Business Logic', () => {
       });
     });
 
-    describe('private vaults - pro/team/startup plans', () => {
+    describe('private vaults - pro/team/business plans', () => {
       it('should allow writes to private vault within pro plan limit', () => {
         // v1 is not in excess set, so it should be allowed
         const result = checkWritePermission('pro', true, 'v1', new Set());
@@ -171,9 +171,9 @@ describe('Soft Limits - Business Logic', () => {
         expect(result.allowed).toBe(true);
       });
 
-      it('should allow writes to any private vault on startup plan', () => {
-        // Startup has 40 repos, testing with vault within limit
-        const result = checkWritePermission('startup', true, 'v1', new Set());
+      it('should allow writes to any private vault on business plan', () => {
+        // Business has 40 repos, testing with vault within limit
+        const result = checkWritePermission('business', true, 'v1', new Set());
         expect(result.allowed).toBe(true);
       });
     });

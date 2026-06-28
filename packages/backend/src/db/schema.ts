@@ -96,7 +96,7 @@ export const securityAlertTypeEnum = pgEnum("security_alert_type", [
 ]);
 
 // User plan types
-export const userPlanEnum = pgEnum("user_plan", ["free", "pro", "team", "startup"]);
+export const userPlanEnum = pgEnum("user_plan", ["free", "pro", "team", "business"]);
 
 // Provider sync status
 export const syncStatusEnum = pgEnum("sync_status", ["success", "failed", "partial"]);

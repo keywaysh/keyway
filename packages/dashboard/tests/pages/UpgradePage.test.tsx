@@ -31,16 +31,16 @@ vi.mock('../../lib/analytics', () => ({
 const mockPrices = {
   prices: {
     pro: {
-      monthly: { id: 'price_pro_monthly', price: 400, interval: 'month' },
-      yearly: { id: 'price_pro_yearly', price: 4000, interval: 'year' },
+      monthly: { id: 'price_pro_monthly', price: 900, currency: 'eur', interval: 'month' },
+      yearly: { id: 'price_pro_yearly', price: 9000, currency: 'eur', interval: 'year' },
     },
     team: {
-      monthly: { id: 'price_team_monthly', price: 1500, interval: 'month' },
-      yearly: { id: 'price_team_yearly', price: 15000, interval: 'year' },
+      monthly: { id: 'price_team_monthly', price: 1900, currency: 'eur', interval: 'month' },
+      yearly: { id: 'price_team_yearly', price: 19000, currency: 'eur', interval: 'year' },
     },
-    startup: {
-      monthly: { id: 'price_startup_monthly', price: 3900, interval: 'month' },
-      yearly: { id: 'price_startup_yearly', price: 39000, interval: 'year' },
+    business: {
+      monthly: { id: 'price_business_monthly', price: 3900, currency: 'eur', interval: 'month' },
+      yearly: { id: 'price_business_yearly', price: 39000, currency: 'eur', interval: 'year' },
     },
   },
 }
@@ -126,7 +126,7 @@ describe('UpgradePage', () => {
       await waitFor(() => {
         expect(screen.getByText('Free')).toBeInTheDocument()
         expect(screen.getByText('For personal projects')).toBeInTheDocument()
-        expect(screen.getByText('$0')).toBeInTheDocument()
+        expect(screen.getByText('€0')).toBeInTheDocument()
       })
     })
 
@@ -150,12 +150,12 @@ describe('UpgradePage', () => {
       })
     })
 
-    it('should render Startup plan card', async () => {
+    it('should render Business plan card', async () => {
       render(<UpgradePage />)
 
       await waitFor(() => {
-        expect(screen.getByText('Startup')).toBeInTheDocument()
-        expect(screen.getByText('40 repos & priority support')).toBeInTheDocument()
+        expect(screen.getByText('Business')).toBeInTheDocument()
+        expect(screen.getByText('50 repos & advanced team features')).toBeInTheDocument()
         expect(screen.getByText('Best value')).toBeInTheDocument()
       })
     })
@@ -174,8 +174,8 @@ describe('UpgradePage', () => {
       render(<UpgradePage />)
 
       await waitFor(() => {
-        expect(screen.getByText('5 private repos')).toBeInTheDocument()
-        // "Unlimited environments" and "Unlimited providers" appear in Pro, Team, and Startup plans
+        expect(screen.getByText('10 private repos')).toBeInTheDocument()
+        // "Unlimited environments" and "Unlimited providers" appear in Pro, Team, and Business plans
         expect(screen.getAllByText('Unlimited environments').length).toBeGreaterThanOrEqual(1)
         expect(screen.getAllByText('Unlimited providers').length).toBeGreaterThanOrEqual(1)
       })
@@ -185,17 +185,17 @@ describe('UpgradePage', () => {
       render(<UpgradePage />)
 
       await waitFor(() => {
-        expect(screen.getByText('10 private repos')).toBeInTheDocument()
+        expect(screen.getByText('20 private repos')).toBeInTheDocument()
         expect(screen.getByText('Audit logs')).toBeInTheDocument()
       })
     })
 
-    it('should render Startup plan features', async () => {
+    it('should render Business plan features', async () => {
       render(<UpgradePage />)
 
       await waitFor(() => {
-        expect(screen.getByText('40 private repos')).toBeInTheDocument()
-        expect(screen.getByText('30 collaborators per repo')).toBeInTheDocument()
+        expect(screen.getByText('50 private repos')).toBeInTheDocument()
+        expect(screen.getByText('Exposure reports (secret access tracking)')).toBeInTheDocument()
         expect(screen.getByText('Priority support')).toBeInTheDocument()
       })
     })
@@ -206,9 +206,9 @@ describe('UpgradePage', () => {
       render(<UpgradePage />)
 
       await waitFor(() => {
-        expect(screen.getByText('$4')).toBeInTheDocument()
-        expect(screen.getByText('$15')).toBeInTheDocument()
-        expect(screen.getByText('$39')).toBeInTheDocument()
+        expect(screen.getByText('€9')).toBeInTheDocument()
+        expect(screen.getByText('€19')).toBeInTheDocument()
+        expect(screen.getByText('€39')).toBeInTheDocument()
       })
     })
 
@@ -241,11 +241,11 @@ describe('UpgradePage', () => {
       })
     })
 
-    it('should render upgrade to Startup button', async () => {
+    it('should render upgrade to Business button', async () => {
       render(<UpgradePage />)
 
       await waitFor(() => {
-        expect(screen.getByText('Upgrade to Startup')).toBeInTheDocument()
+        expect(screen.getByText('Upgrade to Business')).toBeInTheDocument()
       })
     })
 

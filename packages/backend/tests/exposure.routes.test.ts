@@ -48,18 +48,18 @@ describe('Exposure Routes Authorization', () => {
   });
 
   describe('Plan Gating', () => {
-    it('should require Team plan for exposure reports', () => {
+    it('should require Business plan for exposure reports', () => {
       // Verify PlanLimitError is used for plan gating
-      const error = new PlanLimitError('Exposure reports require a Team plan');
+      const error = new PlanLimitError('Exposure reports require the Business plan');
       expect(error.status).toBe(403);
       expect(error.type).toContain('plan-limit-reached');
     });
 
-    it('should allow Team plan to access exposure reports', () => {
-      // Mock org with Team plan
-      vi.mocked(getEffectivePlanWithTrial).mockReturnValue('team');
+    it('should allow Business plan to access exposure reports', () => {
+      // Mock org with Business plan
+      vi.mocked(getEffectivePlanWithTrial).mockReturnValue('business');
       const result = getEffectivePlanWithTrial(mockOrgPaid);
-      expect(result).toBe('team');
+      expect(result).toBe('business');
     });
 
     it('should deny Free plan access to exposure reports', () => {

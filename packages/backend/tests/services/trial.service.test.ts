@@ -183,7 +183,7 @@ describe('TrialService', () => {
     it('should start a trial for eligible organization', async () => {
       const updatedOrg = {
         ...mockOrganization,
-        plan: 'team',
+        plan: 'business',
         trialStartedAt: new Date(),
         trialEndsAt: new Date(Date.now() + 15 * 24 * 60 * 60 * 1000),
       };
@@ -205,7 +205,7 @@ describe('TrialService', () => {
 
       expect(result.success).toBe(true);
       expect(result.organization).toBeDefined();
-      expect(result.organization!.plan).toBe('team');
+      expect(result.organization!.plan).toBe('business');
       expect(logActivity).toHaveBeenCalledWith(
         expect.objectContaining({
           userId: mockUser.id,
@@ -228,7 +228,7 @@ describe('TrialService', () => {
       expect(result.error).toBe('Organization not found');
     });
 
-    it('should fail if organization already has paid Team plan', async () => {
+    it('should fail if organization already has a paid Business plan', async () => {
       (db.query.organizations.findFirst as any).mockResolvedValue(mockOrgPaid);
 
       const result = await startTrial({
@@ -238,7 +238,29 @@ describe('TrialService', () => {
       });
 
       expect(result.success).toBe(false);
-      expect(result.error).toBe('Organization already has a paid Team plan');
+      expect(result.error).toBe('Organization already has a paid plan');
+    });
+
+    it('should fail for a paid Team org that never trialed (no free Business trial)', async () => {
+      // Regression: a paid Team org (no prior trial) must not be able to start a
+      // free Business trial. Only the paid-plan guard can block it here.
+      (db.query.organizations.findFirst as any).mockResolvedValue({
+        ...mockOrganization,
+        plan: 'team',
+        stripeCustomerId: 'cus_team_123',
+        trialStartedAt: null,
+        trialEndsAt: null,
+        trialConvertedAt: null,
+      });
+
+      const result = await startTrial({
+        orgId: mockOrganization.id,
+        userId: mockUser.id,
+        platform: 'web',
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.error).toBe('Organization already has a paid plan');
     });
 
     it('should fail if organization already had a trial', async () => {
@@ -258,7 +280,7 @@ describe('TrialService', () => {
       const customDays = 30;
       const updatedOrg = {
         ...mockOrganization,
-        plan: 'team',
+        plan: 'business',
         trialStartedAt: new Date(),
         trialEndsAt: new Date(Date.now() + customDays * 24 * 60 * 60 * 1000),
       };
@@ -475,12 +497,12 @@ describe('TrialService', () => {
   // ==========================================================================
 
   describe('getEffectivePlanWithTrial', () => {
-    it('should return "team" for paid organization', () => {
-      expect(getEffectivePlanWithTrial(mockOrgPaid as any)).toBe('team');
+    it('should return "business" for paid organization', () => {
+      expect(getEffectivePlanWithTrial(mockOrgPaid as any)).toBe('business');
     });
 
-    it('should return "team" for org on active trial', () => {
-      expect(getEffectivePlanWithTrial(mockOrgOnTrial as any)).toBe('team');
+    it('should return "business" for org on active trial', () => {
+      expect(getEffectivePlanWithTrial(mockOrgOnTrial as any)).toBe('business');
     });
 
     it('should return "free" for org with expired trial', () => {
@@ -492,21 +514,21 @@ describe('TrialService', () => {
     });
 
     it('should return actual plan for converted trial', () => {
-      expect(getEffectivePlanWithTrial(mockOrgPaid as any)).toBe('team');
+      expect(getEffectivePlanWithTrial(mockOrgPaid as any)).toBe('business');
     });
 
     it('should prioritize paid status over trial', () => {
       // Org with Stripe customer ID should be considered paid even if trial dates exist
       const paidWithTrialDates = {
         ...mockOrganization,
-        plan: 'team' as const,
+        plan: 'business' as const,
         stripeCustomerId: 'cus_test123',
         trialStartedAt: new Date(),
         trialEndsAt: new Date(Date.now() - 1000), // Expired
         trialConvertedAt: null, // Not marked as converted
       };
 
-      expect(getEffectivePlanWithTrial(paidWithTrialDates as any)).toBe('team');
+      expect(getEffectivePlanWithTrial(paidWithTrialDates as any)).toBe('business');
     });
   });
 });

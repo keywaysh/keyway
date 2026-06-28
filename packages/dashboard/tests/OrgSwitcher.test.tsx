@@ -47,7 +47,7 @@ const mockOrganizations = [
     login: 'acme-corp',
     display_name: 'ACME Corporation',
     avatar_url: 'https://example.com/acme.png',
-    plan: 'team',
+    plan: 'business',
     is_admin: true,
     member_count: 10,
     created_at: '2025-01-01T00:00:00Z',
@@ -55,7 +55,7 @@ const mockOrganizations = [
   {
     id: 'org-2',
     login: 'startup-inc',
-    display_name: 'Startup Inc',
+    display_name: 'Business Inc',
     avatar_url: 'https://example.com/startup.png',
     plan: 'free',
     is_admin: false,
@@ -122,11 +122,11 @@ describe('OrgSwitcher', () => {
         expect(screen.getByText('Personal Account')).toBeInTheDocument()
         expect(screen.getByText('Organizations')).toBeInTheDocument()
         expect(screen.getByText('ACME Corporation')).toBeInTheDocument()
-        expect(screen.getByText('Startup Inc')).toBeInTheDocument()
+        expect(screen.getByText('Business Inc')).toBeInTheDocument()
       })
     })
 
-    it('should show Team badge for team plan organizations', async () => {
+    it('should show Business badge for startup plan organizations', async () => {
       const user = userEvent.setup()
       render(<OrgSwitcher />)
 
@@ -137,7 +137,7 @@ describe('OrgSwitcher', () => {
       await user.click(screen.getByRole('button'))
 
       await waitFor(() => {
-        expect(screen.getByText('Team')).toBeInTheDocument()
+        expect(screen.getByText('Business')).toBeInTheDocument()
       })
     })
   })

@@ -9,7 +9,7 @@ class OrganizationsApiClient extends BaseApiClient {
         login: string
         displayName: string
         avatarUrl: string
-        plan: 'free' | 'team'
+        plan: 'free' | 'team' | 'business'
         role: 'owner' | 'member'
         memberCount: number
         vaultCount: number
@@ -37,7 +37,7 @@ class OrganizationsApiClient extends BaseApiClient {
         login: string
         displayName: string
         avatarUrl: string
-        plan: 'free' | 'team'
+        plan: 'free' | 'team' | 'business'
         role: 'owner' | 'member'
         memberCount: number
         vaultCount: number
@@ -49,7 +49,7 @@ class OrganizationsApiClient extends BaseApiClient {
           convertedAt: string | null
           daysRemaining: number | null
         }
-        effectivePlan: 'free' | 'team'
+        effectivePlan: 'free' | 'team' | 'business'
         defaultPermissions: Record<string, unknown>
         createdAt: string
         updatedAt: string
@@ -185,7 +185,7 @@ class OrganizationsApiClient extends BaseApiClient {
           login: string
           displayName: string
           avatarUrl: string
-          plan: 'free' | 'team'
+          plan: 'free' | 'team' | 'business'
           role: 'owner' | 'member'
           memberCount: number
           vaultCount: number
@@ -197,7 +197,7 @@ class OrganizationsApiClient extends BaseApiClient {
             convertedAt: string | null
             daysRemaining: number | null
           }
-          effectivePlan: 'free' | 'team'
+          effectivePlan: 'free' | 'team' | 'business'
           defaultPermissions: Record<string, unknown>
           createdAt: string
           updatedAt: string

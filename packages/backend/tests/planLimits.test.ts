@@ -18,32 +18,28 @@ describe('Plan Configuration', () => {
         maxProviders: 2,
         maxEnvironmentsPerVault: 3,
         maxSecretsPerPrivateVault: Infinity,
-        maxCollaboratorsPerVault: 15,
       });
     });
 
-    it('should define pro plan with 5 private repos and unlimited envs', () => {
-      expect(PLANS.pro.maxPrivateRepos).toBe(5);
+    it('should define pro plan with 10 private repos and unlimited envs', () => {
+      expect(PLANS.pro.maxPrivateRepos).toBe(10);
       expect(PLANS.pro.maxProviders).toBe(Infinity);
       expect(PLANS.pro.maxEnvironmentsPerVault).toBe(Infinity);
       expect(PLANS.pro.maxSecretsPerPrivateVault).toBe(Infinity);
-      expect(PLANS.pro.maxCollaboratorsPerVault).toBe(15);
     });
 
-    it('should define team plan with 10 private repos and unlimited envs', () => {
-      expect(PLANS.team.maxPrivateRepos).toBe(10);
+    it('should define team plan with 20 private repos and unlimited envs', () => {
+      expect(PLANS.team.maxPrivateRepos).toBe(20);
       expect(PLANS.team.maxProviders).toBe(Infinity);
       expect(PLANS.team.maxEnvironmentsPerVault).toBe(Infinity);
       expect(PLANS.team.maxSecretsPerPrivateVault).toBe(Infinity);
-      expect(PLANS.team.maxCollaboratorsPerVault).toBe(15);
     });
 
-    it('should define startup plan with 40 private repos and 30 collaborators', () => {
-      expect(PLANS.startup.maxPrivateRepos).toBe(40);
-      expect(PLANS.startup.maxProviders).toBe(Infinity);
-      expect(PLANS.startup.maxEnvironmentsPerVault).toBe(Infinity);
-      expect(PLANS.startup.maxSecretsPerPrivateVault).toBe(Infinity);
-      expect(PLANS.startup.maxCollaboratorsPerVault).toBe(30);
+    it('should define business plan with 50 private repos and unlimited envs', () => {
+      expect(PLANS.business.maxPrivateRepos).toBe(50);
+      expect(PLANS.business.maxProviders).toBe(Infinity);
+      expect(PLANS.business.maxEnvironmentsPerVault).toBe(Infinity);
+      expect(PLANS.business.maxSecretsPerPrivateVault).toBe(Infinity);
     });
   });
 
@@ -52,7 +48,7 @@ describe('Plan Configuration', () => {
       expect(getPlanLimits('free')).toBe(PLANS.free);
       expect(getPlanLimits('pro')).toBe(PLANS.pro);
       expect(getPlanLimits('team')).toBe(PLANS.team);
-      expect(getPlanLimits('startup')).toBe(PLANS.startup);
+      expect(getPlanLimits('business')).toBe(PLANS.business);
     });
   });
 
@@ -99,13 +95,13 @@ describe('Plan Limit Checks', () => {
       expect(result.reason).toContain('1 private repo');
     });
 
-    it('should allow pro plan up to 5 private repos', () => {
-      const result = canCreateRepo('pro', 0, 4, true, false);
+    it('should allow pro plan up to 10 private repos', () => {
+      const result = canCreateRepo('pro', 0, 9, true, false);
       expect(result.allowed).toBe(true);
     });
 
-    it('should deny pro plan 6th private repo', () => {
-      const result = canCreateRepo('pro', 0, 5, true, false);
+    it('should deny pro plan 11th private repo', () => {
+      const result = canCreateRepo('pro', 0, 10, true, false);
       expect(result.allowed).toBe(false);
     });
 
@@ -114,7 +110,7 @@ describe('Plan Limit Checks', () => {
       expect(canCreateRepo('free', 0, 0, true, true).allowed).toBe(true);
       expect(canCreateRepo('pro', 0, 0, true, true).allowed).toBe(true);
       expect(canCreateRepo('team', 0, 0, true, true).allowed).toBe(true);
-      expect(canCreateRepo('startup', 0, 0, true, true).allowed).toBe(true);
+      expect(canCreateRepo('business', 0, 0, true, true).allowed).toBe(true);
     });
   });
 

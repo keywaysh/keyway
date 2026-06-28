@@ -32,9 +32,9 @@ interface VaultGroup {
 // Plan limits for display
 const PLAN_LIMITS: Record<UserPlan, number> = {
   free: 1,
-  pro: 5,
-  team: 10,
-  startup: 40,
+  pro: 10,
+  team: 20,
+  business: 50,
 }
 
 function groupVaultsByOwner(vaults: Vault[], currentUsername?: string): VaultGroup[] {

@@ -55,7 +55,7 @@ export const mockOrganization = {
 export const mockOrgOnTrial = {
   ...mockOrganization,
   id: 'test-org-trial-id',
-  plan: 'team' as const,
+  plan: 'business' as const,
   trialStartedAt: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000), // 5 days ago
   trialEndsAt: new Date(Date.now() + 10 * 24 * 60 * 60 * 1000), // 10 days from now
 };
@@ -66,18 +66,18 @@ export const mockOrgOnTrial = {
 export const mockOrgExpiredTrial = {
   ...mockOrganization,
   id: 'test-org-expired-trial-id',
-  plan: 'team' as const,
+  plan: 'business' as const,
   trialStartedAt: new Date(Date.now() - 20 * 24 * 60 * 60 * 1000), // 20 days ago
   trialEndsAt: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000), // 5 days ago (expired)
 };
 
 /**
- * Mock organization with paid Team plan
+ * Mock organization with paid Business plan
  */
 export const mockOrgPaid = {
   ...mockOrganization,
   id: 'test-org-paid-id',
-  plan: 'team' as const,
+  plan: 'business' as const,
   stripeCustomerId: 'cus_test123',
   trialStartedAt: new Date(Date.now() - 20 * 24 * 60 * 60 * 1000),
   trialEndsAt: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000),

@@ -32,7 +32,7 @@ Install the Keyway GitHub App on your organization:
 
 ### 2. Start a Trial
 
-Organization owners can start a 14-day Team plan trial:
+Organization owners can start a 14-day Business plan trial:
 
 1. Go to your organization in the [dashboard](https://app.keyway.sh)
 2. Click **Start Trial**
@@ -91,19 +91,22 @@ POST /v1/orgs/:org/members/sync
 
 ### Plans
 
-| Feature | Free | Pro ($4/mo) | Team ($15/mo) | Startup ($39/mo) |
+| Feature | Free | Pro (€9/mo) | Team (€19/mo) | Business (€39/mo) |
 |---------|:--:|:--:|:--:|:--:|
-| Private repos | 1 | 5 | 10 | 40 |
+| Private repos | 1 | 10 | 20 | 50 |
 | Environments | 3 | Unlimited | Unlimited | Unlimited |
-| Collaborators/repo | 15 | 15 | 15 | 30 |
+| Collaborators/repo | Unlimited | Unlimited | Unlimited | Unlimited |
 | Provider syncs | 2 | Unlimited | Unlimited | Unlimited |
 | Audit logs | - | - | ✓ | ✓ |
+| Exposure reports | - | - | - | ✓ |
 | Priority support | - | - | - | ✓ |
+
+Organizations subscribe to the **Business** plan, which unlocks the advanced team features (including Exposure reports for offboarding).
 
 ### Starting a Subscription
 
 1. Go to your organization in the [dashboard](https://app.keyway.sh)
-2. Click **Upgrade to Team**
+2. Click **Upgrade to Business**
 3. Complete Stripe checkout
 
 Or via API:
@@ -138,7 +141,7 @@ Returns:
 ```json
 {
   "data": {
-    "plan": "team",
+    "plan": "business",
     "status": "active",
     "currentPeriodEnd": "2025-02-01T00:00:00Z",
     "cancelAtPeriodEnd": false
@@ -150,12 +153,12 @@ Returns:
 
 ## Trials
 
-### 14-Day Team Trial
+### 14-Day Business Trial
 
-Every organization gets one free Team plan trial:
+Every organization gets one free Business plan trial:
 
 - **Duration:** 14 days
-- **Features:** Full Team plan access
+- **Features:** Full Business plan access
 - **No credit card required**
 
 ### Starting a Trial

@@ -672,13 +672,13 @@ export async function ensureOrganizationExists(
 export function getTrialEligibility(org: Organization): TrialEligibility {
   const trialInfo = getTrialInfo(org);
 
-  // Already on paid plan
-  if (org.stripeCustomerId && org.plan === "team") {
+  // Already on a paid plan (Team or Business)
+  if (org.stripeCustomerId && (org.plan === "team" || org.plan === "business")) {
     return {
       eligible: false,
       daysAvailable: 0,
       orgLogin: org.login,
-      reason: "Organization already has a paid Team plan",
+      reason: "Organization already has a paid plan",
     };
   }
 
