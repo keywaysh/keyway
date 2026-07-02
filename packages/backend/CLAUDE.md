@@ -37,7 +37,7 @@ src/
 │   ├── billing.routes.ts # Stripe integration
 │   └── integrations.routes.ts # Provider sync (Vercel, etc.)
 ├── config/
-│   └── plans.ts          # Plan limits (free/pro/team)
+│   └── plans.ts          # Plan limits (free/team/business)
 ├── db/
 │   ├── schema.ts         # Drizzle ORM schema
 │   └── index.ts          # Database connection
@@ -85,9 +85,9 @@ throw new NotFoundError('Vault not found');
 
 **Plan Limits** (`src/config/plans.ts`):
 ```typescript
-// Free: 1 private repo, 2 providers, 3 envs, unlimited secrets
-// Pro/Team/Business: 10/20/50 private repos, unlimited providers/envs/secrets
-// (collaborators are never capped on any plan; Business adds Exposure reports)
+// Free: 10 private repos, 2 providers, 3 envs per vault, unlimited secrets
+// Team/Business: unlimited private repos/providers/envs (flat price, org-only)
+// (collaborators are never capped on any plan; Business adds Exposure reports + SSO)
 const check = canCreateSecret(user.plan, count, isPrivate);
 if (!check.allowed) throw new PlanLimitError(check.reason);
 ```
