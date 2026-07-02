@@ -71,9 +71,13 @@ describe('billingApi', () => {
         json: () => Promise.resolve({
           data: {
             prices: {
-              pro: {
-                monthly: { id: 'price_monthly', price: 999, interval: 'month' },
-                yearly: { id: 'price_yearly', price: 9999, interval: 'year' },
+              team: {
+                monthly: { id: 'price_team_monthly', price: 999, currency: 'eur', interval: 'month' },
+                yearly: { id: 'price_team_yearly', price: 9999, currency: 'eur', interval: 'year' },
+              },
+              business: {
+                monthly: { id: 'price_business_monthly', price: 1999, currency: 'eur', interval: 'month' },
+                yearly: { id: 'price_business_yearly', price: 19999, currency: 'eur', interval: 'year' },
               },
             },
           },
@@ -87,8 +91,32 @@ describe('billingApi', () => {
         expect.stringContaining('/v1/billing/prices'),
         expect.any(Object)
       )
-      expect(result.prices.pro.monthly.interval).toBe('month')
-      expect(result.prices.pro.yearly.interval).toBe('year')
+      expect(result.prices.team?.monthly?.interval).toBe('month')
+      expect(result.prices.team?.yearly?.interval).toBe('year')
+      expect(result.prices.business?.monthly?.currency).toBe('eur')
+      // pro is retired server-side: newer responses simply omit it
+      expect(result.prices.pro).toBeUndefined()
+    })
+
+    it('should surface null interval slots when Stripe lacks a price', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({
+          data: {
+            prices: {
+              team: { monthly: null, yearly: null },
+              business: { monthly: null, yearly: null },
+            },
+          },
+          meta: { requestId: 'req-1' },
+        }),
+      })
+
+      const result = await billingApi.getPrices()
+
+      expect(result.prices.team?.monthly).toBeNull()
+      expect(result.prices.business?.yearly).toBeNull()
     })
   })
 
