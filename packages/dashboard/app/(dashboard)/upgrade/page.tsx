@@ -18,7 +18,8 @@ type PlanPrices = { monthly: Price | null; yearly: Price | null }
 
 type PriceData = {
   prices: {
-    pro: PlanPrices
+    // pro is being retired server-side; tolerate responses without it
+    pro?: PlanPrices
     team?: PlanPrices
     business?: PlanPrices
   }
@@ -150,7 +151,7 @@ export default function UpgradePage() {
   }
 
   const getProPrice = () => {
-    const priceObj = interval === 'monthly' ? prices?.prices.pro.monthly : prices?.prices.pro.yearly
+    const priceObj = interval === 'monthly' ? prices?.prices.pro?.monthly : prices?.prices.pro?.yearly
     if (!priceObj) return { display: '€9', monthly: 9 }
     const sym = currencySymbol(priceObj.currency)
     const amount = priceObj.price / 100 // Convert cents to currency units
@@ -162,7 +163,7 @@ export default function UpgradePage() {
   }
 
   const getProPriceId = () => {
-    return (interval === 'monthly' ? prices?.prices.pro.monthly?.id : prices?.prices.pro.yearly?.id) ?? null
+    return (interval === 'monthly' ? prices?.prices.pro?.monthly?.id : prices?.prices.pro?.yearly?.id) ?? null
   }
 
   const getTeamPrice = () => {
@@ -197,7 +198,7 @@ export default function UpgradePage() {
     return (interval === 'monthly' ? prices?.prices.business?.monthly?.id : prices?.prices.business?.yearly?.id) ?? null
   }
 
-  const sym = currencySymbol(prices?.prices.pro.monthly?.currency)
+  const sym = currencySymbol(prices?.prices.pro?.monthly?.currency ?? prices?.prices.team?.monthly?.currency)
   const proPrice = getProPrice()
   const proPriceId = getProPriceId()
   const teamPrice = getTeamPrice()

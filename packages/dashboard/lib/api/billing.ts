@@ -31,7 +31,16 @@ class BillingApiClient extends BaseApiClient {
 
   async getPrices(): Promise<{
     prices: {
-      pro: {
+      // pro is being retired server-side; newer API responses omit it
+      pro?: {
+        monthly: { id: string; price: number; interval: string }
+        yearly: { id: string; price: number; interval: string }
+      }
+      team?: {
+        monthly: { id: string; price: number; interval: string }
+        yearly: { id: string; price: number; interval: string }
+      }
+      business?: {
         monthly: { id: string; price: number; interval: string }
         yearly: { id: string; price: number; interval: string }
       }
@@ -40,7 +49,15 @@ class BillingApiClient extends BaseApiClient {
     const response = await this.request<{
       data: {
         prices: {
-          pro: {
+          pro?: {
+            monthly: { id: string; price: number; interval: string }
+            yearly: { id: string; price: number; interval: string }
+          }
+          team?: {
+            monthly: { id: string; price: number; interval: string }
+            yearly: { id: string; price: number; interval: string }
+          }
+          business?: {
             monthly: { id: string; price: number; interval: string }
             yearly: { id: string; price: number; interval: string }
           }
