@@ -28,3 +28,25 @@ postgres_data/
 
 # Local development certificates
 certs/
+
+# Beads issue tracker — roadmap kept OUT of this PUBLIC repo (synced privately, see keyway-admin)
+.beads/
+
+# Private pricing/strategy spec — must NOT be committed to public repo (ADR 0001 policy)
+SPEC.md
+
+# Beads / Dolt files (added by bd init)
+.dolt/
+*.db
+.beads-credential-key
+
+# Local AI-tooling state and scratch artifacts — never commit
+.claude/
+.codex/
+.deepsec/
+.playwright-mcp/
+AGENTS.md
+
+# Local test screenshots and private review notes
+/*.png
+security_code_review-*.md
