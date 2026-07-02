@@ -40,8 +40,8 @@ export const mockAvailablePrices = {
     yearly: { id: 'price_team_yearly', amount: 19000, currency: 'eur', interval: 'year' },
   },
   business: {
-    monthly: { id: 'price_business_monthly', amount: 7900, currency: 'eur', interval: 'month' },
-    yearly: { id: 'price_business_yearly', amount: 79000, currency: 'eur', interval: 'year' },
+    monthly: { id: 'price_business_monthly', amount: 3900, currency: 'eur', interval: 'month' },
+    yearly: { id: 'price_business_yearly', amount: 39000, currency: 'eur', interval: 'year' },
   },
 };
 

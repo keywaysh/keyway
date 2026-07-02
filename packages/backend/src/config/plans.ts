@@ -21,10 +21,10 @@ export interface PlanLimits {
  * Plan definitions. Pricing is flat per tier — collaborators/team members are
  * never capped (access mirrors GitHub: repo access = secret access), and paid
  * tiers have unlimited private repos. Paid tiers differ by governance features
- * (audit logs on Team, Exposure reports + SSO on Business), not by quotas.
+ * (Exposure reports on Business — see hasExposureAccess), not by quotas.
  * - free: 10 private repos, 2 providers, 3 envs per vault
  * - team: unlimited repos/providers/envs (flat monthly price, org-only)
- * - business: everything in team + Exposure reports + SSO (org-only)
+ * - business: everything in team + Exposure reports (org-only)
  */
 export const PLANS: Record<UserPlan, PlanLimits> = {
   free: {

@@ -37,7 +37,7 @@ SPEC.md
 
 # Beads / Dolt files (added by bd init)
 .dolt/
-*.db
+/*.db
 .beads-credential-key
 
 # Local AI-tooling state and scratch artifacts — never commit
@@ -45,7 +45,7 @@ SPEC.md
 .codex/
 .deepsec/
 .playwright-mcp/
-AGENTS.md
+/AGENTS.md
 
 # Local test screenshots and private review notes
 /*.png

@@ -279,10 +279,10 @@ describe('Organization Billing Routes', () => {
       const body = JSON.parse(response.body);
 
       // Orgs can subscribe to Team or Business; both tiers are returned
-      expect(body.data.prices.team.monthly.price).toBe(1900); // €19.00 (Team)
-      expect(body.data.prices.team.yearly.price).toBe(19000); // €190.00 (Team)
-      expect(body.data.prices.business.monthly.price).toBe(7900); // €79.00 (Business)
-      expect(body.data.prices.business.yearly.price).toBe(79000); // €790.00 (Business)
+      expect(body.data.prices.team.monthly.price).toBe(1900); // arbitrary fixture amount
+      expect(body.data.prices.team.yearly.price).toBe(19000); // arbitrary fixture amount
+      expect(body.data.prices.business.monthly.price).toBe(3900); // arbitrary fixture amount
+      expect(body.data.prices.business.yearly.price).toBe(39000); // arbitrary fixture amount
     });
 
     it('should return null tier prices when Stripe prices not configured', async () => {
