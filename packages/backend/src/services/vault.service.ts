@@ -95,12 +95,13 @@ async function getExcessPrivateVaultIds(userId: string, plan: UserPlan): Promise
     return new Set();
   }
 
-  // Get private vaults ordered by creation date (FIFO - oldest first)
+  // Get private vaults ordered by creation date (FIFO - oldest first).
+  // id breaks createdAt ties so the allowed/excess split is deterministic.
   const privateVaults = await db
     .select({ id: vaults.id })
     .from(vaults)
     .where(and(eq(vaults.ownerId, userId), eq(vaults.isPrivate, true)))
-    .orderBy(asc(vaults.createdAt));
+    .orderBy(asc(vaults.createdAt), asc(vaults.id));
 
   // Vaults beyond the limit are "excess" (read-only)
   return new Set(privateVaults.slice(limit).map((v) => v.id));

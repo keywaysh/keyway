@@ -167,7 +167,7 @@ export interface PrivateVaultAccess {
  * Get user's private vaults ordered by creation date (oldest first).
  * The first N vaults (within plan limit) are "allowed", rest are "excess".
  *
- * For Pro/Team plans (unlimited), returns empty sets (all vaults are allowed).
+ * For paid plans (unlimited), returns empty sets (all vaults are allowed).
  */
 export async function getPrivateVaultAccess(
   userId: string,
@@ -180,12 +180,13 @@ export async function getPrivateVaultAccess(
     return { allowedVaultIds: new Set(), excessVaultIds: new Set() };
   }
 
-  // Get private vaults ordered by creation date (FIFO - oldest first)
+  // Get private vaults ordered by creation date (FIFO - oldest first).
+  // id breaks createdAt ties so the allowed/excess split is deterministic.
   const privateVaults = await db
     .select({ id: vaults.id })
     .from(vaults)
     .where(and(eq(vaults.ownerId, userId), eq(vaults.isPrivate, true)))
-    .orderBy(asc(vaults.createdAt));
+    .orderBy(asc(vaults.createdAt), asc(vaults.id));
 
   const allowedVaultIds = new Set(privateVaults.slice(0, limit).map((v) => v.id));
   const excessVaultIds = new Set(privateVaults.slice(limit).map((v) => v.id));
@@ -200,8 +201,8 @@ export async function getPrivateVaultAccess(
  * otherwise the user's plan).
  *
  * - Public vaults: always writable
- * - Pro/Team plans: always writable
- * - Free plan + private vault: only if within the 1-vault limit (oldest vault)
+ * - Paid plans: always writable
+ * - Free plan + private vault: only if within the plan's private-vault limit (oldest first)
  */
 export async function canWriteToVault(
   userId: string,
@@ -223,7 +224,7 @@ export async function canWriteToVault(
       ? effectivePlan
       : userPlan;
 
-  // Pro/Team plans: always allowed (unlimited private repos)
+  // Paid plans: always allowed (unlimited private repos)
   if (PLANS[plan].maxPrivateRepos === Infinity) {
     return { allowed: true };
   }
@@ -232,13 +233,11 @@ export async function canWriteToVault(
   const { excessVaultIds } = await getPrivateVaultAccess(userId, plan);
 
   if (excessVaultIds.has(vaultId)) {
+    // Only reachable on the free plan — paid plans returned early (unlimited)
     const limit = PLANS[plan].maxPrivateRepos;
-    const nextPlan =
-      plan === "free" ? "Pro" : plan === "pro" ? "Team" : plan === "team" ? "Business" : null;
-    const upgradeHint = nextPlan ? ` Upgrade to ${nextPlan} to unlock more.` : "";
     return {
       allowed: false,
-      reason: `You've exceeded your ${plan} plan limit of ${limit} private vault${limit === 1 ? "" : "s"}.${upgradeHint}`,
+      reason: `You've exceeded your ${plan} plan limit of ${limit} private vault${limit === 1 ? "" : "s"}. Upgrade to Team to unlock more.`,
     };
   }
 

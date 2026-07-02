@@ -197,7 +197,7 @@ const bobUser = {
   username: "bob",
   email: "bob@example.com",
   avatarUrl: null,
-  plan: "pro",
+  plan: "team",
 };
 
 function resetAll() {
@@ -213,7 +213,7 @@ function resetAll() {
     trialEndsAt: null,
     trialConvertedAt: null,
   });
-  mocks.getEffectivePlanWithTrial.mockReturnValue("pro");
+  mocks.getEffectivePlanWithTrial.mockReturnValue("team");
   mocks.getTrialEligibility.mockReturnValue({ canStart: false });
   mocks.checkVaultCreationAllowed.mockResolvedValue({ allowed: true });
   mocks.getOrganizationDetails.mockResolvedValue({ id: "org-acme", login: "acme-corp" });

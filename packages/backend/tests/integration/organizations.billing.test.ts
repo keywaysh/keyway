@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { FastifyInstance } from 'fastify';
 import { createTestApp } from '../helpers/testApp';
+import { mockAvailablePrices } from '../helpers/mocks';
 
 // Use vi.hoisted for mocks that need to be available in vi.mock
 const mockStripeEnabled = vi.hoisted(() => vi.fn());
@@ -170,21 +171,8 @@ describe('Organization Billing Routes', () => {
 
     // Default mock implementations
     mockStripeEnabled.mockReturnValue(true);
-    // getAvailablePrices is async; orgs subscribe to the Business tier
-    mockGetAvailablePrices.mockResolvedValue({
-      pro: {
-        monthly: { id: 'price_pro_monthly', amount: 900, currency: 'eur', interval: 'month' },
-        yearly: { id: 'price_pro_yearly', amount: 9000, currency: 'eur', interval: 'year' },
-      },
-      team: {
-        monthly: { id: 'price_team_monthly', amount: 1900, currency: 'eur', interval: 'month' },
-        yearly: { id: 'price_team_yearly', amount: 19000, currency: 'eur', interval: 'year' },
-      },
-      business: {
-        monthly: { id: 'price_business_monthly', amount: 3900, currency: 'eur', interval: 'month' },
-        yearly: { id: 'price_business_yearly', amount: 39000, currency: 'eur', interval: 'year' },
-      },
-    });
+    // getAvailablePrices is async; shared fixture (see helpers/mocks.ts)
+    mockGetAvailablePrices.mockResolvedValue(mockAvailablePrices);
     mockGetOrganizationByLogin.mockResolvedValue(mockOrg);
     mockGetOrganizationDetails.mockResolvedValue(mockOrgDetails);
     mockGetOrganizationMembership.mockResolvedValue({
@@ -293,8 +281,8 @@ describe('Organization Billing Routes', () => {
       // Orgs can subscribe to Team or Business; both tiers are returned
       expect(body.data.prices.team.monthly.price).toBe(1900); // €19.00 (Team)
       expect(body.data.prices.team.yearly.price).toBe(19000); // €190.00 (Team)
-      expect(body.data.prices.business.monthly.price).toBe(3900); // €39.00 (Business)
-      expect(body.data.prices.business.yearly.price).toBe(39000); // €390.00 (Business)
+      expect(body.data.prices.business.monthly.price).toBe(7900); // €79.00 (Business)
+      expect(body.data.prices.business.yearly.price).toBe(79000); // €790.00 (Business)
     });
 
     it('should return null tier prices when Stripe prices not configured', async () => {

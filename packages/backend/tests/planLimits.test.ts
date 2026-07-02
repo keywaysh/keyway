@@ -14,39 +14,35 @@ describe('Plan Configuration', () => {
     it('should define free plan with correct limits', () => {
       expect(PLANS.free).toEqual({
         maxPublicRepos: Infinity,
-        maxPrivateRepos: 1,
+        maxPrivateRepos: 10,
         maxProviders: 2,
         maxEnvironmentsPerVault: 3,
         maxSecretsPerPrivateVault: Infinity,
       });
     });
 
-    it('should define pro plan with 10 private repos and unlimited envs', () => {
-      expect(PLANS.pro.maxPrivateRepos).toBe(10);
-      expect(PLANS.pro.maxProviders).toBe(Infinity);
-      expect(PLANS.pro.maxEnvironmentsPerVault).toBe(Infinity);
-      expect(PLANS.pro.maxSecretsPerPrivateVault).toBe(Infinity);
-    });
-
-    it('should define team plan with 20 private repos and unlimited envs', () => {
-      expect(PLANS.team.maxPrivateRepos).toBe(20);
+    it('should define team plan with unlimited repos and envs', () => {
+      expect(PLANS.team.maxPrivateRepos).toBe(Infinity);
       expect(PLANS.team.maxProviders).toBe(Infinity);
       expect(PLANS.team.maxEnvironmentsPerVault).toBe(Infinity);
       expect(PLANS.team.maxSecretsPerPrivateVault).toBe(Infinity);
     });
 
-    it('should define business plan with 50 private repos and unlimited envs', () => {
-      expect(PLANS.business.maxPrivateRepos).toBe(50);
+    it('should define business plan with unlimited repos and envs', () => {
+      expect(PLANS.business.maxPrivateRepos).toBe(Infinity);
       expect(PLANS.business.maxProviders).toBe(Infinity);
       expect(PLANS.business.maxEnvironmentsPerVault).toBe(Infinity);
       expect(PLANS.business.maxSecretsPerPrivateVault).toBe(Infinity);
+    });
+
+    it('should not define a pro plan', () => {
+      expect(Object.keys(PLANS)).toEqual(['free', 'team', 'business']);
     });
   });
 
   describe('getPlanLimits', () => {
     it('should return correct limits for each plan', () => {
       expect(getPlanLimits('free')).toBe(PLANS.free);
-      expect(getPlanLimits('pro')).toBe(PLANS.pro);
       expect(getPlanLimits('team')).toBe(PLANS.team);
       expect(getPlanLimits('business')).toBe(PLANS.business);
     });
@@ -71,44 +67,36 @@ describe('Plan Limit Checks', () => {
       expect(result.allowed).toBe(true);
     });
 
-    it('should allow free plan first private repo', () => {
-      const result = canCreateRepo('free', 0, 0, true, false);
+    it('should allow free plan up to 10 private repos', () => {
+      const result = canCreateRepo('free', 0, 9, true, false);
       expect(result.allowed).toBe(true);
     });
 
-    it('should reject free plan second private repo', () => {
-      const result = canCreateRepo('free', 0, 1, true, false);
+    it('should reject free plan 11th private repo', () => {
+      const result = canCreateRepo('free', 0, 10, true, false);
       expect(result.allowed).toBe(false);
-      expect(result.reason).toContain('1 private repo');
+      expect(result.reason).toContain('10 private repos');
     });
 
     it('should allow free plan private org repos within limit', () => {
-      // Free plan can now create private org repos, but still limited to 1 total private repo
       const result = canCreateRepo('free', 0, 0, true, true);
       expect(result.allowed).toBe(true);
     });
 
-    it('should reject free plan second private org repo', () => {
+    it('should reject free plan 11th private org repo', () => {
       // Org repos count toward the same limit as personal repos
-      const result = canCreateRepo('free', 0, 1, true, true);
+      const result = canCreateRepo('free', 0, 10, true, true);
       expect(result.allowed).toBe(false);
-      expect(result.reason).toContain('1 private repo');
+      expect(result.reason).toContain('10 private repos');
     });
 
-    it('should allow pro plan up to 10 private repos', () => {
-      const result = canCreateRepo('pro', 0, 9, true, false);
-      expect(result.allowed).toBe(true);
-    });
-
-    it('should deny pro plan 11th private repo', () => {
-      const result = canCreateRepo('pro', 0, 10, true, false);
-      expect(result.allowed).toBe(false);
+    it('should allow paid plans unlimited private repos', () => {
+      expect(canCreateRepo('team', 0, 1000, true, false).allowed).toBe(true);
+      expect(canCreateRepo('business', 0, 1000, true, false).allowed).toBe(true);
     });
 
     it('should allow all plans to create private org repos within their limits', () => {
-      // All plans can create private org repos, limited by their maxPrivateRepos
       expect(canCreateRepo('free', 0, 0, true, true).allowed).toBe(true);
-      expect(canCreateRepo('pro', 0, 0, true, true).allowed).toBe(true);
       expect(canCreateRepo('team', 0, 0, true, true).allowed).toBe(true);
       expect(canCreateRepo('business', 0, 0, true, true).allowed).toBe(true);
     });
@@ -126,8 +114,8 @@ describe('Plan Limit Checks', () => {
       expect(result.reason).toContain('2 provider connections');
     });
 
-    it('should allow pro plan unlimited providers', () => {
-      const result = canConnectProvider('pro', 100);
+    it('should allow team plan unlimited providers', () => {
+      const result = canConnectProvider('team', 100);
       expect(result.allowed).toBe(true);
     });
   });
@@ -145,8 +133,8 @@ describe('Plan Limit Checks', () => {
       expect(result.reason).toContain('3 environments');
     });
 
-    it('should allow pro plan unlimited environments', () => {
-      const result = canCreateEnvironment('pro', 100);
+    it('should allow team plan unlimited environments', () => {
+      const result = canCreateEnvironment('team', 100);
       expect(result.allowed).toBe(true);
     });
   });
@@ -163,8 +151,8 @@ describe('Plan Limit Checks', () => {
       expect(canCreateSecret('free', 1000, true).allowed).toBe(true);
     });
 
-    it('should allow pro plan unlimited secrets in private vault', () => {
-      const result = canCreateSecret('pro', 1000, true);
+    it('should allow team plan unlimited secrets in private vault', () => {
+      const result = canCreateSecret('team', 1000, true);
       expect(result.allowed).toBe(true);
     });
   });
