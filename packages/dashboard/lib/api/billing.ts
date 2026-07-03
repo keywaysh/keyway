@@ -3,7 +3,7 @@ import { BaseApiClient } from './client'
 // Shape actually served by GET /v1/billing/prices: each interval slot is null
 // when the Stripe lookup_key is unresolved, and currency is always present.
 // pro is being retired server-side; newer API responses omit it.
-export type ApiPrice = { id: string; price: number; currency?: string; interval: string }
+export type ApiPrice = { id: string; price: number; currency: string; interval: string }
 export type PlanPrices = { monthly: ApiPrice | null; yearly: ApiPrice | null }
 export type PricesData = {
   prices: {
