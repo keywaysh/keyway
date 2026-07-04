@@ -1,6 +1,8 @@
 ---
 sidebar_position: 7
-title: AI Agents
+title: Use Secrets with Claude Code, Cursor & Copilot (MCP)
+sidebar_label: AI Agents
+description: Give AI coding agents access to your secrets through the Keyway MCP server, without exposing values in .env files on disk.
 ---
 
 # AI Agents
