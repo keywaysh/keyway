@@ -1,5 +1,18 @@
 import { BaseApiClient } from './client'
 
+// Shape actually served by GET /v1/billing/prices: each interval slot is null
+// when the Stripe lookup_key is unresolved, and currency is always present.
+// pro is being retired server-side; newer API responses omit it.
+export type ApiPrice = { id: string; price: number; currency: string; interval: string }
+export type PlanPrices = { monthly: ApiPrice | null; yearly: ApiPrice | null }
+export type PricesData = {
+  prices: {
+    pro?: PlanPrices
+    team?: PlanPrices
+    business?: PlanPrices
+  }
+}
+
 class BillingApiClient extends BaseApiClient {
   async getSubscription(): Promise<{
     subscription: {
@@ -29,23 +42,9 @@ class BillingApiClient extends BaseApiClient {
     return response.data
   }
 
-  async getPrices(): Promise<{
-    prices: {
-      pro: {
-        monthly: { id: string; price: number; interval: string }
-        yearly: { id: string; price: number; interval: string }
-      }
-    }
-  }> {
+  async getPrices(): Promise<PricesData> {
     const response = await this.request<{
-      data: {
-        prices: {
-          pro: {
-            monthly: { id: string; price: number; interval: string }
-            yearly: { id: string; price: number; interval: string }
-          }
-        }
-      }
+      data: PricesData
       meta: { requestId: string }
     }>('/v1/billing/prices')
     return response.data

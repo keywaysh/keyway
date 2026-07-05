@@ -6,23 +6,14 @@ import { CheckIcon } from '@heroicons/react/24/solid'
 import { Loader2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { api } from '@/lib/api'
+import type { PricesData } from '@/lib/api/billing'
 import { trackEvent, AnalyticsEvents } from '@/lib/analytics'
 
 const contactEmail = process.env.NEXT_PUBLIC_CONTACT_EMAIL || 'hello@keyway.sh'
 
 type BillingInterval = 'monthly' | 'yearly'
 
-type Price = { id: string; price: number; currency?: string; interval: string }
-
-type PlanPrices = { monthly: Price | null; yearly: Price | null }
-
-type PriceData = {
-  prices: {
-    pro: PlanPrices
-    team?: PlanPrices
-    business?: PlanPrices
-  }
-}
+type PriceData = PricesData
 
 const CURRENCY_SYMBOLS: Record<string, string> = { eur: '€', usd: '$' }
 
@@ -150,7 +141,7 @@ export default function UpgradePage() {
   }
 
   const getProPrice = () => {
-    const priceObj = interval === 'monthly' ? prices?.prices.pro.monthly : prices?.prices.pro.yearly
+    const priceObj = interval === 'monthly' ? prices?.prices.pro?.monthly : prices?.prices.pro?.yearly
     if (!priceObj) return { display: '€9', monthly: 9 }
     const sym = currencySymbol(priceObj.currency)
     const amount = priceObj.price / 100 // Convert cents to currency units
@@ -162,7 +153,7 @@ export default function UpgradePage() {
   }
 
   const getProPriceId = () => {
-    return (interval === 'monthly' ? prices?.prices.pro.monthly?.id : prices?.prices.pro.yearly?.id) ?? null
+    return (interval === 'monthly' ? prices?.prices.pro?.monthly?.id : prices?.prices.pro?.yearly?.id) ?? null
   }
 
   const getTeamPrice = () => {
@@ -197,13 +188,17 @@ export default function UpgradePage() {
     return (interval === 'monthly' ? prices?.prices.business?.monthly?.id : prices?.prices.business?.yearly?.id) ?? null
   }
 
-  const sym = currencySymbol(prices?.prices.pro.monthly?.currency)
+  const sym = currencySymbol(prices?.prices.team?.monthly?.currency)
   const proPrice = getProPrice()
   const proPriceId = getProPriceId()
   const teamPrice = getTeamPrice()
   const teamPriceId = getTeamPriceId()
   const businessPrice = getBusinessPrice()
   const businessPriceId = getBusinessPriceId()
+
+  // The pro tier is retired server-side: hide its card once the API stops
+  // returning it (still shown while the old API serves pro, and while loading)
+  const showProCard = !prices || Boolean(prices.prices.pro)
 
   // Check current subscription status
   // Consider 'active' and 'trialing' as having an active subscription
@@ -313,7 +308,7 @@ export default function UpgradePage() {
           ) : (
             <>
               {/* Plans grid */}
-              <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6 mb-12">
+              <div className={showProCard ? 'grid md:grid-cols-2 lg:grid-cols-4 gap-6 mb-12' : 'grid md:grid-cols-2 lg:grid-cols-3 gap-6 mb-12'}>
                 {/* Free Plan */}
                 <div className="rounded-2xl p-6 bg-gray-900 border border-gray-800">
                   <h2 className="text-xl font-bold text-white mb-1">Free</h2>
@@ -341,7 +336,8 @@ export default function UpgradePage() {
                   )}
                 </div>
 
-                {/* Pro Plan */}
+                {/* Pro Plan (retired tier — card hidden when the API no longer prices it) */}
+                {showProCard && (
                 <div className="rounded-2xl p-6 bg-primary/10 border-2 border-primary">
                   <div className="text-primary text-sm font-medium mb-2">Most popular</div>
                   <h2 className="text-xl font-bold text-white mb-1">Pro</h2>
@@ -402,6 +398,7 @@ export default function UpgradePage() {
                     </a>
                   )}
                 </div>
+                )}
 
                 {/* Team Plan */}
                 <div className="rounded-2xl p-6 bg-gray-900 border border-gray-800">
