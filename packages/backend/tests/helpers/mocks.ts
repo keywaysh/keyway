@@ -2,7 +2,7 @@ import { vi } from 'vitest';
 
 /**
  * Mock user data for testing
- * Note: plan defaults to 'pro' for tests to avoid limit checks
+ * Note: plan defaults to 'team' for tests to avoid limit checks
  * Tests that need to verify limit enforcement should explicitly use mockFreeUser
  */
 export const mockUser = {
@@ -13,7 +13,7 @@ export const mockUser = {
   email: 'test@example.com',
   avatarUrl: 'https://github.com/testuser.png',
   accessToken: 'gho_testtoken123',
-  plan: 'pro' as const,
+  plan: 'team' as const,
   stripeCustomerId: null,
   stripeSubscriptionId: null,
   createdAt: new Date(),
@@ -27,6 +27,22 @@ export const mockFreeUser = {
   ...mockUser,
   id: 'test-free-user-id',
   plan: 'free' as const,
+};
+
+/**
+ * Mock resolved Stripe prices, shape of getAvailablePrices().
+ * Shared by billing.routes and organizations.billing suites so the
+ * fixture cannot silently diverge between them.
+ */
+export const mockAvailablePrices = {
+  team: {
+    monthly: { id: 'price_team_monthly', amount: 1900, currency: 'eur', interval: 'month' },
+    yearly: { id: 'price_team_yearly', amount: 19000, currency: 'eur', interval: 'year' },
+  },
+  business: {
+    monthly: { id: 'price_business_monthly', amount: 3900, currency: 'eur', interval: 'month' },
+    yearly: { id: 'price_business_yearly', amount: 39000, currency: 'eur', interval: 'year' },
+  },
 };
 
 /**

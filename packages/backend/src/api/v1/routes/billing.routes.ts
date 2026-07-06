@@ -72,10 +72,6 @@ export async function billingRoutes(fastify: FastifyInstance) {
       reply,
       {
         prices: {
-          pro: {
-            monthly: toApiPrice(prices?.pro.monthly),
-            yearly: toApiPrice(prices?.pro.yearly),
-          },
           team: {
             monthly: toApiPrice(prices?.team.monthly),
             yearly: toApiPrice(prices?.team.yearly),
@@ -201,8 +197,6 @@ export async function billingRoutes(fastify: FastifyInstance) {
 
       const prices = await getAvailablePrices();
       const validPriceIds = [
-        prices?.pro.monthly?.id,
-        prices?.pro.yearly?.id,
         prices?.team.monthly?.id,
         prices?.team.yearly?.id,
         prices?.business.monthly?.id,

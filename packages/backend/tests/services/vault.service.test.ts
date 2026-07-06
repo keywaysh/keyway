@@ -86,7 +86,7 @@ describe('VaultService', () => {
         }),
       });
 
-      const result = await getVaultsForUser(mockUser.id, mockUser.username, 'pro');
+      const result = await getVaultsForUser(mockUser.id, mockUser.username, 'team');
 
       expect(result).toHaveLength(1);
       expect(result[0]).toMatchObject({
@@ -109,6 +109,37 @@ describe('VaultService', () => {
       expect(result[0].syncs[0].provider).toBe('vercel');
     });
 
+    it('should flag excess private vaults as read-only (plan_limit_exceeded)', async () => {
+      const privateVault = {
+        ...mockVault,
+        isPrivate: true,
+        orgId: null,
+        secrets: [],
+        vaultSyncs: [],
+      };
+
+      (db.query.vaults.findMany as any).mockResolvedValue([privateVault]);
+      // 11 private vaults ordered oldest-first: the listed vault is the 11th,
+      // beyond the free plan's 10-vault limit → excess → read-only
+      const orderedIds = [
+        ...Array.from({ length: 10 }, (_, i) => ({ id: `older-vault-${i + 1}` })),
+        { id: privateVault.id },
+      ];
+      (db.select as any).mockReturnValue({
+        from: vi.fn().mockReturnValue({
+          where: vi.fn().mockReturnValue({
+            orderBy: vi.fn().mockResolvedValue(orderedIds),
+          }),
+        }),
+      });
+
+      const result = await getVaultsForUser(mockUser.id, mockUser.username, 'free');
+
+      expect(result).toHaveLength(1);
+      expect(result[0].isReadOnly).toBe(true);
+      expect(result[0].readonlyReason).toBe('plan_limit_exceeded');
+    });
+
     it('should use default environments for legacy vaults', async () => {
       const legacyVault = {
         ...mockVault,
@@ -129,7 +160,7 @@ describe('VaultService', () => {
         }),
       });
 
-      const result = await getVaultsForUser(mockUser.id, mockUser.username, 'pro');
+      const result = await getVaultsForUser(mockUser.id, mockUser.username, 'team');
 
       // Default environments - string array for backwards compatibility
       expect(result[0].environments).toHaveLength(3);
@@ -191,7 +222,7 @@ describe('VaultService', () => {
         }),
       });
 
-      const result = await getVaultsForUser(mockUser.id, mockUser.username, 'pro');
+      const result = await getVaultsForUser(mockUser.id, mockUser.username, 'team');
 
       expect(result).toEqual([]);
     });
@@ -222,7 +253,7 @@ describe('VaultService', () => {
         }),
       });
 
-      const result = await getVaultByRepo('testuser/test-repo', mockUser.username, 'pro');
+      const result = await getVaultByRepo('testuser/test-repo', mockUser.username, 'team');
 
       expect(result.hasAccess).toBe(true);
       expect(result.vault).toMatchObject({
@@ -240,7 +271,7 @@ describe('VaultService', () => {
     it('should return no access for non-existent vault', async () => {
       (db.query.vaults.findFirst as any).mockResolvedValue(null);
 
-      const result = await getVaultByRepo('unknown/repo', mockUser.username, 'pro');
+      const result = await getVaultByRepo('unknown/repo', mockUser.username, 'team');
 
       expect(result.hasAccess).toBe(false);
     });
@@ -258,7 +289,7 @@ describe('VaultService', () => {
 
       (db.query.vaults.findFirst as any).mockResolvedValue(vaultWithRelations);
 
-      const result = await getVaultByRepo('testuser/test-repo', 'stranger', 'pro');
+      const result = await getVaultByRepo('testuser/test-repo', 'stranger', 'team');
 
       expect(result.hasAccess).toBe(false);
     });
@@ -284,7 +315,7 @@ describe('VaultService', () => {
         }),
       });
 
-      const result = await getVaultByRepo('testuser/test-repo', mockUser.username, 'pro');
+      const result = await getVaultByRepo('testuser/test-repo', mockUser.username, 'team');
 
       expect(result.vault.secretCount).toBe(2);
     });
@@ -381,7 +412,7 @@ describe('VaultService', () => {
           }),
         });
 
-        const result = await getVaultByRepo(renamedRepo, mockUser.username, 'pro');
+        const result = await getVaultByRepo(renamedRepo, mockUser.username, 'team');
 
         expect(result.hasAccess).toBe(true);
         expect(result.vault).toBeDefined();
@@ -390,7 +421,7 @@ describe('VaultService', () => {
       it('should return no access when both lookups fail', async () => {
         (db.query.vaults.findFirst as any).mockResolvedValue(null);
 
-        const result = await getVaultByRepo('nonexistent/repo', mockUser.username, 'pro');
+        const result = await getVaultByRepo('nonexistent/repo', mockUser.username, 'team');
 
         expect(result.hasAccess).toBe(false);
       });

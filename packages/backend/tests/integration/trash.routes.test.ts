@@ -15,7 +15,7 @@ const { mockUserForLookup } = vi.hoisted(() => ({
     email: 'test@example.com',
     avatarUrl: 'https://github.com/testuser.png',
     accessToken: 'gho_testtoken123',
-    plan: 'pro' as const,
+    plan: 'team' as const,
     stripeCustomerId: null,
     stripeSubscriptionId: null,
     createdAt: new Date(),

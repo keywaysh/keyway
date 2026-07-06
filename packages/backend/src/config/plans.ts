@@ -19,39 +19,31 @@ export interface PlanLimits {
 
 /**
  * Plan definitions. Pricing is flat per tier — collaborators/team members are
- * never capped (access mirrors GitHub: repo access = secret access). The only
- * scaling lever is private repos.
- * - free: 1 private repo, 2 providers, 3 envs
- * - pro: 10 private repos, unlimited providers/envs (€9/month)
- * - team: 20 private repos, unlimited providers/envs (€19/month)
- * - business: 50 private repos, unlimited providers/envs (€39/month)
- *   Top tier — unlocks advanced team features (Exposure reports). Organizations subscribe to this tier.
+ * never capped (access mirrors GitHub: repo access = secret access), and paid
+ * tiers have unlimited private repos. Paid tiers differ by governance features
+ * (Exposure reports on Business — see hasExposureAccess), not by quotas.
+ * - free: 10 private repos, 2 providers, 3 envs per vault
+ * - team: unlimited repos/providers/envs (flat monthly price, org-only)
+ * - business: everything in team + Exposure reports (org-only)
  */
 export const PLANS: Record<UserPlan, PlanLimits> = {
   free: {
     maxPublicRepos: Infinity,
-    maxPrivateRepos: 1,
+    maxPrivateRepos: 10,
     maxProviders: 2,
     maxEnvironmentsPerVault: 3,
     maxSecretsPerPrivateVault: Infinity,
   },
-  pro: {
-    maxPublicRepos: Infinity,
-    maxPrivateRepos: 10,
-    maxProviders: Infinity,
-    maxEnvironmentsPerVault: Infinity,
-    maxSecretsPerPrivateVault: Infinity,
-  },
   team: {
     maxPublicRepos: Infinity,
-    maxPrivateRepos: 20,
+    maxPrivateRepos: Infinity,
     maxProviders: Infinity,
     maxEnvironmentsPerVault: Infinity,
     maxSecretsPerPrivateVault: Infinity,
   },
   business: {
     maxPublicRepos: Infinity,
-    maxPrivateRepos: 50,
+    maxPrivateRepos: Infinity,
     maxProviders: Infinity,
     maxEnvironmentsPerVault: Infinity,
     maxSecretsPerPrivateVault: Infinity,
@@ -60,9 +52,8 @@ export const PLANS: Record<UserPlan, PlanLimits> = {
 
 const PLAN_RANK: Record<UserPlan, number> = {
   free: 0,
-  pro: 1,
-  team: 2,
-  business: 3,
+  team: 1,
+  business: 2,
 };
 
 export function planRank(plan: UserPlan): number {

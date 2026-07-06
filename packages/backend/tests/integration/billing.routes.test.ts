@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { FastifyInstance } from 'fastify';
 import { createTestApp } from '../helpers/testApp';
+import { mockAvailablePrices } from '../helpers/mocks';
 
 // Use vi.hoisted for mocks that need to be available in vi.mock
 const mockStripeEnabled = vi.hoisted(() => vi.fn());
@@ -64,20 +65,7 @@ describe('Billing Routes', () => {
     // Default mock implementations
     mockStripeEnabled.mockReturnValue(true);
     // getAvailablePrices is async and returns resolved prices (id/amount/currency/interval)
-    mockGetAvailablePrices.mockResolvedValue({
-      pro: {
-        monthly: { id: 'price_pro_monthly', amount: 900, currency: 'eur', interval: 'month' },
-        yearly: { id: 'price_pro_yearly', amount: 9000, currency: 'eur', interval: 'year' },
-      },
-      team: {
-        monthly: { id: 'price_team_monthly', amount: 1900, currency: 'eur', interval: 'month' },
-        yearly: { id: 'price_team_yearly', amount: 19000, currency: 'eur', interval: 'year' },
-      },
-      business: {
-        monthly: { id: 'price_business_monthly', amount: 3900, currency: 'eur', interval: 'month' },
-        yearly: { id: 'price_business_yearly', amount: 39000, currency: 'eur', interval: 'year' },
-      },
-    });
+    mockGetAvailablePrices.mockResolvedValue(mockAvailablePrices);
     mockGetUserSubscription.mockResolvedValue(null);
     mockCreateCheckoutSession.mockResolvedValue('https://checkout.stripe.com/session/123');
     mockCreatePortalSession.mockResolvedValue('https://billing.stripe.com/portal/123');
@@ -120,9 +108,11 @@ describe('Billing Routes', () => {
 
       // Verify data contents
       expect(body.data).toHaveProperty('prices');
-      expect(body.data.prices).toHaveProperty('pro');
-      expect(body.data.prices.pro).toHaveProperty('monthly');
-      expect(body.data.prices.pro).toHaveProperty('yearly');
+      expect(body.data.prices).toHaveProperty('team');
+      expect(body.data.prices.team).toHaveProperty('monthly');
+      expect(body.data.prices.team).toHaveProperty('yearly');
+      expect(body.data.prices).toHaveProperty('business');
+      expect(body.data.prices).not.toHaveProperty('pro');
     });
 
     it('should return 503 when Stripe is disabled', async () => {
@@ -213,7 +203,7 @@ describe('Billing Routes', () => {
           'content-type': 'application/json',
         },
         payload: {
-          priceId: 'price_pro_monthly',
+          priceId: 'price_team_monthly',
           successUrl: 'https://app.keyway.sh/billing/success',
           cancelUrl: 'https://app.keyway.sh/billing',
         },
@@ -264,7 +254,7 @@ describe('Billing Routes', () => {
           'content-type': 'application/json',
         },
         payload: {
-          priceId: 'price_pro_monthly',
+          priceId: 'price_team_monthly',
           successUrl: 'not-a-url',
           cancelUrl: 'https://app.keyway.sh/billing',
         },
@@ -285,7 +275,7 @@ describe('Billing Routes', () => {
           'content-type': 'application/json',
         },
         payload: {
-          priceId: 'price_pro_monthly',
+          priceId: 'price_team_monthly',
           successUrl: 'https://app.keyway.sh/billing/success',
           cancelUrl: 'https://app.keyway.sh/billing',
         },
@@ -300,7 +290,7 @@ describe('Billing Routes', () => {
         githubId: 12345,
         username: 'testuser',
         email: 'test@example.com',
-        plan: 'pro',
+        plan: 'team',
         billingStatus: 'active',
         stripeCustomerId: 'cus_123',
       });
@@ -329,7 +319,7 @@ describe('Billing Routes', () => {
         githubId: 12345,
         username: 'testuser',
         email: 'test@example.com',
-        plan: 'pro',
+        plan: 'team',
         billingStatus: 'trialing',
         stripeCustomerId: 'cus_123',
       });
@@ -379,7 +369,7 @@ describe('Billing Routes', () => {
         githubId: 12345,
         username: 'testuser',
         email: 'test@example.com',
-        plan: 'pro',
+        plan: 'team',
         billingStatus: 'past_due',
         stripeCustomerId: 'cus_123',
       });
@@ -391,7 +381,7 @@ describe('Billing Routes', () => {
           'content-type': 'application/json',
         },
         payload: {
-          priceId: 'price_pro_monthly',
+          priceId: 'price_team_monthly',
           successUrl: 'https://app.keyway.sh/billing/success',
           cancelUrl: 'https://app.keyway.sh/billing',
         },
@@ -410,7 +400,7 @@ describe('Billing Routes', () => {
         githubId: 12345,
         username: 'testuser',
         email: 'test@example.com',
-        plan: 'pro',
+        plan: 'team',
         billingStatus: 'active',
         stripeCustomerId: 'cus_123',
       });

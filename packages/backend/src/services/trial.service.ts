@@ -319,7 +319,7 @@ export async function expireTrial(input: ExpireTrialInput): Promise<StartTrialRe
  * - If trial is expired (not converted) -> return 'free'
  * - Otherwise -> return actual plan
  */
-export function getEffectivePlanWithTrial(org: Organization): "free" | "pro" | "team" | "business" {
+export function getEffectivePlanWithTrial(org: Organization): UserPlan {
   // Paid customer takes precedence
   if (org.stripeCustomerId && (org.plan === "team" || org.plan === "business")) {
     return org.plan;

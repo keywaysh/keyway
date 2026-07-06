@@ -12,24 +12,25 @@ import {
   getOrganizationById,
 } from "./organization.service";
 import { convertTrial, hasHadTrial } from "./trial.service";
+import { planRank } from "../config/plans";
 
 // Initialize Stripe client (only if configured)
 const stripe = config.stripe ? new Stripe(config.stripe.secretKey) : null;
 
 const LOOKUP_KEYS = {
-  pro: { monthly: "pro_month_eur", yearly: "pro_year_eur" },
   team: { monthly: "team_month_eur", yearly: "team_year_eur" },
   business: { monthly: "business_month_eur", yearly: "business_year_eur" },
 } as const;
 
-const LOOKUP_KEY_TO_PLAN: Record<string, UserPlan> = {
-  pro_month_eur: "pro",
-  pro_year_eur: "pro",
-  team_month_eur: "team",
-  team_year_eur: "team",
-  business_month_eur: "business",
-  business_year_eur: "business",
-};
+// Derived inverse of LOOKUP_KEYS so adding/removing a tier is a single edit
+const LOOKUP_KEY_TO_PLAN: Record<string, UserPlan> = Object.fromEntries(
+  (Object.entries(LOOKUP_KEYS) as [UserPlan, { monthly: string; yearly: string }][]).flatMap(
+    ([plan, keys]) => [
+      [keys.monthly, plan],
+      [keys.yearly, plan],
+    ]
+  )
+);
 
 export interface ResolvedPrice {
   id: string;
@@ -352,7 +353,7 @@ async function handleSubscriptionChange(subscription: Stripe.Subscription): Prom
 
   // Track billing upgrade/downgrade events
   if (previousPlan !== plan) {
-    const isUpgrade = getPlanRank(plan) > getPlanRank(previousPlan);
+    const isUpgrade = planRank(plan) > planRank(previousPlan);
 
     // Log activity
     await logActivity({
@@ -381,24 +382,6 @@ async function handleSubscriptionChange(subscription: Stripe.Subscription): Prom
 }
 
 /**
- * Get numeric rank for plan comparison (free=0, pro=1, team=2, business=3)
- */
-function getPlanRank(plan: UserPlan): number {
-  switch (plan) {
-    case "free":
-      return 0;
-    case "pro":
-      return 1;
-    case "team":
-      return 2;
-    case "business":
-      return 3;
-    default:
-      return 0;
-  }
-}
-
-/**
  * Handle subscription deleted event
  */
 async function handleSubscriptionDeleted(subscription: Stripe.Subscription): Promise<void> {
@@ -415,7 +398,7 @@ async function handleSubscriptionDeleted(subscription: Stripe.Subscription): Pro
     .where(eq(users.id, userId))
     .limit(1);
 
-  const previousPlan = currentUser?.plan || "pro";
+  const previousPlan = currentUser?.plan || "team";
 
   // Delete subscription record
   await db.delete(subscriptions).where(eq(subscriptions.userId, userId));
@@ -593,10 +576,6 @@ export async function getAvailablePrices() {
   const prices = await resolvePrices();
 
   return {
-    pro: {
-      monthly: toResolvedPrice(prices.get(LOOKUP_KEYS.pro.monthly), "month"),
-      yearly: toResolvedPrice(prices.get(LOOKUP_KEYS.pro.yearly), "year"),
-    },
     team: {
       monthly: toResolvedPrice(prices.get(LOOKUP_KEYS.team.monthly), "month"),
       yearly: toResolvedPrice(prices.get(LOOKUP_KEYS.team.yearly), "year"),

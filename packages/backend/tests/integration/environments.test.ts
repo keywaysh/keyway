@@ -31,12 +31,12 @@ vi.mock('../../src/utils/user-lookup', () => ({
   getOrThrowUser: vi.fn().mockResolvedValue({
     id: 'test-user-id-123',
     username: 'testuser',
-    plan: 'pro',
+    plan: 'team',
   }),
   getUserFromVcsUser: vi.fn().mockResolvedValue({
     id: 'test-user-id-123',
     username: 'testuser',
-    plan: 'pro',
+    plan: 'team',
   }),
 }));
 
