@@ -130,7 +130,7 @@ keyway pull -e staging
 | Exposure reports | - | - | - | ✓ |
 | Priority support | - | - | - | ✓ |
 
-Upgrade: [keyway.sh/settings](https://keyway.sh/settings)
+Upgrade: [app.keyway.sh/settings](https://app.keyway.sh/settings)
 
 ## Next Steps
 

@@ -1,6 +1,7 @@
 ---
 sidebar_position: 4
 title: API Reference
+description: Keyway REST API reference. Authentication, vaults, secrets, environments, and audit endpoints.
 ---
 
 # API Reference
