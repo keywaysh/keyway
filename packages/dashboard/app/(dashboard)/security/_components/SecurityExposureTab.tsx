@@ -272,15 +272,15 @@ export function SecurityExposureTab() {
   const [isExporting, setIsExporting] = useState(false)
   const hasFiredView = useRef(false)
 
-  const canViewExposure = user?.plan === 'business'
+  // Exposure is a Business feature bought per organization: members of a
+  // Business org must see it even though their personal plan stays free.
+  // The backend enforces the real entitlement on every request.
+  const hasPersonalAccess = user?.plan === 'business'
+  const businessOrgs = organizations.filter((org) => org.plan === 'business')
+  const canViewExposure = hasPersonalAccess || businessOrgs.length > 0
 
   // Fetch organizations
   useEffect(() => {
-    if (!canViewExposure) {
-      setIsLoadingOrgs(false)
-      return
-    }
-
     api
       .getOrganizations()
       .then((orgs) => {
@@ -292,7 +292,16 @@ export function SecurityExposureTab() {
       .finally(() => {
         setIsLoadingOrgs(false)
       })
-  }, [canViewExposure])
+  }, [])
+
+  // Without personal access, the default "all" scope (personal exposure)
+  // would 403 — start on the first Business organization instead
+  useEffect(() => {
+    if (!hasPersonalAccess && selectedOrg === 'all' && businessOrgs.length > 0) {
+      setSelectedOrg(businessOrgs[0].login)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [organizations, hasPersonalAccess])
 
   // Fetch exposure data
   const loadExposure = useCallback(async () => {
@@ -427,7 +436,7 @@ export function SecurityExposureTab() {
     }
   }
 
-  if (!canViewExposure && !isLoading) {
+  if (!canViewExposure && !isLoading && !isLoadingOrgs) {
     return <UpgradePrompt />
   }
 

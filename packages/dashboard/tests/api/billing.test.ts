@@ -22,7 +22,7 @@ describe('billingApi', () => {
               currentPeriodEnd: '2025-12-31T00:00:00Z',
               cancelAtPeriodEnd: false,
             },
-            plan: 'pro',
+            plan: 'team',
             billingStatus: 'active',
             stripeCustomerId: 'cus_123',
           },
@@ -36,7 +36,7 @@ describe('billingApi', () => {
         expect.stringContaining('/v1/billing/subscription'),
         expect.any(Object)
       )
-      expect(result.plan).toBe('pro')
+      expect(result.plan).toBe('team')
       expect(result.billingStatus).toBe('active')
       expect(result.subscription?.status).toBe('active')
     })
@@ -94,8 +94,8 @@ describe('billingApi', () => {
       expect(result.prices.team?.monthly?.interval).toBe('month')
       expect(result.prices.team?.yearly?.interval).toBe('year')
       expect(result.prices.business?.monthly?.currency).toBe('eur')
-      // pro is retired server-side: newer responses simply omit it
-      expect(result.prices.pro).toBeUndefined()
+      // The pro tier is retired: the API only serves team and business
+      expect('pro' in result.prices).toBe(false)
     })
 
     it('should surface null interval slots when Stripe lacks a price', async () => {
@@ -121,7 +121,7 @@ describe('billingApi', () => {
   })
 
   describe('createCheckoutSession', () => {
-    it('should create checkout session', async () => {
+    it('should create a personal checkout session', async () => {
       mockFetch.mockResolvedValueOnce({
         ok: true,
         status: 200,

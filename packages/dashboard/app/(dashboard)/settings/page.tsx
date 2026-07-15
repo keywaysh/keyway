@@ -17,7 +17,7 @@ import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
 
 type UsageData = {
-  plan: 'free' | 'pro' | 'team' | 'business'
+  plan: 'free' | 'team' | 'business'
   limits: {
     maxPublicRepos: string | number
     maxPrivateRepos: string | number
@@ -39,7 +39,7 @@ type SubscriptionData = {
     currentPeriodEnd: string
     cancelAtPeriodEnd: boolean
   } | null
-  plan: 'free' | 'pro' | 'team' | 'business'
+  plan: 'free' | 'team' | 'business'
   billingStatus: 'active' | 'past_due' | 'canceled' | 'trialing'
   stripeCustomerId: string | null
 }
@@ -232,15 +232,10 @@ export default function SettingsPage() {
                       )}
                       {billingData.plan === 'free' && (
                         <p className="text-sm text-muted-foreground mt-1">
-                          Unlimited public repos, 1 private repo
+                          Unlimited public repos, 10 private repos
                         </p>
                       )}
                     </div>
-                    {billingData.plan !== 'free' && (
-                      <Badge variant="outline" className="text-primary">
-                        {billingData.plan === 'pro' ? '€9/mo' : billingData.plan === 'team' ? '€19/mo' : '€39/mo'}
-                      </Badge>
-                    )}
                   </div>
 
                   <div className="flex gap-2 pt-2">
@@ -248,7 +243,7 @@ export default function SettingsPage() {
                       <Button asChild>
                         <Link href="/upgrade">
                           <Sparkles className="h-4 w-4 mr-2" />
-                          Upgrade to Pro
+                          Upgrade
                         </Link>
                       </Button>
                     ) : (

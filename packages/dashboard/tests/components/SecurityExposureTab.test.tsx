@@ -172,13 +172,25 @@ describe('SecurityExposureTab', () => {
   })
 
   describe('Upgrade Prompt', () => {
-    it('should show upgrade prompt when user is not on startup plan', async () => {
+    it('should show upgrade prompt when neither the user nor any org is on Business', async () => {
       mockUser = { id: 'user-1', name: 'Test User', plan: 'free' }
+      mockOrgsResponse = [{ ...mockOrganizations[0], plan: 'free' }]
       render(<SecurityExposureTab />)
 
       await waitFor(() => {
         expect(screen.getByText('Exposure Tracking')).toBeInTheDocument()
         expect(screen.getByText('Upgrade to Business')).toBeInTheDocument()
+      })
+    })
+
+    it('should show exposure when a member org is on Business despite a free personal plan', async () => {
+      mockUser = { id: 'user-1', name: 'Test User', plan: 'free' }
+      // mockOrganizations contains a Business org
+      render(<SecurityExposureTab />)
+
+      await waitFor(() => {
+        expect(screen.getByText('Exposure Report')).toBeInTheDocument()
+        expect(screen.queryByText('Exposure Tracking')).not.toBeInTheDocument()
       })
     })
   })
