@@ -58,13 +58,13 @@ type SubscriptionData = {
     currentPeriodEnd: string
     cancelAtPeriodEnd: boolean
   } | null
-  plan: 'free' | 'pro' | 'team' | 'business'
+  plan: 'free' | 'team' | 'business'
   billingStatus: 'active' | 'past_due' | 'canceled' | 'trialing'
   stripeCustomerId: string | null
 }
 
 type UsageData = {
-  plan: 'free' | 'pro' | 'team' | 'business'
+  plan: 'free' | 'team' | 'business'
   limits: {
     maxPublicRepos: string | number
     maxPrivateRepos: string | number
@@ -256,17 +256,17 @@ describe('SettingsPage', () => {
       render(<SettingsPage />)
 
       expect(screen.getByText('free Plan')).toBeInTheDocument()
-      expect(screen.getByText('Unlimited public repos, 1 private repo')).toBeInTheDocument()
+      expect(screen.getByText('Unlimited public repos, 10 private repos')).toBeInTheDocument()
     })
 
-    it('should show Upgrade to Pro button for free users', () => {
+    it('should show an Upgrade button for free users', () => {
       render(<SettingsPage />)
 
-      const upgradeLink = screen.getByText('Upgrade to Pro')
+      const upgradeLink = screen.getByText('Upgrade')
       expect(upgradeLink.closest('a')).toHaveAttribute('href', '/upgrade')
     })
 
-    it('should show Pro Plan for pro users', () => {
+    it('should show the plan name for legacy paid users', () => {
       mockBillingData = {
         subscription: {
           id: 'sub-1',
@@ -274,15 +274,16 @@ describe('SettingsPage', () => {
           currentPeriodEnd: '2025-12-31T00:00:00Z',
           cancelAtPeriodEnd: false,
         },
-        plan: 'pro',
+        plan: 'team',
         billingStatus: 'active',
         stripeCustomerId: 'cus_123',
       }
       render(<SettingsPage />)
 
-      expect(screen.getByText('pro Plan')).toBeInTheDocument()
+      expect(screen.getByText('team Plan')).toBeInTheDocument()
       expect(screen.getByText('Active')).toBeInTheDocument()
-      expect(screen.getByText('€9/mo')).toBeInTheDocument()
+      // Hardcoded price badges were removed with flat-tier pricing
+      expect(screen.queryByText(/€\d+\/mo/)).not.toBeInTheDocument()
     })
 
     it('should show Manage Billing button for paid users', () => {
@@ -293,7 +294,7 @@ describe('SettingsPage', () => {
           currentPeriodEnd: '2025-12-31T00:00:00Z',
           cancelAtPeriodEnd: false,
         },
-        plan: 'pro',
+        plan: 'team',
         billingStatus: 'active',
         stripeCustomerId: 'cus_123',
       }
@@ -310,7 +311,7 @@ describe('SettingsPage', () => {
           currentPeriodEnd: '2025-12-31T00:00:00Z',
           cancelAtPeriodEnd: false,
         },
-        plan: 'pro',
+        plan: 'team',
         billingStatus: 'active',
         stripeCustomerId: 'cus_123',
       }
@@ -327,7 +328,7 @@ describe('SettingsPage', () => {
           currentPeriodEnd: '2025-12-31T00:00:00Z',
           cancelAtPeriodEnd: true,
         },
-        plan: 'pro',
+        plan: 'team',
         billingStatus: 'active',
         stripeCustomerId: 'cus_123',
       }
@@ -336,7 +337,7 @@ describe('SettingsPage', () => {
       expect(screen.getByText(/Cancels on/)).toBeInTheDocument()
     })
 
-    it('should show Team Plan price', () => {
+    it('should not show a hardcoded price badge for paid plans', () => {
       mockBillingData = {
         subscription: {
           id: 'sub-1',
@@ -350,7 +351,7 @@ describe('SettingsPage', () => {
       }
       render(<SettingsPage />)
 
-      expect(screen.getByText('€19/mo')).toBeInTheDocument()
+      expect(screen.queryByText('€19/mo')).not.toBeInTheDocument()
     })
 
     it('should show Past Due badge when billing is past due', () => {
@@ -361,7 +362,7 @@ describe('SettingsPage', () => {
           currentPeriodEnd: '2025-12-31T00:00:00Z',
           cancelAtPeriodEnd: false,
         },
-        plan: 'pro',
+        plan: 'team',
         billingStatus: 'past_due',
         stripeCustomerId: 'cus_123',
       }
@@ -378,7 +379,7 @@ describe('SettingsPage', () => {
           currentPeriodEnd: '2025-12-31T00:00:00Z',
           cancelAtPeriodEnd: false,
         },
-        plan: 'pro',
+        plan: 'team',
         billingStatus: 'trialing',
         stripeCustomerId: 'cus_123',
       }
@@ -395,7 +396,7 @@ describe('SettingsPage', () => {
           currentPeriodEnd: '2025-12-31T00:00:00Z',
           cancelAtPeriodEnd: false,
         },
-        plan: 'pro',
+        plan: 'team',
         billingStatus: 'active',
         stripeCustomerId: 'cus_123',
       }

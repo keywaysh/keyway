@@ -14,6 +14,8 @@ import {
   Zap,
 } from 'lucide-react'
 import { api } from '@/lib/api'
+import { currencySymbol, formatAmount } from '@/lib/api/billing'
+import { trackEvent, AnalyticsEvents } from '@/lib/analytics'
 import type { OrganizationDetails, OrganizationBillingStatus } from '@/lib/types'
 import { DashboardLayout } from '@/app/components/dashboard/Layout'
 import { ErrorState } from '@/app/components/dashboard/ErrorState'
@@ -23,6 +25,16 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Separator } from '@/components/ui/separator'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import { toast } from 'sonner'
 
 const teamFeatures = [
@@ -40,23 +52,19 @@ const businessFeatures = [
 
 const freeFeatures = [
   'Unlimited public repositories',
-  '1 private repository',
+  '10 private repositories',
   '3 environments per vault',
   'Unlimited collaborators',
   'CLI & Dashboard access',
 ]
-
-const CURRENCY_SYMBOLS: Record<string, string> = { eur: '€', usd: '$' }
-
-function currencySymbol(currency?: string): string {
-  return (currency && CURRENCY_SYMBOLS[currency.toLowerCase()]) || '€'
-}
 
 function planLabel(plan: 'free' | 'team' | 'business'): string {
   return plan === 'business' ? 'Business' : plan === 'team' ? 'Team' : 'Free'
 }
 
 type TierPrices = NonNullable<OrganizationBillingStatus['prices']['team']>
+
+type BillingInterval = 'monthly' | 'yearly'
 
 function OrgPlanCard({
   name,
@@ -71,7 +79,7 @@ function OrgPlanCard({
   features: string[]
   highlight?: boolean
   disabled?: boolean
-  onChoose: (priceId: string) => void
+  onChoose: (price: TierPrices['monthly'], interval: BillingInterval) => void
 }) {
   const sym = currencySymbol(prices.monthly.currency)
   const yearlySavingsPct = Math.round((1 - prices.yearly.price / (prices.monthly.price * 12)) * 100)
@@ -85,11 +93,11 @@ function OrgPlanCard({
       <CardContent className="p-4">
         <div className="font-semibold mb-1">{name}</div>
         <div className="flex items-baseline gap-1">
-          <span className="text-3xl font-bold">{sym}{prices.monthly.price / 100}</span>
+          <span className="text-3xl font-bold">{sym}{formatAmount(prices.monthly.price)}</span>
           <span className="text-muted-foreground">/month</span>
         </div>
         <p className="text-sm text-muted-foreground mt-1">
-          or {sym}{prices.yearly.price / 100}/yr{yearlySavingsPct > 0 ? ` (save ${yearlySavingsPct}%)` : ''}
+          or {sym}{formatAmount(prices.yearly.price)}/yr{yearlySavingsPct > 0 ? ` (save ${yearlySavingsPct}%)` : ''}
         </p>
         <ul className="space-y-1.5 mt-4">
           {features.map((feature) => (
@@ -100,11 +108,11 @@ function OrgPlanCard({
           ))}
         </ul>
         <div className="flex gap-2 mt-4">
-          <Button variant="outline" className="flex-1" onClick={() => onChoose(prices.monthly.id)} disabled={disabled}>
+          <Button variant="outline" className="flex-1" onClick={() => onChoose(prices.monthly, 'monthly')} disabled={disabled}>
             <Zap className="h-4 w-4 mr-1.5" />
             Monthly
           </Button>
-          <Button className="flex-1" onClick={() => onChoose(prices.yearly.id)} disabled={disabled}>
+          <Button className="flex-1" onClick={() => onChoose(prices.yearly, 'yearly')} disabled={disabled}>
             <Sparkles className="h-4 w-4 mr-1.5" />
             Yearly
           </Button>
@@ -124,6 +132,13 @@ export default function OrganizationBillingPage() {
   const [isStartingTrial, setIsStartingTrial] = useState(false)
   const [isRedirecting, setIsRedirecting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // Named confirmation before checkout: the user sees exactly which
+  // organization is being subscribed, to which plan, at what price
+  const [pendingCheckout, setPendingCheckout] = useState<{
+    plan: 'Team' | 'Business'
+    price: TierPrices['monthly']
+    interval: BillingInterval
+  } | null>(null)
 
   useEffect(() => {
     async function loadData() {
@@ -370,7 +385,7 @@ export default function OrganizationBillingPage() {
                   prices={billing.prices.team}
                   features={teamFeatures}
                   disabled={isRedirecting}
-                  onChoose={handleUpgrade}
+                  onChoose={(price, interval) => setPendingCheckout({ plan: 'Team', price, interval })}
                 />
               )}
               {billing?.prices?.business && (
@@ -380,7 +395,7 @@ export default function OrganizationBillingPage() {
                   features={businessFeatures}
                   highlight
                   disabled={isRedirecting}
-                  onChoose={handleUpgrade}
+                  onChoose={(price, interval) => setPendingCheckout({ plan: 'Business', price, interval })}
                 />
               )}
             </div>
@@ -435,6 +450,52 @@ export default function OrganizationBillingPage() {
             </p>
           </CardContent>
         </Card>
+      )}
+
+      {/* Named checkout confirmation. Rendered only while a checkout is
+          pending so the content can't blank out mid-close animation. */}
+      {pendingCheckout && (
+        <AlertDialog
+          open
+          onOpenChange={(open) => {
+            if (!open) setPendingCheckout(null)
+          }}
+        >
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>
+                Subscribe {org.display_name || org.login} to {pendingCheckout.plan}?
+              </AlertDialogTitle>
+              <AlertDialogDescription>
+                The <strong>{org.login}</strong> organization will be subscribed to the{' '}
+                {pendingCheckout.plan} plan for{' '}
+                <strong>
+                  {currencySymbol(pendingCheckout.price.currency)}
+                  {formatAmount(pendingCheckout.price.price)}/
+                  {pendingCheckout.interval === 'monthly' ? 'month' : 'year'}
+                </strong>{' '}
+                — one flat price, unlimited members. You&apos;ll be redirected to Stripe to
+                complete the payment.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                onClick={() => {
+                  trackEvent(AnalyticsEvents.UPGRADE_CLICK, {
+                    plan: pendingCheckout.plan.toLowerCase(),
+                    interval: pendingCheckout.interval,
+                    org: org.login,
+                  })
+                  handleUpgrade(pendingCheckout.price.id)
+                  setPendingCheckout(null)
+                }}
+              >
+                Continue to checkout
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       )}
       </div>
     </DashboardLayout>

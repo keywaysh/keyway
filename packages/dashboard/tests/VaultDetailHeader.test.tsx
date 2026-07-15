@@ -175,7 +175,8 @@ describe('VaultDetailHeader', () => {
     })
 
     describe('Plan Limit Exceeded', () => {
-      it('should show correct message for free plan', () => {
+      // Only the Free plan caps private vaults (10); paid tiers are unlimited
+      it('should show the Free plan limit message with an upgrade link', () => {
         const readOnlyVault = {
           ...mockVault,
           is_read_only: true,
@@ -189,62 +190,8 @@ describe('VaultDetailHeader', () => {
           />
         )
 
-        expect(screen.getByText(/exceeded your free plan limit of 1 private vault/)).toBeInTheDocument()
-        expect(screen.getByText('Upgrade to Pro')).toBeInTheDocument()
-      })
-
-      it('should show correct message for pro plan', () => {
-        const readOnlyVault = {
-          ...mockVault,
-          is_read_only: true,
-          readonly_reason: 'plan_limit_exceeded' as const
-        }
-        render(
-          <VaultDetailHeader
-            {...defaultProps}
-            vault={readOnlyVault}
-            userPlan="pro"
-          />
-        )
-
-        expect(screen.getByText(/exceeded your pro plan limit of 10 private vaults/)).toBeInTheDocument()
+        expect(screen.getByText(/exceeded the Free plan limit of 10 private vaults/)).toBeInTheDocument()
         expect(screen.getByText('Upgrade to Team')).toBeInTheDocument()
-      })
-
-      it('should show correct message for team plan', () => {
-        const readOnlyVault = {
-          ...mockVault,
-          is_read_only: true,
-          readonly_reason: 'plan_limit_exceeded' as const
-        }
-        render(
-          <VaultDetailHeader
-            {...defaultProps}
-            vault={readOnlyVault}
-            userPlan="team"
-          />
-        )
-
-        expect(screen.getByText(/exceeded your team plan limit of 20 private vaults/)).toBeInTheDocument()
-        expect(screen.getByText('Upgrade to Business')).toBeInTheDocument()
-      })
-
-      it('should show "Manage subscription" for business plan (highest tier)', () => {
-        const readOnlyVault = {
-          ...mockVault,
-          is_read_only: true,
-          readonly_reason: 'plan_limit_exceeded' as const
-        }
-        render(
-          <VaultDetailHeader
-            {...defaultProps}
-            vault={readOnlyVault}
-            userPlan="business"
-          />
-        )
-
-        expect(screen.getByText(/exceeded your business plan limit of 50 private vaults/)).toBeInTheDocument()
-        expect(screen.getByText('Manage subscription')).toBeInTheDocument()
       })
 
       it('should link to /upgrade for plan limit exceeded', () => {

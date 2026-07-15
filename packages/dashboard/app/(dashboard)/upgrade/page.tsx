@@ -2,73 +2,104 @@
 
 import { useState, useEffect, useRef } from 'react'
 import Link from 'next/link'
+import Image from 'next/image'
 import { CheckIcon } from '@heroicons/react/24/solid'
-import { Loader2 } from 'lucide-react'
+import { Loader2, Building2, User as UserIcon, Sparkles, Zap } from 'lucide-react'
 import { toast } from 'sonner'
 import { api } from '@/lib/api'
-import type { PricesData } from '@/lib/api/billing'
+import { currencySymbol, formatAmount } from '@/lib/api/billing'
+import type { ApiPrice, PricesData, PlanPrices, SubscriptionData } from '@/lib/api/billing'
+import type { Organization } from '@/lib/types'
+import { useAuth } from '@/lib/auth'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import { trackEvent, AnalyticsEvents } from '@/lib/analytics'
 
 const contactEmail = process.env.NEXT_PUBLIC_CONTACT_EMAIL || 'hello@keyway.sh'
 
-type BillingInterval = 'monthly' | 'yearly'
-
-type PriceData = PricesData
-
-const CURRENCY_SYMBOLS: Record<string, string> = { eur: '€', usd: '$' }
-
-function currencySymbol(currency?: string): string {
-  return (currency && CURRENCY_SYMBOLS[currency.toLowerCase()]) || '€'
-}
-
-type SubscriptionData = {
-  subscription: {
-    id: string
-    status: string
-    currentPeriodEnd: string
-    cancelAtPeriodEnd: boolean
-  } | null
-  plan: 'free' | 'pro' | 'team' | 'business'
-  billingStatus: 'active' | 'past_due' | 'canceled' | 'trialing'
-  stripeCustomerId: string | null
-}
-
 const planFeatures = {
   free: [
     'Unlimited public repos',
-    '1 private repo',
-    '3 environments',
+    '10 private repos',
+    '3 environments per vault',
     '2 provider integrations',
     'Unlimited collaborators',
   ],
-  pro: [
-    '10 private repos',
-    'Unlimited environments',
-    'Unlimited providers',
-    'Unlimited collaborators',
-  ],
   team: [
-    '20 private repos',
+    'Unlimited private repos',
     'Unlimited environments',
     'Unlimited providers',
-    'Audit logs',
-    'Member management',
+    'Organization-wide permissions',
+    'Activity audit logs',
+    'Unlimited members',
   ],
   business: [
-    '50 private repos',
-    'Unlimited collaborators',
+    'Everything in Team',
     'Exposure reports (secret access tracking)',
     'Priority support',
-    'Everything in Team',
+    'Unlimited members',
   ],
 }
 
+type PaidTier = 'team' | 'business'
+type BillingInterval = 'monthly' | 'yearly'
+
+const TIER_LABELS: Record<PaidTier, string> = { team: 'Team', business: 'Business' }
+
+// Fallback display when the prices API is unavailable (display only — real
+// checkout always uses a live Stripe price id)
+const FALLBACK_PRICES: Record<PaidTier, { monthly: number; yearly: number }> = {
+  team: { monthly: 19, yearly: 190 },
+  business: { monthly: 79, yearly: 790 },
+}
+
+function tierPricing(tier: PaidTier, prices: PlanPrices | undefined) {
+  // Never mix live Stripe amounts with the hardcoded fallback: a partial
+  // response (one interval unresolved) would otherwise advertise a yearly
+  // price and savings % that don't exist in Stripe
+  const useApi = Boolean(prices?.monthly && prices?.yearly)
+  const sym = useApi ? currencySymbol(prices!.monthly!.currency) : '€'
+  const monthly = useApi ? prices!.monthly!.price / 100 : FALLBACK_PRICES[tier].monthly
+  const yearly = useApi ? prices!.yearly!.price / 100 : FALLBACK_PRICES[tier].yearly
+  const savingsPct = Math.round((1 - yearly / (monthly * 12)) * 100)
+  return { sym, monthly, yearly, savingsPct, useApi }
+}
+
+type CheckoutTarget = { kind: 'personal' } | { kind: 'org'; org: Organization }
+
+type PendingCheckout = {
+  tier: PaidTier
+  interval: BillingInterval
+  price: ApiPrice
+  target: CheckoutTarget
+}
+
 export default function UpgradePage() {
-  const [interval, setInterval] = useState<BillingInterval>('monthly')
-  const [prices, setPrices] = useState<PriceData | null>(null)
+  const { user } = useAuth()
+  const [prices, setPrices] = useState<PricesData | null>(null)
   const [subscription, setSubscription] = useState<SubscriptionData | null>(null)
+  const [orgs, setOrgs] = useState<Organization[]>([])
   const [loading, setLoading] = useState(true)
-  const [checkoutLoading, setCheckoutLoading] = useState<'pro' | 'team' | 'business' | null>(null)
+  // Step 1: plan+interval picked, choosing the account it applies to
+  const [picking, setPicking] = useState<{ tier: PaidTier; interval: BillingInterval; price: ApiPrice } | null>(null)
+  // Step 2: named confirmation before redirecting to Stripe
+  const [pendingCheckout, setPendingCheckout] = useState<PendingCheckout | null>(null)
+  const [isRedirecting, setIsRedirecting] = useState(false)
   const [isLoggedIn, setIsLoggedIn] = useState<boolean | null>(null) // null = loading
   const hasFiredView = useRef(false)
 
@@ -88,7 +119,7 @@ export default function UpgradePage() {
   useEffect(() => {
     async function fetchData() {
       try {
-        const [priceData, subData] = await Promise.all([
+        const [priceData, subData, orgData] = await Promise.all([
           api.getPrices().catch((e) => {
             console.error('Failed to fetch prices:', e)
             return null
@@ -100,9 +131,11 @@ export default function UpgradePage() {
             }
             return null
           }),
+          api.getOrganizations().catch(() => []),
         ])
         if (priceData) setPrices(priceData)
         if (subData) setSubscription(subData)
+        setOrgs(orgData)
       } catch (error) {
         console.error('Failed to fetch pricing data:', error)
       } finally {
@@ -112,105 +145,112 @@ export default function UpgradePage() {
     fetchData()
   }, [])
 
-  const handleCheckout = async (priceId: string, plan: 'pro' | 'team' | 'business') => {
+  const team = tierPricing('team', prices?.prices.team)
+  const business = tierPricing('business', prices?.prices.business)
+
+  const isSubscriptionActive =
+    subscription?.billingStatus === 'active' || subscription?.billingStatus === 'trialing'
+  const hasPersonalSubscription = isSubscriptionActive && subscription?.plan !== 'free'
+
+  const apiPriceFor = (tier: PaidTier, interval: BillingInterval): ApiPrice | null =>
+    (interval === 'monthly' ? prices?.prices[tier]?.monthly : prices?.prices[tier]?.yearly) ?? null
+
+  const choosePlan = (tier: PaidTier, interval: BillingInterval) => {
+    trackEvent(AnalyticsEvents.UPGRADE_CLICK, { plan: tier, interval })
+    const price = apiPriceFor(tier, interval)
+    if (!price) return
+    setPicking({ tier, interval, price })
+  }
+
+  const chooseTarget = (target: CheckoutTarget) => {
+    if (!picking) return
+    setPendingCheckout({ ...picking, target })
+    setPicking(null)
+  }
+
+  const startCheckout = async () => {
+    if (!pendingCheckout) return
+    const { tier, interval, price, target } = pendingCheckout
     trackEvent(AnalyticsEvents.UPGRADE_CLICK, {
-      plan,
+      plan: tier,
       interval,
+      account: target.kind === 'org' ? target.org.login : 'personal',
     })
-    setCheckoutLoading(plan)
+    setIsRedirecting(true)
     try {
-      const successUrl = `${window.location.origin}/dashboard/settings?upgraded=true`
       const cancelUrl = window.location.href
-      const { url } = await api.createCheckoutSession(priceId, successUrl, cancelUrl)
+      const { url } =
+        target.kind === 'org'
+          ? await api.createOrganizationCheckoutSession(
+              target.org.login,
+              price.id,
+              `${window.location.origin}/orgs/${target.org.login}/billing?success=true`,
+              cancelUrl
+            )
+          : await api.createCheckoutSession(
+              price.id,
+              `${window.location.origin}/settings?upgraded=true`,
+              cancelUrl
+            )
       window.location.href = url
     } catch (error) {
-      console.error('Failed to create checkout session:', error)
+      console.error('Failed to start checkout:', error)
       toast.error(error instanceof Error ? error.message : 'Failed to start checkout. Please try again.')
-      setCheckoutLoading(null)
+      setIsRedirecting(false)
+      setPendingCheckout(null)
     }
   }
 
-  const handleIntervalChange = (newInterval: BillingInterval) => {
-    if (newInterval !== interval) {
-      trackEvent(AnalyticsEvents.UPGRADE_INTERVAL_CHANGE, {
-        from: interval,
-        to: newInterval,
-      })
-      setInterval(newInterval)
+  const targetName = (target: CheckoutTarget) =>
+    target.kind === 'org'
+      ? target.org.display_name || target.org.login
+      : `${user?.github_username || 'your personal account'} (personal)`
+
+  // CTA pair for a paid tier card
+  const tierButtons = (tier: PaidTier, accent: string) => {
+    if (isLoggedIn === false) {
+      return (
+        <Link
+          href="/login?redirect=/upgrade"
+          className={`block w-full py-2 px-4 rounded-lg text-center text-sm font-medium transition-colors ${accent} text-white`}
+        >
+          Login to upgrade
+        </Link>
+      )
     }
-  }
-
-  const getProPrice = () => {
-    const priceObj = interval === 'monthly' ? prices?.prices.pro?.monthly : prices?.prices.pro?.yearly
-    if (!priceObj) return { display: '€9', monthly: 9 }
-    const sym = currencySymbol(priceObj.currency)
-    const amount = priceObj.price / 100 // Convert cents to currency units
-    if (interval === 'yearly') {
-      const monthly = Math.round(amount / 12)
-      return { display: `${sym}${monthly}`, monthly, yearly: amount }
+    const monthlyPrice = apiPriceFor(tier, 'monthly')
+    const yearlyPrice = apiPriceFor(tier, 'yearly')
+    if (!monthlyPrice || !yearlyPrice) {
+      return (
+        <a
+          href={`mailto:${contactEmail}?subject=Upgrade to ${TIER_LABELS[tier]}`}
+          className={`block w-full py-2 px-4 rounded-lg text-center text-sm font-medium transition-colors ${accent} text-white`}
+        >
+          Contact us to upgrade
+        </a>
+      )
     }
-    return { display: `${sym}${amount}`, monthly: amount }
+    return (
+      <div className="flex gap-2">
+        <button
+          onClick={() => choosePlan(tier, 'monthly')}
+          disabled={isRedirecting}
+          className="flex-1 py-2 px-3 rounded-lg text-center text-sm font-medium transition-colors bg-gray-800 hover:bg-gray-700 text-white disabled:opacity-50"
+        >
+          <Zap className="inline size-4 mr-1" />
+          Monthly
+        </button>
+        <button
+          onClick={() => choosePlan(tier, 'yearly')}
+          disabled={isRedirecting}
+          className={`flex-1 py-2 px-3 rounded-lg text-center text-sm font-medium transition-colors ${accent} text-white disabled:opacity-50`}
+        >
+          <Sparkles className="inline size-4 mr-1" />
+          Yearly
+        </button>
+      </div>
+    )
   }
-
-  const getProPriceId = () => {
-    return (interval === 'monthly' ? prices?.prices.pro?.monthly?.id : prices?.prices.pro?.yearly?.id) ?? null
-  }
-
-  const getTeamPrice = () => {
-    const priceObj = interval === 'monthly' ? prices?.prices.team?.monthly : prices?.prices.team?.yearly
-    if (!priceObj) return { display: '€19', monthly: 19 }
-    const sym = currencySymbol(priceObj.currency)
-    const amount = priceObj.price / 100 // Convert cents to currency units
-    if (interval === 'yearly') {
-      const monthly = Math.round(amount / 12)
-      return { display: `${sym}${monthly}`, monthly, yearly: amount }
-    }
-    return { display: `${sym}${amount}`, monthly: amount }
-  }
-
-  const getTeamPriceId = () => {
-    return (interval === 'monthly' ? prices?.prices.team?.monthly?.id : prices?.prices.team?.yearly?.id) ?? null
-  }
-
-  const getBusinessPrice = () => {
-    const priceObj = interval === 'monthly' ? prices?.prices.business?.monthly : prices?.prices.business?.yearly
-    if (!priceObj) return { display: '€39', monthly: 39 }
-    const sym = currencySymbol(priceObj.currency)
-    const amount = priceObj.price / 100 // Convert cents to currency units
-    if (interval === 'yearly') {
-      const monthly = Math.round(amount / 12)
-      return { display: `${sym}${monthly}`, monthly, yearly: amount }
-    }
-    return { display: `${sym}${amount}`, monthly: amount }
-  }
-
-  const getBusinessPriceId = () => {
-    return (interval === 'monthly' ? prices?.prices.business?.monthly?.id : prices?.prices.business?.yearly?.id) ?? null
-  }
-
-  const sym = currencySymbol(prices?.prices.team?.monthly?.currency)
-  const proPrice = getProPrice()
-  const proPriceId = getProPriceId()
-  const teamPrice = getTeamPrice()
-  const teamPriceId = getTeamPriceId()
-  const businessPrice = getBusinessPrice()
-  const businessPriceId = getBusinessPriceId()
-
-  // The pro tier is retired server-side: hide its card once the API stops
-  // returning it (still shown while the old API serves pro, and while loading)
-  const showProCard = !prices || Boolean(prices.prices.pro)
-
-  // Check current subscription status
-  // Consider 'active' and 'trialing' as having an active subscription
-  const isSubscriptionActive = subscription?.billingStatus === 'active' || subscription?.billingStatus === 'trialing'
-  const hasActiveSubscription = isSubscriptionActive && subscription?.plan !== 'free'
-  const isCurrentPlanPro = subscription?.plan === 'pro' && isSubscriptionActive
-  const isCurrentPlanTeam = subscription?.plan === 'team' && isSubscriptionActive
-  const isCurrentPlanBusiness = subscription?.plan === 'business' && isSubscriptionActive
-  const isCurrentPlanFree = !subscription || subscription.plan === 'free' || subscription.billingStatus === 'canceled'
-
-  // Disable upgrade buttons if user has any active paid subscription
-  const canUpgrade = !hasActiveSubscription
 
   return (
     <div className="min-h-dvh bg-gray-950 flex flex-col">
@@ -230,7 +270,7 @@ export default function UpgradePage() {
             <span className="text-sm text-gray-600 w-16" />
           ) : isLoggedIn ? (
             <Link
-              href="/dashboard"
+              href="/"
               className="text-sm text-gray-400 hover:text-white transition-colors"
             >
               Dashboard
@@ -255,51 +295,26 @@ export default function UpgradePage() {
               Upgrade your plan
             </h1>
             <p className="text-lg text-gray-400 max-w-2xl mx-auto">
-              Unlock unlimited vaults and more features for your team.
+              One flat price per account — personal or organization. Unlimited members,
+              unlimited repos: collaboration is never metered.
             </p>
           </div>
 
-          {/* Active subscription banner */}
-          {hasActiveSubscription && (
+          {/* Existing personal subscription banner */}
+          {hasPersonalSubscription && (
             <div className="mb-8 p-4 rounded-lg bg-primary/10 border border-primary/30 text-center">
               <p className="text-primary mb-2">
-                You already have an active <span className="font-semibold capitalize">{subscription?.plan}</span> subscription.
+                Your personal account is on the{' '}
+                <span className="font-semibold capitalize">{subscription?.plan}</span> plan.
               </p>
               <Link
-                href="/dashboard/settings"
+                href="/settings"
                 className="text-sm text-primary/80 hover:text-primary underline"
               >
                 Manage your subscription in Settings
               </Link>
             </div>
           )}
-
-          {/* Billing toggle */}
-          <div className="flex justify-center mb-12">
-            <div className="bg-gray-900 p-1 rounded-lg inline-flex">
-              <button
-                onClick={() => handleIntervalChange('monthly')}
-                className={`px-4 py-2 text-sm font-medium rounded-md transition-colors ${
-                  interval === 'monthly'
-                    ? 'bg-gray-800 text-white'
-                    : 'text-gray-400 hover:text-white'
-                }`}
-              >
-                Monthly
-              </button>
-              <button
-                onClick={() => handleIntervalChange('yearly')}
-                className={`px-4 py-2 text-sm font-medium rounded-md transition-colors ${
-                  interval === 'yearly'
-                    ? 'bg-gray-800 text-white'
-                    : 'text-gray-400 hover:text-white'
-                }`}
-              >
-                Yearly
-                <span className="ml-2 text-xs text-primary">Save 17%</span>
-              </button>
-            </div>
-          </div>
 
           {loading ? (
             <div className="flex justify-center py-12">
@@ -308,14 +323,15 @@ export default function UpgradePage() {
           ) : (
             <>
               {/* Plans grid */}
-              <div className={showProCard ? 'grid md:grid-cols-2 lg:grid-cols-4 gap-6 mb-12' : 'grid md:grid-cols-2 lg:grid-cols-3 gap-6 mb-12'}>
+              <div className="grid md:grid-cols-3 gap-6 mb-12">
                 {/* Free Plan */}
                 <div className="rounded-2xl p-6 bg-gray-900 border border-gray-800">
                   <h2 className="text-xl font-bold text-white mb-1">Free</h2>
-                  <p className="text-gray-400 text-sm mb-4">For personal projects</p>
+                  <p className="text-gray-400 text-sm mb-4">For getting started</p>
                   <div className="mb-6">
-                    <span className="text-3xl font-bold text-white">{sym}0</span>
+                    <span className="text-3xl font-bold text-white">{team.sym}0</span>
                     <span className="text-gray-400">/month</span>
+                    <div className="text-sm text-gray-500 mt-1">Forever</div>
                   </div>
                   <ul className="space-y-3 mb-6">
                     {planFeatures.free.map((feature) => (
@@ -325,94 +341,28 @@ export default function UpgradePage() {
                       </li>
                     ))}
                   </ul>
-                  {isCurrentPlanFree ? (
-                    <div className="w-full py-2 px-4 rounded-lg bg-gray-800 text-gray-400 text-center text-sm">
-                      Current plan
-                    </div>
-                  ) : (
-                    <div className="w-full py-2 px-4 rounded-lg bg-gray-800 text-gray-400 text-center text-sm">
-                      Free tier
-                    </div>
-                  )}
-                </div>
-
-                {/* Pro Plan (retired tier — card hidden when the API no longer prices it) */}
-                {showProCard && (
-                <div className="rounded-2xl p-6 bg-primary/10 border-2 border-primary">
-                  <div className="text-primary text-sm font-medium mb-2">Most popular</div>
-                  <h2 className="text-xl font-bold text-white mb-1">Pro</h2>
-                  <p className="text-gray-400 text-sm mb-4">For professionals & small teams</p>
-                  <div className="mb-6">
-                    <span className="text-3xl font-bold text-white">{proPrice.display}</span>
-                    <span className="text-gray-400">/month</span>
-                    {interval === 'yearly' && proPrice.yearly && (
-                      <div className="text-sm text-gray-500 mt-1">
-                        Billed {sym}{proPrice.yearly}/year
-                      </div>
-                    )}
+                  <div className="w-full py-2 px-4 rounded-lg bg-gray-800 text-gray-400 text-center text-sm">
+                    {!hasPersonalSubscription ? 'Current plan' : 'Free tier'}
                   </div>
-                  <ul className="space-y-3 mb-6">
-                    {planFeatures.pro.map((feature) => (
-                      <li key={feature} className="flex items-start gap-2 text-sm">
-                        <CheckIcon className="w-5 h-5 text-primary shrink-0" />
-                        <span className="text-gray-300">{feature}</span>
-                      </li>
-                    ))}
-                  </ul>
-                  {isCurrentPlanPro ? (
-                    <div className="w-full py-2 px-4 rounded-lg bg-gray-800 text-gray-400 text-center text-sm">
-                      Current plan
-                    </div>
-                  ) : !canUpgrade ? (
-                    <Link
-                      href="/dashboard/settings"
-                      className="block w-full py-2 px-4 rounded-lg text-center text-sm font-medium transition-colors bg-gray-800 text-gray-400 hover:bg-gray-700"
-                    >
-                      Manage in Settings
-                    </Link>
-                  ) : isLoggedIn === false ? (
-                    <Link
-                      href="/login?redirect=/upgrade"
-                      className="block w-full py-2 px-4 rounded-lg text-center text-sm font-medium transition-colors bg-primary hover:bg-primary/90 text-white"
-                    >
-                      Login to upgrade
-                    </Link>
-                  ) : proPriceId && isLoggedIn ? (
-                    <button
-                      onClick={() => handleCheckout(proPriceId, 'pro')}
-                      disabled={checkoutLoading !== null}
-                      className="block w-full py-2 px-4 rounded-lg text-center text-sm font-medium transition-colors bg-primary hover:bg-primary/90 text-white disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      {checkoutLoading === 'pro' ? (
-                        <Loader2 className="w-4 h-4 mx-auto animate-spin" />
-                      ) : (
-                        `Upgrade to Pro`
-                      )}
-                    </button>
-                  ) : (
-                    <a
-                      href={`mailto:${contactEmail}?subject=Upgrade to Pro`}
-                      className="block w-full py-2 px-4 rounded-lg text-center text-sm font-medium transition-colors bg-primary hover:bg-primary/90 text-white"
-                    >
-                      Contact us to upgrade
-                    </a>
-                  )}
                 </div>
-                )}
 
                 {/* Team Plan */}
-                <div className="rounded-2xl p-6 bg-gray-900 border border-gray-800">
-                  <div className="text-purple-400 text-sm font-medium mb-2">Collaboration</div>
+                <div className="rounded-2xl p-6 bg-primary/10 border-2 border-primary">
+                  <div className="text-primary text-sm font-medium mb-2">Most popular</div>
                   <h2 className="text-xl font-bold text-white mb-1">Team</h2>
-                  <p className="text-gray-400 text-sm mb-4">Audit logs & access control</p>
+                  <p className="text-gray-400 text-sm mb-4">
+                    For organizations — or your personal account
+                  </p>
                   <div className="mb-6">
-                    <span className="text-3xl font-bold text-white">{teamPrice.display}</span>
+                    <span className="text-3xl font-bold text-white">
+                      {team.sym}
+                      {team.monthly}
+                    </span>
                     <span className="text-gray-400">/month</span>
-                    {interval === 'yearly' && teamPrice.yearly && (
-                      <div className="text-sm text-gray-500 mt-1">
-                        Billed {sym}{teamPrice.yearly}/year
-                      </div>
-                    )}
+                    <div className="text-sm text-gray-500 mt-1">
+                      or {team.sym}
+                      {team.yearly}/year{team.savingsPct > 0 ? ` (save ${team.savingsPct}%)` : ''}
+                    </div>
                   </div>
                   <ul className="space-y-3 mb-6">
                     {planFeatures.team.map((feature) => (
@@ -422,59 +372,27 @@ export default function UpgradePage() {
                       </li>
                     ))}
                   </ul>
-                  {isCurrentPlanTeam ? (
-                    <div className="w-full py-2 px-4 rounded-lg bg-gray-800 text-gray-400 text-center text-sm">
-                      Current plan
-                    </div>
-                  ) : !canUpgrade ? (
-                    <Link
-                      href="/dashboard/settings"
-                      className="block w-full py-2 px-4 rounded-lg text-center text-sm font-medium transition-colors bg-gray-800 text-gray-400 hover:bg-gray-700"
-                    >
-                      Manage in Settings
-                    </Link>
-                  ) : isLoggedIn === false ? (
-                    <Link
-                      href="/login?redirect=/upgrade"
-                      className="block w-full py-2 px-4 rounded-lg text-center text-sm font-medium transition-colors bg-purple-600 hover:bg-purple-700 text-white"
-                    >
-                      Login to upgrade
-                    </Link>
-                  ) : teamPriceId && isLoggedIn ? (
-                    <button
-                      onClick={() => handleCheckout(teamPriceId, 'team')}
-                      disabled={checkoutLoading !== null}
-                      className="block w-full py-2 px-4 rounded-lg text-center text-sm font-medium transition-colors bg-purple-600 hover:bg-purple-700 text-white disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      {checkoutLoading === 'team' ? (
-                        <Loader2 className="w-4 h-4 mx-auto animate-spin" />
-                      ) : (
-                        `Upgrade to Team`
-                      )}
-                    </button>
-                  ) : (
-                    <a
-                      href={`mailto:${contactEmail}?subject=Upgrade to Team`}
-                      className="block w-full py-2 px-4 rounded-lg text-center text-sm font-medium transition-colors bg-purple-600 hover:bg-purple-700 text-white"
-                    >
-                      Contact us to upgrade
-                    </a>
-                  )}
+                  {tierButtons('team', 'bg-primary hover:bg-primary/90')}
                 </div>
 
                 {/* Business Plan */}
                 <div className="rounded-2xl p-6 bg-gray-900 border border-gray-800">
-                  <div className="text-amber-400 text-sm font-medium mb-2">Best value</div>
+                  <div className="text-amber-400 text-sm font-medium mb-2">Governance</div>
                   <h2 className="text-xl font-bold text-white mb-1">Business</h2>
-                  <p className="text-gray-400 text-sm mb-4">50 repos & advanced team features</p>
+                  <p className="text-gray-400 text-sm mb-4">
+                    For teams with compliance needs
+                  </p>
                   <div className="mb-6">
-                    <span className="text-3xl font-bold text-white">{businessPrice.display}</span>
+                    <span className="text-3xl font-bold text-white">
+                      {business.sym}
+                      {business.monthly}
+                    </span>
                     <span className="text-gray-400">/month</span>
-                    {interval === 'yearly' && businessPrice.yearly && (
-                      <div className="text-sm text-gray-500 mt-1">
-                        Billed {sym}{businessPrice.yearly}/year
-                      </div>
-                    )}
+                    <div className="text-sm text-gray-500 mt-1">
+                      or {business.sym}
+                      {business.yearly}/year
+                      {business.savingsPct > 0 ? ` (save ${business.savingsPct}%)` : ''}
+                    </div>
                   </div>
                   <ul className="space-y-3 mb-6">
                     {planFeatures.business.map((feature) => (
@@ -484,57 +402,19 @@ export default function UpgradePage() {
                       </li>
                     ))}
                   </ul>
-                  {isCurrentPlanBusiness ? (
-                    <div className="w-full py-2 px-4 rounded-lg bg-gray-800 text-gray-400 text-center text-sm">
-                      Current plan
-                    </div>
-                  ) : !canUpgrade ? (
-                    <Link
-                      href="/dashboard/settings"
-                      className="block w-full py-2 px-4 rounded-lg text-center text-sm font-medium transition-colors bg-gray-800 text-gray-400 hover:bg-gray-700"
-                    >
-                      Manage in Settings
-                    </Link>
-                  ) : isLoggedIn === false ? (
-                    <Link
-                      href="/login?redirect=/upgrade"
-                      className="block w-full py-2 px-4 rounded-lg text-center text-sm font-medium transition-colors bg-amber-600 hover:bg-amber-700 text-white"
-                    >
-                      Login to upgrade
-                    </Link>
-                  ) : businessPriceId && isLoggedIn ? (
-                    <button
-                      onClick={() => handleCheckout(businessPriceId, 'business')}
-                      disabled={checkoutLoading !== null}
-                      className="block w-full py-2 px-4 rounded-lg text-center text-sm font-medium transition-colors bg-amber-600 hover:bg-amber-700 text-white disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      {checkoutLoading === 'business' ? (
-                        <Loader2 className="w-4 h-4 mx-auto animate-spin" />
-                      ) : (
-                        `Upgrade to Business`
-                      )}
-                    </button>
-                  ) : (
-                    <a
-                      href={`mailto:${contactEmail}?subject=Upgrade to Business`}
-                      className="block w-full py-2 px-4 rounded-lg text-center text-sm font-medium transition-colors bg-amber-600 hover:bg-amber-700 text-white"
-                    >
-                      Contact us to upgrade
-                    </a>
-                  )}
+                  {tierButtons('business', 'bg-amber-600 hover:bg-amber-700')}
                 </div>
               </div>
 
               {/* FAQ / Info section */}
               <div className="bg-gray-900 border border-gray-800 rounded-xl p-6 text-center">
-                <p className="text-gray-400 mb-2">
-                  Secure payments powered by Stripe
-                </p>
+                <p className="text-gray-400 mb-2">Secure payments powered by Stripe</p>
                 <p className="text-gray-500 text-sm mb-2">
-                  Plans are per-account. Organizations are billed separately.
+                  A subscription covers one GitHub account — your personal account or an
+                  organization — with unlimited members either way.
                 </p>
                 <p className="text-gray-500 text-sm">
-                  Cancel anytime. Questions?{' '}
+                  Cancel anytime. Need something more?{' '}
                   <a href={`mailto:${contactEmail}`} className="text-primary hover:underline">
                     Contact us
                   </a>
@@ -544,6 +424,130 @@ export default function UpgradePage() {
           )}
         </div>
       </main>
+
+      {/* Step 1 — account picker */}
+      <Dialog open={picking !== null} onOpenChange={(open) => !open && setPicking(null)}>
+        <DialogContent className="bg-gray-900 border-gray-800">
+          <DialogHeader>
+            <DialogTitle className="text-white">
+              Who is this {picking ? TIER_LABELS[picking.tier] : ''} subscription for?
+            </DialogTitle>
+            <DialogDescription>
+              A subscription covers a single GitHub account.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <button
+              onClick={() => chooseTarget({ kind: 'personal' })}
+              className="w-full flex items-center gap-3 p-3 rounded-lg border border-gray-800 hover:border-gray-700 hover:bg-gray-800 transition-colors text-left"
+            >
+              {user?.avatar_url ? (
+                <Image
+                  src={user.avatar_url}
+                  alt={user.github_username || 'you'}
+                  width={32}
+                  height={32}
+                  className="rounded-full"
+                />
+              ) : (
+                <UserIcon className="size-8 text-gray-500" />
+              )}
+              <div className="flex-1">
+                <div className="text-sm font-medium text-white">
+                  {user?.github_username || 'Personal account'}
+                </div>
+                <div className="text-xs text-gray-500">
+                  Personal account · covers your own repos
+                </div>
+              </div>
+            </button>
+            {[...orgs]
+              .sort((a, b) => (a.role === 'owner' ? 0 : 1) - (b.role === 'owner' ? 0 : 1))
+              .map((org) => {
+                const alreadyPaid = org.plan !== 'free'
+                const notOwner = org.role !== 'owner'
+                const disabled = alreadyPaid || notOwner
+                return (
+                  <button
+                    key={org.id}
+                    onClick={() => chooseTarget({ kind: 'org', org })}
+                    disabled={disabled}
+                    className="w-full flex items-center gap-3 p-3 rounded-lg border border-gray-800 enabled:hover:border-gray-700 enabled:hover:bg-gray-800 transition-colors text-left disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {org.avatar_url ? (
+                      <Image
+                        src={org.avatar_url}
+                        alt={org.login}
+                        width={32}
+                        height={32}
+                        className="rounded-md"
+                      />
+                    ) : (
+                      <Building2 className="size-8 text-gray-500" />
+                    )}
+                    <div className="flex-1">
+                      <div className="text-sm font-medium text-white">
+                        {org.display_name || org.login}
+                      </div>
+                      <div className="text-xs text-gray-500 capitalize">
+                        {alreadyPaid
+                          ? `already on ${org.plan}`
+                          : notOwner
+                            ? 'owners manage billing'
+                            : 'organization'}
+                      </div>
+                    </div>
+                  </button>
+                )
+              })}
+            {orgs.length === 0 && (
+              <p className="text-xs text-gray-500 pt-1">
+                Have a GitHub organization?{' '}
+                <Link href="/orgs" className="text-primary hover:underline">
+                  Connect it first
+                </Link>{' '}
+                to subscribe it instead.
+              </p>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Step 2 — named confirmation. Rendered only while pending so the
+          content can't blank out mid-close animation. */}
+      {pendingCheckout && (
+        <AlertDialog open onOpenChange={(open) => !open && !isRedirecting && setPendingCheckout(null)}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>
+                Subscribe {targetName(pendingCheckout.target)} to{' '}
+                {TIER_LABELS[pendingCheckout.tier]}?
+              </AlertDialogTitle>
+              <AlertDialogDescription>
+                <strong>{targetName(pendingCheckout.target)}</strong> will be subscribed to
+                the {TIER_LABELS[pendingCheckout.tier]} plan for{' '}
+                <strong>
+                  {currencySymbol(pendingCheckout.price.currency)}
+                  {formatAmount(pendingCheckout.price.price)}/
+                  {pendingCheckout.interval === 'monthly' ? 'month' : 'year'}
+                </strong>{' '}
+                — one flat price covering every repo and member of that account. You&apos;ll
+                be redirected to Stripe to complete the payment.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel disabled={isRedirecting}>Cancel</AlertDialogCancel>
+              <AlertDialogAction onClick={startCheckout} disabled={isRedirecting}>
+                {isRedirecting ? (
+                  <Loader2 className="size-4 animate-spin" />
+                ) : (
+                  'Continue to checkout'
+                )}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      )}
 
       {/* Footer */}
       <footer className="border-t border-gray-800 py-6">
