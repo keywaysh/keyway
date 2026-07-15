@@ -15,6 +15,7 @@ import {
   upsertOrganizationMember,
 } from "../../../services/organization.service";
 import { keywayRoleFromGitHub } from "../../../utils/orgRole";
+import { config } from "../../../config";
 import type { OrgRole } from "../../../db/schema";
 import { startTrial, getTrialInfo, TRIAL_DURATION_DAYS } from "../../../services/trial.service";
 import { detectPlatform } from "../../../services/activity.service";
@@ -711,6 +712,18 @@ export async function organizationsRoutes(fastify: FastifyInstance) {
 
       bodySchema.parse({ priceId, successUrl, cancelUrl });
 
+      // Stripe redirects the payer to these URLs after checkout — restrict
+      // them to our own origins so a crafted request can't send the payer
+      // to an attacker-controlled page
+      const allowedOrigins = config.cors.allowedOrigins;
+      if (allowedOrigins.length > 0) {
+        const successOrigin = new URL(successUrl).origin;
+        const cancelOrigin = new URL(cancelUrl).origin;
+        if (!allowedOrigins.includes(successOrigin) || !allowedOrigins.includes(cancelOrigin)) {
+          throw new BadRequestError("Redirect URLs must be from allowed origins");
+        }
+      }
+
       // Get user from database
       const user = await db.query.users.findFirst({
         where: and(
@@ -782,6 +795,12 @@ export async function organizationsRoutes(fastify: FastifyInstance) {
       });
 
       bodySchema.parse({ returnUrl });
+
+      // Same origin restriction as checkout: the portal redirects back here
+      const allowedOrigins = config.cors.allowedOrigins;
+      if (allowedOrigins.length > 0 && !allowedOrigins.includes(new URL(returnUrl).origin)) {
+        throw new BadRequestError("Return URL must be from an allowed origin");
+      }
 
       // Get user from database
       const user = await db.query.users.findFirst({

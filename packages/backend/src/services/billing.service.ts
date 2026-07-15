@@ -39,15 +39,39 @@ export interface ResolvedPrice {
   interval: "month" | "year";
 }
 
+// Without a TTL, a price rotation in Stripe (archive + replace) would leave
+// stale price IDs cached until the next deploy — and checkout fails on
+// archived prices.
+const PRICE_CACHE_TTL_MS = 60 * 60 * 1000;
+// Short expiry for incomplete results (e.g. mid-rotation): retry soon instead
+// of pinning a broken price list for the full TTL.
+const PRICE_CACHE_RETRY_MS = 60 * 1000;
+
 let priceCache: Map<string, Stripe.Price> | null = null;
+let priceCacheExpiresAt = 0;
 
 async function resolvePrices(): Promise<Map<string, Stripe.Price>> {
-  if (priceCache) {
+  if (priceCache && Date.now() < priceCacheExpiresAt) {
     return priceCache;
   }
   const s = getStripe();
   const lookupKeys = Object.values(LOOKUP_KEYS).flatMap((p) => [p.monthly, p.yearly]);
-  const res = await s.prices.list({ lookup_keys: lookupKeys, active: true, limit: 100 });
+
+  let res: Stripe.ApiList<Stripe.Price>;
+  try {
+    res = await s.prices.list({ lookup_keys: lookupKeys, active: true, limit: 100 });
+  } catch (error) {
+    // Serve the expired cache rather than failing checkout, /prices and
+    // webhook plan resolution during a transient Stripe outage.
+    if (priceCache) {
+      logger.warn(
+        { error: error instanceof Error ? error.message : "Unknown error" },
+        "Stripe price refresh failed; serving stale price cache"
+      );
+      return priceCache;
+    }
+    throw error;
+  }
 
   const map = new Map<string, Stripe.Price>();
   for (const price of res.data) {
@@ -56,6 +80,8 @@ async function resolvePrices(): Promise<Map<string, Stripe.Price>> {
     }
   }
   priceCache = map;
+  priceCacheExpiresAt =
+    Date.now() + (map.size === lookupKeys.length ? PRICE_CACHE_TTL_MS : PRICE_CACHE_RETRY_MS);
   return map;
 }
 
