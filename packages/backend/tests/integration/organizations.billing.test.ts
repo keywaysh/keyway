@@ -556,6 +556,24 @@ describe('Organization Billing Routes', () => {
       });
     });
 
+    it('should reject return URLs from non-allowed origins', async () => {
+      const response = await app.inject({
+        method: 'POST',
+        url: '/v1/orgs/test-org/billing/portal',
+        headers: {
+          'content-type': 'application/json',
+        },
+        payload: {
+          returnUrl: 'https://evil.example/phish',
+        },
+      });
+
+      expect(response.statusCode).toBe(400);
+      const body = JSON.parse(response.body);
+      expect(body.detail).toContain('allowed origin');
+      expect(mockCreateOrgPortalSession).not.toHaveBeenCalled();
+    });
+
     it('should create portal session for owner', async () => {
       const response = await app.inject({
         method: 'POST',

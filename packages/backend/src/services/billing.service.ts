@@ -62,8 +62,11 @@ async function resolvePrices(): Promise<Map<string, Stripe.Price>> {
     res = await s.prices.list({ lookup_keys: lookupKeys, active: true, limit: 100 });
   } catch (error) {
     // Serve the expired cache rather than failing checkout, /prices and
-    // webhook plan resolution during a transient Stripe outage.
+    // webhook plan resolution during a transient Stripe outage. Re-arm the
+    // expiry so concurrent/subsequent requests don't each re-hit Stripe
+    // (and eat its timeout) for the whole outage.
     if (priceCache) {
+      priceCacheExpiresAt = Date.now() + PRICE_CACHE_RETRY_MS;
       logger.warn(
         { error: error instanceof Error ? error.message : "Unknown error" },
         "Stripe price refresh failed; serving stale price cache"
@@ -78,6 +81,12 @@ async function resolvePrices(): Promise<Map<string, Stripe.Price>> {
     if (price.lookup_key) {
       map.set(price.lookup_key, price);
     }
+  }
+  if (map.size !== lookupKeys.length) {
+    logger.warn(
+      { missing: lookupKeys.filter((k) => !map.has(k)) },
+      "Some Stripe lookup keys are unresolved; caching prices briefly"
+    );
   }
   priceCache = map;
   priceCacheExpiresAt =
