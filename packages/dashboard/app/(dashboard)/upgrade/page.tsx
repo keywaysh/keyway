@@ -77,7 +77,7 @@ function tierPricing(tier: PaidTier, prices: PlanPrices | undefined) {
   const monthly = useApi ? prices!.monthly!.price / 100 : FALLBACK_PRICES[tier].monthly
   const yearly = useApi ? prices!.yearly!.price / 100 : FALLBACK_PRICES[tier].yearly
   const savingsPct = Math.round((1 - yearly / (monthly * 12)) * 100)
-  return { sym, monthly, yearly, savingsPct, useApi }
+  return { sym, monthly, yearly, savingsPct }
 }
 
 type CheckoutTarget = { kind: 'personal' } | { kind: 'org'; org: Organization }
@@ -171,7 +171,7 @@ export default function UpgradePage() {
   const startCheckout = async () => {
     if (!pendingCheckout) return
     const { tier, interval, price, target } = pendingCheckout
-    trackEvent(AnalyticsEvents.UPGRADE_CLICK, {
+    trackEvent(AnalyticsEvents.CHECKOUT_START, {
       plan: tier,
       interval,
       account: target.kind === 'org' ? target.org.login : 'personal',
@@ -196,8 +196,8 @@ export default function UpgradePage() {
     } catch (error) {
       console.error('Failed to start checkout:', error)
       toast.error(error instanceof Error ? error.message : 'Failed to start checkout. Please try again.')
+      // Keep the confirmation open so the user can retry or cancel in context
       setIsRedirecting(false)
-      setPendingCheckout(null)
     }
   }
 
@@ -235,6 +235,7 @@ export default function UpgradePage() {
         <button
           onClick={() => choosePlan(tier, 'monthly')}
           disabled={isRedirecting}
+          aria-label={`Subscribe to ${TIER_LABELS[tier]} monthly`}
           className="flex-1 py-2 px-3 rounded-lg text-center text-sm font-medium transition-colors bg-gray-800 hover:bg-gray-700 text-white disabled:opacity-50"
         >
           <Zap className="inline size-4 mr-1" />
@@ -243,6 +244,7 @@ export default function UpgradePage() {
         <button
           onClick={() => choosePlan(tier, 'yearly')}
           disabled={isRedirecting}
+          aria-label={`Subscribe to ${TIER_LABELS[tier]} yearly`}
           className={`flex-1 py-2 px-3 rounded-lg text-center text-sm font-medium transition-colors ${accent} text-white disabled:opacity-50`}
         >
           <Sparkles className="inline size-4 mr-1" />
@@ -439,7 +441,8 @@ export default function UpgradePage() {
           <div className="space-y-2">
             <button
               onClick={() => chooseTarget({ kind: 'personal' })}
-              className="w-full flex items-center gap-3 p-3 rounded-lg border border-gray-800 hover:border-gray-700 hover:bg-gray-800 transition-colors text-left"
+              disabled={hasPersonalSubscription}
+              className="w-full flex items-center gap-3 p-3 rounded-lg border border-gray-800 enabled:hover:border-gray-700 enabled:hover:bg-gray-800 transition-colors text-left disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {user?.avatar_url ? (
                 <Image
@@ -457,7 +460,9 @@ export default function UpgradePage() {
                   {user?.github_username || 'Personal account'}
                 </div>
                 <div className="text-xs text-gray-500">
-                  Personal account · covers your own repos
+                  {hasPersonalSubscription
+                    ? `already on ${subscription?.plan}`
+                    : 'Personal account · covers your own repos'}
                 </div>
               </div>
             </button>
@@ -465,7 +470,10 @@ export default function UpgradePage() {
               .sort((a, b) => (a.role === 'owner' ? 0 : 1) - (b.role === 'owner' ? 0 : 1))
               .map((org) => {
                 const alreadyPaid = org.plan !== 'free'
-                const notOwner = org.role !== 'owner'
+                // Only a confirmed member role disables the row: role can be
+                // undefined against an older backend, and the checkout route
+                // enforces ownership server-side anyway
+                const notOwner = org.role === 'member'
                 const disabled = alreadyPaid || notOwner
                 return (
                   <button
@@ -537,7 +545,15 @@ export default function UpgradePage() {
             </AlertDialogHeader>
             <AlertDialogFooter>
               <AlertDialogCancel disabled={isRedirecting}>Cancel</AlertDialogCancel>
-              <AlertDialogAction onClick={startCheckout} disabled={isRedirecting}>
+              <AlertDialogAction
+                onClick={(e) => {
+                  // Radix closes the dialog on Action click by default; keep it
+                  // open so the loading state shows and errors land in context
+                  e.preventDefault()
+                  startCheckout()
+                }}
+                disabled={isRedirecting}
+              >
                 {isRedirecting ? (
                   <Loader2 className="size-4 animate-spin" />
                 ) : (

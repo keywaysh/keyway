@@ -95,6 +95,7 @@ export const AnalyticsEvents = {
   // Upgrade page
   UPGRADE_VIEW: 'upgrade_view',
   UPGRADE_CLICK: 'upgrade_click',
+  CHECKOUT_START: 'checkout_start',
 
   // Exposure (offboarding)
   EXPOSURE_VIEW: 'exposure_view',

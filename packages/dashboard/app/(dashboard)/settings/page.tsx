@@ -9,6 +9,7 @@ import { DashboardLayout } from '@/app/components/dashboard/Layout'
 import { useAuth } from '@/lib/auth'
 import { trackEvent, AnalyticsEvents } from '@/lib/analytics'
 import { api } from '@/lib/api'
+import type { SubscriptionData } from '@/lib/api/billing'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
@@ -30,18 +31,6 @@ type UsageData = {
     private: number
     providers: number
   }
-}
-
-type SubscriptionData = {
-  subscription: {
-    id: string
-    status: string
-    currentPeriodEnd: string
-    cancelAtPeriodEnd: boolean
-  } | null
-  plan: 'free' | 'team' | 'business'
-  billingStatus: 'active' | 'past_due' | 'canceled' | 'trialing'
-  stripeCustomerId: string | null
 }
 
 export default function SettingsPage() {

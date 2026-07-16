@@ -108,11 +108,22 @@ function OrgPlanCard({
           ))}
         </ul>
         <div className="flex gap-2 mt-4">
-          <Button variant="outline" className="flex-1" onClick={() => onChoose(prices.monthly, 'monthly')} disabled={disabled}>
+          <Button
+            variant="outline"
+            className="flex-1"
+            onClick={() => onChoose(prices.monthly, 'monthly')}
+            disabled={disabled}
+            aria-label={`Subscribe to ${name} monthly`}
+          >
             <Zap className="h-4 w-4 mr-1.5" />
             Monthly
           </Button>
-          <Button className="flex-1" onClick={() => onChoose(prices.yearly, 'yearly')} disabled={disabled}>
+          <Button
+            className="flex-1"
+            onClick={() => onChoose(prices.yearly, 'yearly')}
+            disabled={disabled}
+            aria-label={`Subscribe to ${name} yearly`}
+          >
             <Sparkles className="h-4 w-4 mr-1.5" />
             Yearly
           </Button>
@@ -479,19 +490,27 @@ export default function OrganizationBillingPage() {
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
-              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogCancel disabled={isRedirecting}>Cancel</AlertDialogCancel>
               <AlertDialogAction
-                onClick={() => {
-                  trackEvent(AnalyticsEvents.UPGRADE_CLICK, {
+                onClick={(e) => {
+                  // Radix closes the dialog on Action click by default; keep
+                  // it open so the loading state shows and errors land in
+                  // context (retry stays possible)
+                  e.preventDefault()
+                  trackEvent(AnalyticsEvents.CHECKOUT_START, {
                     plan: pendingCheckout.plan.toLowerCase(),
                     interval: pendingCheckout.interval,
-                    org: org.login,
+                    account: org.login,
                   })
                   handleUpgrade(pendingCheckout.price.id)
-                  setPendingCheckout(null)
                 }}
+                disabled={isRedirecting}
               >
-                Continue to checkout
+                {isRedirecting ? (
+                  <RefreshCw className="h-4 w-4 animate-spin" />
+                ) : (
+                  'Continue to checkout'
+                )}
               </AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>
