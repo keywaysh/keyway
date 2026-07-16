@@ -2,6 +2,7 @@ import { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { authenticateGitHub, rejectApiKeyAuth } from "../../../middleware/auth";
 import { config } from "../../../config";
+import { isAllowedOrigin } from "../../../utils/origins";
 import { db, users, vcsAppInstallations } from "../../../db";
 import {
   sendData,
@@ -206,7 +207,7 @@ function assertAllowedRedirectUrls(...urls: string[]): void {
   if (allowedOrigins.length === 0) {
     return;
   }
-  if (urls.some((url) => !allowedOrigins.includes(new URL(url).origin))) {
+  if (urls.some((url) => !isAllowedOrigin(url, allowedOrigins))) {
     throw new BadRequestError("Redirect URLs must be from allowed origins");
   }
 }
