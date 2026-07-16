@@ -272,11 +272,14 @@ export function SecurityExposureTab() {
   const [isExporting, setIsExporting] = useState(false)
   const hasFiredView = useRef(false)
 
-  // Exposure is a Business feature bought per organization: members of a
-  // Business org must see it even though their personal plan stays free.
-  // The backend enforces the real entitlement on every request.
+  // Exposure is a Business feature bought per organization. The backend only
+  // serves org exposure to org OWNERS (exposure.routes.ts), so the tab
+  // unlocks for owners of a Business org — not plain members — even though
+  // their personal plan stays free. Entitlements are re-checked server-side.
   const hasPersonalAccess = user?.plan === 'business'
-  const businessOrgs = organizations.filter((org) => org.plan === 'business')
+  const businessOrgs = organizations.filter(
+    (org) => org.plan === 'business' && org.role === 'owner'
+  )
   const canViewExposure = hasPersonalAccess || businessOrgs.length > 0
 
   // Fetch organizations
@@ -310,6 +313,13 @@ export function SecurityExposureTab() {
       return
     }
 
+    // The personal "all" scope 403s without personal access: wait for the
+    // org-default effect above to land instead of firing a doomed request
+    // whose late rejection would overwrite valid org-scoped data
+    if (!hasPersonalAccess && selectedOrg === 'all') {
+      return
+    }
+
     setIsLoading(true)
     setError(null)
     setExpandedUser(null)
@@ -328,7 +338,7 @@ export function SecurityExposureTab() {
     } finally {
       setIsLoading(false)
     }
-  }, [canViewExposure, selectedOrg])
+  }, [canViewExposure, hasPersonalAccess, selectedOrg])
 
   useEffect(() => {
     if (!hasFiredView.current) {
@@ -504,7 +514,7 @@ export function SecurityExposureTab() {
                 <SelectValue placeholder="All organizations" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">All organizations</SelectItem>
+                {hasPersonalAccess && <SelectItem value="all">All organizations</SelectItem>}
                 {organizations.map((org) => (
                   <SelectItem key={org.id} value={org.login}>
                     <div className="flex items-center gap-2">

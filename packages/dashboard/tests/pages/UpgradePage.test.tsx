@@ -134,10 +134,9 @@ beforeEach(() => {
 async function openTeamMonthlyPicker() {
   render(<UpgradePage />)
   await waitFor(() => {
-    expect(screen.getAllByText('Monthly').length).toBeGreaterThan(0)
+    expect(screen.getByRole('button', { name: 'Subscribe to Team monthly' })).toBeInTheDocument()
   })
-  // First Monthly button belongs to the Team card
-  fireEvent.click(screen.getAllByText('Monthly')[0])
+  fireEvent.click(screen.getByRole('button', { name: 'Subscribe to Team monthly' }))
   await waitFor(() => {
     expect(screen.getByText('Who is this Team subscription for?')).toBeInTheDocument()
   })
@@ -293,10 +292,11 @@ describe('UpgradePage', () => {
     it('should carry the yearly interval through the funnel', async () => {
       render(<UpgradePage />)
       await waitFor(() => {
-        expect(screen.getAllByText('Yearly').length).toBeGreaterThan(0)
+        expect(
+          screen.getByRole('button', { name: 'Subscribe to Business yearly' })
+        ).toBeInTheDocument()
       })
-      // Second Yearly button belongs to the Business card
-      fireEvent.click(screen.getAllByText('Yearly')[1])
+      fireEvent.click(screen.getByRole('button', { name: 'Subscribe to Business yearly' }))
 
       await waitFor(() => {
         expect(
@@ -324,6 +324,59 @@ describe('UpgradePage', () => {
           expect.any(String)
         )
       })
+    })
+
+    it('should keep the confirmation open and allow retry when checkout fails', async () => {
+      createCheckoutSession.mockRejectedValueOnce(new Error('Stripe unavailable'))
+      await openTeamMonthlyPicker()
+
+      fireEvent.click(screen.getByText('nicolas'))
+      await waitFor(() => {
+        expect(screen.getByText('Subscribe nicolas (personal) to Team?')).toBeInTheDocument()
+      })
+
+      fireEvent.click(screen.getByText('Continue to checkout'))
+
+      const { toast } = await import('sonner')
+      await waitFor(() => {
+        expect(toast.error).toHaveBeenCalledWith('Stripe unavailable')
+      })
+      // Dialog still open, button re-enabled: the user can retry in context
+      expect(screen.getByText('Subscribe nicolas (personal) to Team?')).toBeInTheDocument()
+      expect(screen.getByText('Continue to checkout')).not.toBeDisabled()
+
+      fireEvent.click(screen.getByText('Continue to checkout'))
+      await waitFor(() => {
+        expect(createCheckoutSession).toHaveBeenCalledTimes(2)
+      })
+    })
+
+    it('should disable the personal option when a personal subscription is active', async () => {
+      const { api } = await import('../../lib/api')
+      vi.mocked(api.getSubscription).mockResolvedValueOnce({
+        subscription: {
+          id: 'sub-1',
+          status: 'active',
+          currentPeriodEnd: '2026-12-31T00:00:00Z',
+          cancelAtPeriodEnd: false,
+        },
+        plan: 'team',
+        billingStatus: 'active',
+        stripeCustomerId: 'cus_123',
+      })
+      await openTeamMonthlyPicker()
+
+      const personal = screen.getByText('nicolas').closest('button')
+      expect(personal).toBeDisabled()
+      expect(screen.getAllByText('already on team').length).toBeGreaterThan(0)
+    })
+
+    it('should keep orgs selectable when role is missing (older backend)', async () => {
+      getOrganizations.mockResolvedValue([{ ...mockOrgs[0], role: undefined }])
+      await openTeamMonthlyPicker()
+
+      const acme = screen.getByText('Acme Inc').closest('button')
+      expect(acme).not.toBeDisabled()
     })
 
     it('should not start checkout when cancelled', async () => {

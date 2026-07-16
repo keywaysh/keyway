@@ -135,6 +135,7 @@ const mockOrganizations: Organization[] = [
     avatar_url: 'https://avatar.example.com/testorg.png',
     display_name: 'Test Organization',
     plan: 'business',
+    role: 'owner',
   },
 ]
 
@@ -183,14 +184,31 @@ describe('SecurityExposureTab', () => {
       })
     })
 
-    it('should show exposure when a member org is on Business despite a free personal plan', async () => {
+    it('should show org-scoped exposure to the owner of a Business org despite a free personal plan', async () => {
       mockUser = { id: 'user-1', name: 'Test User', plan: 'free' }
-      // mockOrganizations contains a Business org
+      // mockOrganizations contains a Business org owned by the user
+      const { api } = await import('../../lib/api')
       render(<SecurityExposureTab />)
 
       await waitFor(() => {
         expect(screen.getByText('Exposure Report')).toBeInTheDocument()
         expect(screen.queryByText('Exposure Tracking')).not.toBeInTheDocument()
+      })
+      // The scope must default to the Business org — the personal "all"
+      // scope would 403 for a free personal plan
+      await waitFor(() => {
+        expect(api.getOrganizationExposure).toHaveBeenCalledWith('testorg')
+      })
+      expect(api.getMyExposure).not.toHaveBeenCalled()
+    })
+
+    it('should show the upgrade prompt to a plain member of a Business org (backend is owner-only)', async () => {
+      mockUser = { id: 'user-1', name: 'Test User', plan: 'free' }
+      mockOrgsResponse = [{ ...mockOrganizations[0], role: 'member' }]
+      render(<SecurityExposureTab />)
+
+      await waitFor(() => {
+        expect(screen.getByText('Exposure Tracking')).toBeInTheDocument()
       })
     })
   })

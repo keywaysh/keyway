@@ -2,13 +2,13 @@ import { Metadata } from 'next'
 
 export const metadata: Metadata = {
   title: 'Pricing & Plans',
-  description: 'Choose the right Keyway plan for your team. Free for solo devs, Pro for unlimited vaults. Secure secrets management with AES-256 encryption.',
+  description: 'One flat price per GitHub account — personal or organization. Free tier with 10 private repos, Team and Business plans with unlimited repos and members. Secure secrets management with AES-256 encryption.',
   alternates: {
     canonical: '/upgrade',
   },
   openGraph: {
     title: 'Pricing & Plans | Keyway',
-    description: 'Choose the right Keyway plan for your team. Free for solo devs, Pro for unlimited vaults.',
+    description: 'One flat price per GitHub account. Unlimited repos and members on paid plans — collaboration is never metered.',
   },
 }
 
