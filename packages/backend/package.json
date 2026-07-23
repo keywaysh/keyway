@@ -42,7 +42,7 @@
     "@grpc/proto-loader": "0.8.0",
     "@sentry/node": "10.45.0",
     "dotenv": "16.6.1",
-    "drizzle-orm": "0.44.7",
+    "drizzle-orm": "0.45.2",
     "fastify": "5.8.4",
     "jsonwebtoken": "9.0.3",
     "pino": "10.3.1",
