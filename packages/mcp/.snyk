@@ -1,0 +1,147 @@
+# Snyk (https://snyk.io) policy file.
+#
+# Accepted risk: every finding below comes from the @modelcontextprotocol/sdk
+# HTTP transport layer (hono, @hono/node-server, path-to-regexp, fast-uri,
+# body-parser, qs, ip-address). keyway-mcp runs exclusively over
+# StdioServerTransport (see src/index.ts) — the SDK's HTTP/Streamable transport
+# is never imported or executed, so this code path is unreachable at runtime.
+# Re-review on expiry; drop entries once the SDK ships patched transport deps.
+version: v1.25.0
+ignore:
+  SNYK-JS-BODYPARSER-17906397:
+    - "*":
+        reason: Unreachable — SDK HTTP transport dep; keyway-mcp uses stdio only.
+        expires: 2027-01-23T00:00:00.000Z
+  SNYK-JS-FASTURI-16642394:
+    - "*":
+        reason: Unreachable — SDK HTTP transport dep; keyway-mcp uses stdio only.
+        expires: 2027-01-23T00:00:00.000Z
+  SNYK-JS-FASTURI-16642399:
+    - "*":
+        reason: Unreachable — SDK HTTP transport dep; keyway-mcp uses stdio only.
+        expires: 2027-01-23T00:00:00.000Z
+  SNYK-JS-FASTURI-17675102:
+    - "*":
+        reason: Unreachable — SDK HTTP transport dep; keyway-mcp uses stdio only.
+        expires: 2027-01-23T00:00:00.000Z
+  SNYK-JS-FASTURI-18021349:
+    - "*":
+        reason: Unreachable — SDK HTTP transport dep; keyway-mcp uses stdio only.
+        expires: 2027-01-23T00:00:00.000Z
+  SNYK-JS-HONO-15928824:
+    - "*":
+        reason: Unreachable — SDK HTTP transport dep; keyway-mcp uses stdio only.
+        expires: 2027-01-23T00:00:00.000Z
+  SNYK-JS-HONO-15928831:
+    - "*":
+        reason: Unreachable — SDK HTTP transport dep; keyway-mcp uses stdio only.
+        expires: 2027-01-23T00:00:00.000Z
+  SNYK-JS-HONO-15928832:
+    - "*":
+        reason: Unreachable — SDK HTTP transport dep; keyway-mcp uses stdio only.
+        expires: 2027-01-23T00:00:00.000Z
+  SNYK-JS-HONO-15928833:
+    - "*":
+        reason: Unreachable — SDK HTTP transport dep; keyway-mcp uses stdio only.
+        expires: 2027-01-23T00:00:00.000Z
+  SNYK-JS-HONO-15928834:
+    - "*":
+        reason: Unreachable — SDK HTTP transport dep; keyway-mcp uses stdio only.
+        expires: 2027-01-23T00:00:00.000Z
+  SNYK-JS-HONO-16080667:
+    - "*":
+        reason: Unreachable — SDK HTTP transport dep; keyway-mcp uses stdio only.
+        expires: 2027-01-23T00:00:00.000Z
+  SNYK-JS-HONO-16438965:
+    - "*":
+        reason: Unreachable — SDK HTTP transport dep; keyway-mcp uses stdio only.
+        expires: 2027-01-23T00:00:00.000Z
+  SNYK-JS-HONO-16438966:
+    - "*":
+        reason: Unreachable — SDK HTTP transport dep; keyway-mcp uses stdio only.
+        expires: 2027-01-23T00:00:00.000Z
+  SNYK-JS-HONO-16624528:
+    - "*":
+        reason: Unreachable — SDK HTTP transport dep; keyway-mcp uses stdio only.
+        expires: 2027-01-23T00:00:00.000Z
+  SNYK-JS-HONO-16624529:
+    - "*":
+        reason: Unreachable — SDK HTTP transport dep; keyway-mcp uses stdio only.
+        expires: 2027-01-23T00:00:00.000Z
+  SNYK-JS-HONO-16624532:
+    - "*":
+        reason: Unreachable — SDK HTTP transport dep; keyway-mcp uses stdio only.
+        expires: 2027-01-23T00:00:00.000Z
+  SNYK-JS-HONO-17055743:
+    - "*":
+        reason: Unreachable — SDK HTTP transport dep; keyway-mcp uses stdio only.
+        expires: 2027-01-23T00:00:00.000Z
+  SNYK-JS-HONO-17055751:
+    - "*":
+        reason: Unreachable — SDK HTTP transport dep; keyway-mcp uses stdio only.
+        expires: 2027-01-23T00:00:00.000Z
+  SNYK-JS-HONO-17055753:
+    - "*":
+        reason: Unreachable — SDK HTTP transport dep; keyway-mcp uses stdio only.
+        expires: 2027-01-23T00:00:00.000Z
+  SNYK-JS-HONO-17055760:
+    - "*":
+        reason: Unreachable — SDK HTTP transport dep; keyway-mcp uses stdio only.
+        expires: 2027-01-23T00:00:00.000Z
+  SNYK-JS-HONO-17356388:
+    - "*":
+        reason: Unreachable — SDK HTTP transport dep; keyway-mcp uses stdio only.
+        expires: 2027-01-23T00:00:00.000Z
+  SNYK-JS-HONO-17356391:
+    - "*":
+        reason: Unreachable — SDK HTTP transport dep; keyway-mcp uses stdio only.
+        expires: 2027-01-23T00:00:00.000Z
+  SNYK-JS-HONO-17356405:
+    - "*":
+        reason: Unreachable — SDK HTTP transport dep; keyway-mcp uses stdio only.
+        expires: 2027-01-23T00:00:00.000Z
+  SNYK-JS-HONO-17356429:
+    - "*":
+        reason: Unreachable — SDK HTTP transport dep; keyway-mcp uses stdio only.
+        expires: 2027-01-23T00:00:00.000Z
+  SNYK-JS-HONO-17356430:
+    - "*":
+        reason: Unreachable — SDK HTTP transport dep; keyway-mcp uses stdio only.
+        expires: 2027-01-23T00:00:00.000Z
+  SNYK-JS-HONO-17900056:
+    - "*":
+        reason: Unreachable — SDK HTTP transport dep; keyway-mcp uses stdio only.
+        expires: 2027-01-23T00:00:00.000Z
+  SNYK-JS-HONO-17900541:
+    - "*":
+        reason: Unreachable — SDK HTTP transport dep; keyway-mcp uses stdio only.
+        expires: 2027-01-23T00:00:00.000Z
+  SNYK-JS-HONO-17900542:
+    - "*":
+        reason: Unreachable — SDK HTTP transport dep; keyway-mcp uses stdio only.
+        expires: 2027-01-23T00:00:00.000Z
+  SNYK-JS-HONONODESERVER-15928840:
+    - "*":
+        reason: Unreachable — SDK HTTP transport dep; keyway-mcp uses stdio only.
+        expires: 2027-01-23T00:00:00.000Z
+  SNYK-JS-HONONODESERVER-18170326:
+    - "*":
+        reason: Unreachable — SDK HTTP transport dep; keyway-mcp uses stdio only.
+        expires: 2027-01-23T00:00:00.000Z
+  SNYK-JS-IPADDRESS-16636412:
+    - "*":
+        reason: Unreachable — SDK HTTP transport dep; keyway-mcp uses stdio only.
+        expires: 2027-01-23T00:00:00.000Z
+  SNYK-JS-PATHTOREGEXP-15789763:
+    - "*":
+        reason: Unreachable — SDK HTTP transport dep; keyway-mcp uses stdio only.
+        expires: 2027-01-23T00:00:00.000Z
+  SNYK-JS-PATHTOREGEXP-15789765:
+    - "*":
+        reason: Unreachable — SDK HTTP transport dep; keyway-mcp uses stdio only.
+        expires: 2027-01-23T00:00:00.000Z
+  SNYK-JS-QS-16721866:
+    - "*":
+        reason: Unreachable — SDK HTTP transport dep; keyway-mcp uses stdio only.
+        expires: 2027-01-23T00:00:00.000Z
+patch: {}
