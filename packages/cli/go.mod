@@ -2,6 +2,8 @@ module github.com/keywaysh/cli
 
 go 1.25.0
 
+toolchain go1.26.5
+
 require (
 	github.com/charmbracelet/huh v1.0.0
 	github.com/charmbracelet/huh/spinner v0.0.0-20260223110133-9dc45e34a40b
