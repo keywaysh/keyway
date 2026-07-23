@@ -1,0 +1,89 @@
+# Snyk (https://snyk.io) policy file.
+#
+# Accepted risk: every vulnerability below lives in the Docusaurus BUILD/DEV
+# toolchain (webpack, babel, webpack-dev-server). keyway-docs is a static site
+# (`docusaurus build`) deployed to docs.keyway.sh — none of this code is shipped
+# to visitors' browsers, and the dev-server deps (shell-quote, websocket-driver,
+# ws) only run locally under `docusaurus start`. No production runtime exposure.
+# Re-review on expiry; drop an entry once Docusaurus ships a patched toolchain.
+version: v1.25.0
+ignore:
+  # --- webpack-dev-server chain (local `docusaurus start` only) ---
+  SNYK-JS-SHELLQUOTE-16799355:
+    - "*":
+        reason: Dev-only (webpack-dev-server → launch-editor); absent from static build.
+        expires: 2027-01-23T00:00:00.000Z
+  SNYK-JS-SHELLQUOTE-17457810:
+    - "*":
+        reason: Dev-only (webpack-dev-server → launch-editor); absent from static build.
+        expires: 2027-01-23T00:00:00.000Z
+  SNYK-JS-WEBSOCKETDRIVER-17987994:
+    - "*":
+        reason: Dev-only (webpack-dev-server → sockjs); absent from static build.
+        expires: 2027-01-23T00:00:00.000Z
+  SNYK-JS-WEBSOCKETDRIVER-17987674:
+    - "*":
+        reason: Dev-only (webpack-dev-server → sockjs); absent from static build.
+        expires: 2027-01-23T00:00:00.000Z
+  SNYK-JS-WS-17344547:
+    - "*":
+        reason: Dev-only (webpack-dev-server); absent from static build.
+        expires: 2027-01-23T00:00:00.000Z
+  SNYK-JS-WS-17988732:
+    - "*":
+        reason: Dev-only (webpack-dev-server); absent from static build.
+        expires: 2027-01-23T00:00:00.000Z
+  # --- Docusaurus/webpack build toolchain (build-time only) ---
+  SNYK-JS-BABELPLUGINTRANSFORMMODULESSYSTEMJS-16624576:
+    - "*":
+        reason: Build-time only (babel/webpack); not shipped to browsers.
+        expires: 2027-01-23T00:00:00.000Z
+  SNYK-JS-BRACEEXPANSION-15789759:
+    - "*":
+        reason: Build-time only (glob in build toolchain); not shipped to browsers.
+        expires: 2027-01-23T00:00:00.000Z
+  SNYK-JS-BRACEEXPANSION-17706650:
+    - "*":
+        reason: Build-time only (glob in build toolchain); not shipped to browsers.
+        expires: 2027-01-23T00:00:00.000Z
+  SNYK-JS-FASTURI-16642394:
+    - "*":
+        reason: Build-time only (webpack toolchain); not shipped to browsers.
+        expires: 2027-01-23T00:00:00.000Z
+  SNYK-JS-FASTURI-16642399:
+    - "*":
+        reason: Build-time only (webpack toolchain); not shipped to browsers.
+        expires: 2027-01-23T00:00:00.000Z
+  SNYK-JS-FASTURI-17675102:
+    - "*":
+        reason: Build-time only (webpack toolchain); not shipped to browsers.
+        expires: 2027-01-23T00:00:00.000Z
+  SNYK-JS-FASTURI-18021349:
+    - "*":
+        reason: Build-time only (webpack toolchain); not shipped to browsers.
+        expires: 2027-01-23T00:00:00.000Z
+  SNYK-JS-FOLLOWREDIRECTS-16032162:
+    - "*":
+        reason: Build-time only (webpack toolchain); not shipped to browsers.
+        expires: 2027-01-23T00:00:00.000Z
+  SNYK-JS-IMAGESIZE-17295814:
+    - "*":
+        reason: Build-time only (docusaurus image handling); not shipped to browsers.
+        expires: 2027-01-23T00:00:00.000Z
+  SNYK-JS-IMAGESIZE-17295816:
+    - "*":
+        reason: Build-time only (docusaurus image handling); not shipped to browsers.
+        expires: 2027-01-23T00:00:00.000Z
+  SNYK-JS-JSYAML-17900054:
+    - "*":
+        reason: Build-time only (config/frontmatter parsing); not shipped to browsers.
+        expires: 2027-01-23T00:00:00.000Z
+  SNYK-JS-LODASH-15869625:
+    - "*":
+        reason: Build-time only (webpack toolchain); not shipped to browsers.
+        expires: 2027-01-23T00:00:00.000Z
+  SNYK-JS-SERIALIZEJAVASCRIPT-15809196:
+    - "*":
+        reason: Build-time only (webpack serialization); not shipped to browsers.
+        expires: 2027-01-23T00:00:00.000Z
+patch: {}
