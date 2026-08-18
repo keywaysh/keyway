@@ -2,7 +2,7 @@ module github.com/keywaysh/cli
 
 go 1.25.0
 
-toolchain go1.26.5
+toolchain go1.26.6
 
 require (
 	github.com/charmbracelet/huh v1.0.0
