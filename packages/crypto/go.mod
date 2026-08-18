@@ -1,8 +1,8 @@
 module keyway-crypto
 
-go 1.25.12
+go 1.25.13
 
-toolchain go1.26.5
+toolchain go1.26.6
 
 require (
 	google.golang.org/grpc v1.82.1
