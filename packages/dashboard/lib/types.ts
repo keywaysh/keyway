@@ -1,4 +1,4 @@
-export type UserPlan = 'free' | 'pro' | 'team' | 'business'
+export type UserPlan = 'free' | 'team' | 'business'
 
 export type ReadonlyReason = 'plan_limit_exceeded' | 'org_free_plan' | null
 

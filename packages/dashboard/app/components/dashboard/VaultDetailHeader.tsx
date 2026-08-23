@@ -13,26 +13,20 @@ import {
 } from '@/components/ui/dropdown-menu'
 import type { Vault, ReadonlyReason, UserPlan } from '@/lib/types'
 
-// Plan limits for contextual messages
-const PLAN_LIMITS: Record<UserPlan, number> = {
-  free: 1,
-  pro: 10,
-  team: 20,
-  business: 50,
-}
+// Only the Free plan caps private vaults; paid tiers are unlimited
+const FREE_PRIVATE_VAULT_LIMIT = 10
 
-// Get contextual read-only message based on reason and plan
-function getReadonlyInfo(reason: ReadonlyReason, plan: UserPlan, repoOwner: string): {
+// Get contextual read-only message based on reason
+function getReadonlyInfo(reason: ReadonlyReason, _plan: UserPlan, repoOwner: string): {
   message: string
   linkText: string
   linkHref: string
 } {
   if (reason === 'plan_limit_exceeded') {
-    const limit = PLAN_LIMITS[plan]
-    const nextPlan = plan === 'free' ? 'Pro' : plan === 'pro' ? 'Team' : plan === 'team' ? 'Business' : null
+    // Paid tiers have unlimited private vaults, so this can only be Free
     return {
-      message: `You've exceeded your ${plan} plan limit of ${limit} private vault${limit === 1 ? '' : 's'}. Your oldest vaults remain writable.`,
-      linkText: nextPlan ? `Upgrade to ${nextPlan}` : 'Manage subscription',
+      message: `You've exceeded the Free plan limit of ${FREE_PRIVATE_VAULT_LIMIT} private vaults. Your oldest vaults remain writable.`,
+      linkText: 'Upgrade to Team',
       linkHref: '/upgrade',
     }
   }

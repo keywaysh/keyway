@@ -26,6 +26,9 @@ export interface OrganizationInfo {
   displayName: string | null;
   avatarUrl: string | null;
   plan: UserPlan;
+  // The requesting user's role in this org — set by getOrganizationsForUser
+  // (absent on getOrganizationDetails, which has no requesting-user context)
+  role?: OrgRole;
   memberCount: number; // Keyway accounts (members table rows)
   vaultCount: number;
   createdAt: string;
@@ -200,6 +203,7 @@ export async function getOrganizationsForUser(userId: string): Promise<Organizat
     displayName: m.organization.displayName,
     avatarUrl: m.organization.avatarUrl,
     plan: m.organization.plan,
+    role: m.orgRole,
     memberCount: m.organization.members.length,
     vaultCount: m.organization.vaults.length,
     createdAt: m.organization.createdAt.toISOString(),
