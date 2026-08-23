@@ -409,6 +409,26 @@ describe('Organization Billing Routes', () => {
       expect(body.data.url).toBe('https://checkout.stripe.com/session/123');
     });
 
+    it('should reject redirect URLs from non-allowed origins', async () => {
+      const response = await app.inject({
+        method: 'POST',
+        url: '/v1/orgs/test-org/billing/checkout',
+        headers: {
+          'content-type': 'application/json',
+        },
+        payload: {
+          priceId: 'price_business_monthly',
+          successUrl: 'https://evil.example/phish',
+          cancelUrl: 'https://app.keyway.sh/dashboard/orgs/test-org/billing',
+        },
+      });
+
+      expect(response.statusCode).toBe(400);
+      const body = JSON.parse(response.body);
+      expect(body.detail).toContain('allowed origins');
+      expect(mockCreateOrgCheckoutSession).not.toHaveBeenCalled();
+    });
+
     it('should reject checkout when org already has a paid subscription', async () => {
       // Paid org: has a Stripe customer + a paid plan, and is not on an active trial
       mockGetOrganizationByLogin.mockResolvedValue({
@@ -534,6 +554,24 @@ describe('Organization Billing Routes', () => {
         id: 'membership-123',
         orgRole: 'owner',
       });
+    });
+
+    it('should reject return URLs from non-allowed origins', async () => {
+      const response = await app.inject({
+        method: 'POST',
+        url: '/v1/orgs/test-org/billing/portal',
+        headers: {
+          'content-type': 'application/json',
+        },
+        payload: {
+          returnUrl: 'https://evil.example/phish',
+        },
+      });
+
+      expect(response.statusCode).toBe(400);
+      const body = JSON.parse(response.body);
+      expect(body.detail).toContain('allowed origin');
+      expect(mockCreateOrgPortalSession).not.toHaveBeenCalled();
     });
 
     it('should create portal session for owner', async () => {
