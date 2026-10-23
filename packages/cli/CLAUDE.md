@@ -179,15 +179,17 @@ go test -v ./internal/cmd/... # Verbose output for cmd package
 
 ## Release Process
 
-1. Tag and push: `git tag v0.3.12 && git push origin v0.3.12`
-2. GoReleaser builds binaries for all platforms
-3. macOS binaries are signed and notarized
-4. Binaries uploaded to GitHub Releases
-5. npm package auto-publishes
+1. Tag and push from the monorepo root: `git tag cli/v0.6.0 && git push origin cli/v0.6.0` (prereleases: `cli/v0.6.0-rc.1`). Never push plain `v*` tags.
+2. `.github/workflows/release-cli.yml` builds with GoReleaser (build + archives + checksums + formula only, via a local-only `v0.6.0` tag)
+3. The workflow publishes the GitHub release under the `cli/v*` tag (expected by `install.js`, `install.sh` and the update check)
+4. Stable releases push the generated formula to `keywaysh/homebrew-tap`
+5. npm package publishes via trusted publishing (`npm` environment, manual approval); prereleases go to the `beta` dist-tag
+
+macOS binaries are not signed or notarized yet.
 
 ## npm Distribution
 
 The `npm/` directory contains the npm package (`@keywaysh/cli`) that downloads the Go binary at install time:
 - `npm/package.json` - Package config
-- `npm/scripts/postinstall.js` - Downloads binary from GitHub Releases
+- `npm/scripts/install.js` - Postinstall: downloads the binary from GitHub Releases and verifies `checksums.txt`
 - `npm/bin/keyway` - Shell wrapper that calls the binary
