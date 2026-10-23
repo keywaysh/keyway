@@ -1,4 +1,4 @@
-import { parseLegacyEnv, toEnvFormat } from "../utils/legacyEnvFormat";
+import { parseLegacyEnv, scanLegacyEnv, toEnvFormat } from "../utils/legacyEnvFormat";
 
 /** merge keeps secrets missing from the push; replace moves them to the trash. */
 export type PushMode = "merge" | "replace";
@@ -26,6 +26,11 @@ export interface Rejection {
 export interface PushPlanOptions {
   mode?: PushMode;
   userAgent?: string;
+  /**
+   * False when the caller may write but not read the environment: it cannot have pulled, so
+   * it is not echoing, and the plan must not tell it whether its values match the stored ones.
+   */
+  canRead?: boolean;
 }
 
 // Same rule as the other secret routes.
@@ -76,32 +81,49 @@ function looksTruncated(value: string): boolean {
   return (quote === '"' || quote === "'") && (value.length === 1 || !value.endsWith(quote));
 }
 
-interface LegacyEchoIndex {
-  /** For each key, every value a released client can send after pulling the environment. */
-  candidates: Map<string, Set<string>>;
-  /** Stored keys the released CLI reads back under their own name. */
-  readableByCli: Set<string>;
-}
+// Characters of multi-line values whose continuation lines one push may scan. Past it, only
+// first lines are read: a value's own echo is still recognized, phantom-like new keys are
+// still refused by the key format check, and every overwrite is archived anyway.
+const CONTINUATION_SCAN_BUDGET = 1_000_000;
 
-// The released parser reads each line on its own, so the echo of the environment is covered
-// by the echoes of each secret alone, whatever order the client received them in.
-function legacyEchoIndex(current: Record<string, string>): LegacyEchoIndex {
-  const index: LegacyEchoIndex = { candidates: new Map(), readableByCli: new Set() };
+// For each of `wanted`, the values a released client can send for it after pulling
+// `current`. The released parser reads each line on its own, so the echo of the environment
+// is covered by the echoes of each secret alone, whatever order the client received them in.
+// Only `wanted` keys are recorded, so memory stays proportional to the push.
+function legacyCandidates(
+  current: Record<string, string>,
+  wanted: Set<string>
+): Map<string, Set<string>> {
+  const candidates = new Map<string, Set<string>>();
+  const multilineSize = Object.values(current).reduce(
+    (size, value) => (value.includes("\n") ? size + value.length : size),
+    0
+  );
+  const scanContinuations = multilineSize <= CONTINUATION_SCAN_BUDGET;
   for (const [key, value] of Object.entries(current)) {
-    const content = toEnvFormat({ [key]: value });
+    const newline = value.indexOf("\n");
+    // First line of toEnvFormat's output: a multi-line value is always quoted.
+    const content =
+      newline === -1 || scanContinuations
+        ? toEnvFormat({ [key]: value })
+        : `${key}="${value.slice(0, newline).replace(/"/g, '\\"')}`;
     for (const flavor of ["go", "js"] as const) {
-      const parsed = parseLegacyEnv(content, flavor);
-      if (flavor === "go" && Object.hasOwn(parsed, key)) {
-        index.readableByCli.add(key);
-      }
-      for (const [parsedKey, parsedValue] of Object.entries(parsed)) {
-        const values = index.candidates.get(parsedKey) ?? new Set<string>();
-        values.add(parsedValue);
-        index.candidates.set(parsedKey, values);
-      }
+      scanLegacyEnv(content, flavor, (parsedKey, parsedValue) => {
+        if (wanted.has(parsedKey)) {
+          const values = candidates.get(parsedKey) ?? new Set<string>();
+          values.add(parsedValue);
+          candidates.set(parsedKey, values);
+        }
+      });
     }
   }
-  return index;
+  return candidates;
+}
+
+// Whether the released CLI reads a stored key back under its own name ("#A" is a comment,
+// " A" reads as "A"); the value does not matter.
+function isReadableByCli(key: string): boolean {
+  return Object.hasOwn(parseLegacyEnv(`${key}=x`, "go"), key);
 }
 
 /**
@@ -113,7 +135,7 @@ function legacyEchoIndex(current: Record<string, string>): LegacyEchoIndex {
 export function planPush(
   current: Record<string, string>,
   incoming: Record<string, string>,
-  { mode, userAgent }: PushPlanOptions
+  { mode, userAgent, canRead = true }: PushPlanOptions
 ): PushPlan {
   const plan: PushPlan = {
     create: [],
@@ -125,22 +147,28 @@ export function planPush(
     trash: [],
   };
   // Fixed clients always send a mode, so a mode means the guard is not needed.
-  const releasedCli = mode === undefined && isReleasedCli(userAgent);
-  const legacy = releasedCli || (mode === undefined && isReleasedMcp(userAgent));
-  const index = legacy ? legacyEchoIndex(current) : undefined;
+  const releasedCli = canRead && mode === undefined && isReleasedCli(userAgent);
+  const legacy = releasedCli || (canRead && mode === undefined && isReleasedMcp(userAgent));
+  const changed = Object.keys(incoming).filter(
+    (key) => !canRead || !Object.hasOwn(current, key) || current[key] !== incoming[key]
+  );
+  const candidates =
+    legacy && changed.length > 0 ? legacyCandidates(current, new Set(changed)) : undefined;
+  // Phantom keys only come from multi-line values.
+  const hasMultiline = releasedCli && Object.values(current).some((value) => value.includes("\n"));
 
   for (const [key, value] of Object.entries(incoming)) {
     const exists = Object.hasOwn(current, key);
-    if (exists && current[key] === value) {
+    if (canRead && exists && current[key] === value) {
       plan.unchanged.push(key);
-    } else if (index?.candidates.get(key)?.has(value)) {
+    } else if (candidates?.get(key)?.has(value)) {
       (exists ? plan.protected : plan.ignored).push(key);
     } else if (releasedCli && looksTruncated(value)) {
       plan.rejected.push({ key, reason: "truncated" });
     } else if (releasedCli && value.includes('\\"')) {
       // The released parsers never unescape, so \" comes from a mis-parsed quoted value.
       plan.rejected.push({ key, reason: "escaped-quote" });
-    } else if (releasedCli && !exists && !KEY_FORMAT.test(key)) {
+    } else if (hasMultiline && !exists && !KEY_FORMAT.test(key)) {
       plan.rejected.push({ key, reason: "invalid-key" });
     } else {
       (exists ? plan.update : plan.create).push(key);
@@ -150,9 +178,8 @@ export function planPush(
   if (resolvePushMode(mode, userAgent) === "replace") {
     // The released CLI never sends the keys its parser cannot read back: keep them. (MCP
     // 1.0.0 always merges, so only the CLI gets here as a released client.)
-    const visible = releasedCli ? index?.readableByCli : undefined;
     plan.trash = Object.keys(current).filter(
-      (key) => !Object.hasOwn(incoming, key) && (!visible || visible.has(key))
+      (key) => !Object.hasOwn(incoming, key) && (!releasedCli || isReadableByCli(key))
     );
   }
   return plan;
@@ -161,22 +188,63 @@ export function planPush(
 const REJECT_REASONS: Record<RejectReason, string> = {
   truncated: "multi-line value",
   "escaped-quote": "contains escaped quotes",
-  "invalid-key": "key must be uppercase with underscores, e.g. DATABASE_URL",
+  "invalid-key": "looks like a line of a multi-line value, not a key",
 };
 const MAX_LISTED = 10;
 const MAX_KEY_LENGTH = 40;
 
+// "A, B, and 3 more", with long keys shortened.
+function listKeys<T>(items: T[], label: (item: T) => string): string {
+  const listed = items.slice(0, MAX_LISTED).map(label);
+  if (items.length > MAX_LISTED) {
+    listed.push(`and ${items.length - MAX_LISTED} more`);
+  }
+  return listed.join(", ");
+}
+
+// Shortened, and without control or formatting characters: the CLI prints it in a terminal.
+function displayKey(key: string): string {
+  const shown = key.length > MAX_KEY_LENGTH ? `${key.slice(0, MAX_KEY_LENGTH)}…` : key;
+  return shown.replace(/[\p{Cc}\p{Cf}\u2028\u2029]/gu, "?");
+}
+
 /** Error message for a push refused because of `rejected`; the released CLI prints it. */
 export function describeRejections(rejected: Rejection[], dashboardUrl?: string): string {
-  const listed = rejected.slice(0, MAX_LISTED).map(({ key, reason }) => {
-    const name = key.length > MAX_KEY_LENGTH ? `${key.slice(0, MAX_KEY_LENGTH)}…` : key;
-    return `${name} (${REJECT_REASONS[reason]})`;
-  });
-  if (rejected.length > MAX_LISTED) {
-    listed.push(`and ${rejected.length - MAX_LISTED} more`);
-  }
-  return (
-    "This version of the keyway CLI cannot push these values without corrupting them, so nothing was saved: " +
-    `${listed.join(", ")}. Set them from the Keyway dashboard instead${dashboardUrl ? `: ${dashboardUrl}` : "."}`
+  const keys = listKeys(
+    rejected,
+    ({ key, reason }) => `${displayKey(key)} (${REJECT_REASONS[reason]})`
   );
+  return (
+    "This version of the keyway CLI cannot push the following safely, so nothing was saved: " +
+    `${keys}. Set them from the Keyway dashboard instead${dashboardUrl ? `: ${dashboardUrl}` : "."}`
+  );
+}
+
+/**
+ * Success message when stored values were kept or phantom keys skipped, else undefined;
+ * `keyway push` prints it.
+ */
+export function describeKept(
+  protectedKeys: string[],
+  ignoredKeys: string[],
+  dashboardUrl?: string
+): string | undefined {
+  if (protectedKeys.length === 0 && ignoredKeys.length === 0) {
+    return undefined;
+  }
+  const parts = ["Secrets pushed."];
+  if (protectedKeys.length > 0) {
+    parts.push(
+      `Kept the stored values of ${listKeys(protectedKeys, displayKey)}: ` +
+        "this version of the keyway CLI cannot read multi-line or quoted values back."
+    );
+  }
+  if (ignoredKeys.length > 0) {
+    parts.push(
+      `Did not create ${listKeys(ignoredKeys, displayKey)}: ` +
+        "these look like lines of multi-line values, not keys."
+    );
+  }
+  parts.push(`Use the Keyway dashboard for these${dashboardUrl ? `: ${dashboardUrl}` : "."}`);
+  return parts.join(" ");
 }

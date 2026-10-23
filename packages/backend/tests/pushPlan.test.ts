@@ -5,6 +5,7 @@ import {
   isReleasedCli,
   resolvePushMode,
   describeRejections,
+  describeKept,
 } from "../src/services/pushPlan.service";
 
 // Multi-line value whose third line contains "=", like base64 padding.
@@ -159,6 +160,37 @@ describe("planPush", () => {
     expect(plan).toMatchObject({ update: ["lower_key"], rejected: [] });
   });
 
+  it("accepts new keys outside the dashboard format when no stored value is multi-line", () => {
+    // Phantom keys only come from multi-line values; the released CLI allows [A-Za-z0-9_].
+    const plan = planPush(
+      { A: "1" },
+      { A: "1", database_url: "x", _JAVA_OPTIONS: "y" },
+      { userAgent: RELEASED_CLI }
+    );
+    expect(plan).toMatchObject({ create: ["database_url", "_JAVA_OPTIONS"], rejected: [] });
+  });
+
+  it("applies no guard and reveals no equality to a caller that cannot read", () => {
+    // It cannot have pulled, so it is not echoing; and it must not learn whether a guess matches.
+    const current = { MULTI, PLAIN: "ok" };
+    const plan = planPush(
+      current,
+      { ...echo(current), NEW: '"first line' },
+      { userAgent: RELEASED_CLI, canRead: false }
+    );
+    expect(plan).toMatchObject({
+      update: ["MULTI", "PLAIN"],
+      create: ["Zm9vYmFy", "NEW"],
+      unchanged: [],
+      protected: [],
+      ignored: [],
+      rejected: [],
+    });
+    expect(
+      planPush(current, echo(current, "js"), { userAgent: MCP, canRead: false })
+    ).toMatchObject({ update: ["MULTI", "PLAIN"], protected: [], ignored: [] });
+  });
+
   it("never rejects pushes from MCP 1.0.0", () => {
     const sent = { NEW: '"first line', Q: 'say \\"hi\\"', lower: "v" };
     expect(planPush({}, sent, { userAgent: MCP })).toMatchObject({
@@ -221,6 +253,35 @@ describe("planPush", () => {
     const start = performance.now();
     planPush(current, echo(current), { userAgent: RELEASED_CLI });
     expect(performance.now() - start).toBeLessThan(1000);
+  });
+
+  it("stays linear on an environment full of key-like lines", () => {
+    // 600 stored values of ~66 KB, each made of 6000 "K=" lines.
+    const current: Record<string, string> = {};
+    for (let i = 0; i < 600; i++) {
+      current[`K${i}`] = Array.from({ length: 6000 }, (_, j) => `K${i}_${j}=`).join("\n");
+    }
+    for (const incoming of [{}, { K0: "x", NEW: "y" }]) {
+      const start = performance.now();
+      planPush(current, incoming, { userAgent: MCP });
+      expect(performance.now() - start, JSON.stringify(incoming)).toBeLessThan(500);
+    }
+  });
+
+  it("past the scan budget, still protects first-line echoes and refuses phantom-like keys", () => {
+    // Over 1M characters of multi-line values, continuation lines are not scanned.
+    const big = {
+      DOC: "header\nb2xkIGRhdGE=\nfooter",
+      QUOTED_DOC: 'title: "x"\nbody',
+      FILLER: `x\n${"y".repeat(1_100_000)}`,
+    };
+    const plan = planPush(big, echo(big), { userAgent: RELEASED_CLI });
+    expect(plan).toMatchObject({
+      protected: ["DOC", "QUOTED_DOC", "FILLER"],
+      rejected: [{ key: "b2xkIGRhdGE", reason: "invalid-key" }],
+      update: [],
+      create: [],
+    });
   });
 });
 
@@ -294,11 +355,16 @@ describe("describeRejections", () => {
       "https://app.keyway.sh"
     );
     expect(message).toBe(
-      "This version of the keyway CLI cannot push these values without corrupting them, so nothing was saved: " +
+      "This version of the keyway CLI cannot push the following safely, so nothing was saved: " +
         "PEM (multi-line value), GREETING (contains escaped quotes), " +
-        "b2xkIGRhdGE (key must be uppercase with underscores, e.g. DATABASE_URL). " +
+        "b2xkIGRhdGE (looks like a line of a multi-line value, not a key). " +
         "Set them from the Keyway dashboard instead: https://app.keyway.sh"
     );
+  });
+
+  it("neutralizes control and formatting characters in key names", () => {
+    const message = describeRejections([{ key: "\u001b[31mX\nY\u202eZ", reason: "invalid-key" }]);
+    expect(message).toContain("?[31mX?Y?Z (looks like");
   });
 
   it("caps the list and the key length", () => {
@@ -311,6 +377,37 @@ describe("describeRejections", () => {
     expect(message).toContain("and 2 more");
     expect(message.match(/\(multi-line value\)/g)).toHaveLength(10);
     expect(message.endsWith("Set them from the Keyway dashboard instead.")).toBe(true);
+  });
+});
+
+describe("describeKept", () => {
+  it("returns nothing when no value was kept or ignored", () => {
+    expect(describeKept([], [])).toBeUndefined();
+  });
+
+  it("names the kept and the ignored keys and points to the dashboard", () => {
+    expect(describeKept(["MULTI", "QUOTED"], ["Zm9vYmFy"], "https://app.keyway.sh")).toBe(
+      "Secrets pushed. Kept the stored values of MULTI, QUOTED: " +
+        "this version of the keyway CLI cannot read multi-line or quoted values back. " +
+        "Did not create Zm9vYmFy: these look like lines of multi-line values, not keys. " +
+        "Use the Keyway dashboard for these: https://app.keyway.sh"
+    );
+  });
+
+  it("mentions only what applies", () => {
+    expect(describeKept([], ["X"])).toBe(
+      "Secrets pushed. Did not create X: these look like lines of multi-line values, not keys. " +
+        "Use the Keyway dashboard for these."
+    );
+  });
+
+  it("caps the list like describeRejections", () => {
+    const message = describeKept(
+      Array.from({ length: 12 }, (_, i) => `K${i}`),
+      []
+    )!;
+    expect(message).toContain("K9, and 2 more:");
+    expect(message).not.toContain("K10");
   });
 });
 

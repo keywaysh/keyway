@@ -57,17 +57,22 @@ function trim(value: string, flavor: LegacyParserFlavor): string {
 }
 
 /**
- * Parser shipped in the CLI up to 0.6.0 (internal/env/parser.go, "go") and in
- * MCP 1.0.0 and keyway-action ("js").
+ * Calls `onPair` for each key/value line the released parser keeps, in order. Walks the
+ * content without splitting it, so memory stays flat on large multi-line values.
  */
-export function parseLegacyEnv(
+export function scanLegacyEnv(
   content: string,
-  flavor: LegacyParserFlavor
-): Record<string, string> {
-  // A Go map keeps a "__proto__" key; assigning it on a plain JavaScript object drops it.
-  const result: Record<string, string> = flavor === "go" ? Object.create(null) : {};
-  for (const rawLine of content.split("\n")) {
-    const line = trim(rawLine, flavor);
+  flavor: LegacyParserFlavor,
+  onPair: (key: string, value: string) => void
+): void {
+  let start = 0;
+  while (start <= content.length) {
+    let end = content.indexOf("\n", start);
+    if (end === -1) {
+      end = content.length;
+    }
+    const line = trim(content.slice(start, end), flavor);
+    start = end + 1;
     if (line === "" || line.startsWith("#")) {
       continue;
     }
@@ -86,9 +91,24 @@ export function parseLegacyEnv(
       value = value.slice(1, -1);
     }
     if (key !== "") {
-      result[key] = value;
+      onPair(key, value);
     }
   }
+}
+
+/**
+ * Parser shipped in the CLI up to 0.6.0 (internal/env/parser.go, "go") and in
+ * MCP 1.0.0 and keyway-action ("js").
+ */
+export function parseLegacyEnv(
+  content: string,
+  flavor: LegacyParserFlavor
+): Record<string, string> {
+  // A Go map keeps a "__proto__" key; assigning it on a plain JavaScript object drops it.
+  const result: Record<string, string> = flavor === "go" ? Object.create(null) : {};
+  scanLegacyEnv(content, flavor, (key, value) => {
+    result[key] = value;
+  });
   return result;
 }
 
