@@ -61,12 +61,26 @@ describe("planPush", () => {
 
   it("recognizes echoes that only the JavaScript parser produces", () => {
     // Unquoted value ending with a BOM: MCP 1.0.0 trims it, the Go CLI keeps it.
-    const current = { K: "ab\uFEFF" };
-    expect(echo(current, "js")).toEqual({ K: "ab" });
-    expect(planPush(current, { K: "ab" }, { userAgent: MCP })).toMatchObject({
+    const current = { K: "ab\uFEFF", OTHER: "x" };
+    expect(echo(current, "js")).toEqual({ K: "ab", OTHER: "x" });
+    expect(planPush(current, { K: "ab", OTHER: "x" }, { userAgent: MCP })).toMatchObject({
       protected: ["K"],
       update: [],
     });
+  });
+
+  it("applies a single secret from MCP 1.0.0 as sent, since keyway_set_secret never pulled it", () => {
+    // generate, the only MCP tool that pushes what it pulled, adds a key to it.
+    const current = { A: "'v1'", B: "v2\r", MULTI };
+    for (const [key, value] of [
+      ["A", "v1"],
+      ["B", "v2"],
+      ["Zm9vYmFy", "x"],
+    ]) {
+      const plan = planPush(current, { [key]: value }, { userAgent: MCP });
+      expect(plan, key).toMatchObject({ protected: [], ignored: [], rejected: [], trash: [] });
+      expect([...plan.update, ...plan.create], key).toEqual([key]);
+    }
   });
 
   it("protects a key that another value's continuation line overrode in the client", () => {
@@ -328,13 +342,15 @@ describe("planPush safety property", () => {
   it("never changes the vault when a released client sends back what it pulled", () => {
     for (let i = 0; i < 300; i++) {
       const current = env();
-      for (const [flavor, userAgent] of [
-        ["go", RELEASED_CLI],
-        ["js", MCP],
+      for (const [flavor, userAgent, added] of [
+        ["go", RELEASED_CLI, {}],
+        // MCP's generate tool pushes what it pulled plus the secret it generated.
+        ["js", MCP, { MCP_GENERATED: "g" }],
       ] as const) {
-        const plan = planPush(current, echo(shuffled(current), flavor), { userAgent });
+        const sent = { ...echo(shuffled(current), flavor), ...added };
+        const plan = planPush(current, sent, { userAgent });
         expect(plan, `${flavor} ${JSON.stringify(current)}`).toMatchObject({
-          create: [],
+          create: Object.keys(added),
           update: [],
           rejected: [],
           trash: [],

@@ -55,9 +55,6 @@ export async function saveSecretVersion(
   await pruneOldVersions(secretId, executor);
 }
 
-/**
- * Remove oldest versions if count exceeds MAX_VERSIONS_PER_SECRET
- */
 export interface SecretVersionToSave {
   secretId: string;
   vaultId: string;
@@ -113,6 +110,9 @@ export async function saveSecretVersions(
   `);
 }
 
+/**
+ * Remove oldest versions if count exceeds MAX_VERSIONS_PER_SECRET
+ */
 async function pruneOldVersions(secretId: string, executor: DbExecutor): Promise<void> {
   // Get all versions ordered by version number desc
   const versions = await executor

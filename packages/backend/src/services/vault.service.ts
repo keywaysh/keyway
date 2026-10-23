@@ -1,4 +1,4 @@
-import { db, vaults, vaultEnvironments } from "../db";
+import { db, vaults, vaultEnvironments, type DbExecutor } from "../db";
 import { eq, desc, and, asc } from "drizzle-orm";
 import { getUserRoleWithApp, getRepoInfoWithApp } from "../utils/github";
 import type { UserPlan, EnvironmentType } from "../db/schema";
@@ -111,8 +111,11 @@ async function getExcessPrivateVaultIds(userId: string, plan: UserPlan): Promise
  * Get environments for a vault from vault_environments table
  * Falls back to creating default environments if none exist (pre-migration vaults)
  */
-export async function getVaultEnvironments(vaultId: string): Promise<VaultEnvironmentInfo[]> {
-  const envs = await db.query.vaultEnvironments.findMany({
+export async function getVaultEnvironments(
+  vaultId: string,
+  executor: DbExecutor = db
+): Promise<VaultEnvironmentInfo[]> {
+  const envs = await executor.query.vaultEnvironments.findMany({
     where: eq(vaultEnvironments.vaultId, vaultId),
     orderBy: [asc(vaultEnvironments.displayOrder), asc(vaultEnvironments.name)],
   });
@@ -136,8 +139,11 @@ export async function getVaultEnvironments(vaultId: string): Promise<VaultEnviro
 /**
  * Get environment names for a vault (for simple list operations)
  */
-export async function getVaultEnvironmentNames(vaultId: string): Promise<string[]> {
-  const envs = await getVaultEnvironments(vaultId);
+export async function getVaultEnvironmentNames(
+  vaultId: string,
+  executor: DbExecutor = db
+): Promise<string[]> {
+  const envs = await getVaultEnvironments(vaultId, executor);
   return envs.map((e) => e.name);
 }
 

@@ -5,9 +5,10 @@ import {
   requireEnvironmentAccess,
   requireApiKeyScope,
 } from "../../../middleware/auth";
-import { db, vaults, users, secrets } from "../../../db";
+import { db, vaults, users, secrets, type DbExecutor } from "../../../db";
 import { eq, and, isNull, sql } from "drizzle-orm";
 import { getEncryptionService } from "../../../utils/encryption";
+import { CryptoServiceError } from "../../../utils/remoteEncryption";
 import { toEnvFormat } from "../../../utils/legacyEnvFormat";
 import { hasRequiredScopes } from "../../../utils/apiKeys";
 import { resolveEffectivePermission, hasEnvironmentPermission } from "../../../utils/permissions";
@@ -17,6 +18,7 @@ import {
   BadRequestError,
   ConflictError,
   PlanLimitError,
+  ServiceUnavailableError,
 } from "../../../lib";
 import { trackEvent, AnalyticsEvents } from "../../../utils/analytics";
 import {
@@ -134,7 +136,9 @@ async function inBatches<T, R>(items: T[], call: (item: T) => Promise<R>): Promi
 }
 
 // Stored values by key. A value the crypto service cannot decrypt (e.g. its key version was
-// retired) becomes a placeholder no client sends, so the push can still overwrite it.
+// retired) becomes a placeholder no client sends, so the push can still overwrite it. If the
+// service is unreachable, the push stops: without the stored values, the guard cannot tell a
+// released client's corrupted copy from a change.
 async function decryptValues(
   encryptionService: EncryptionService,
   rows: SecretRow[]
@@ -148,7 +152,14 @@ async function decryptValues(
         authTag: row.authTag,
         version: row.encryptionVersion,
       })
-      .catch(() => null)
+      .catch((error: unknown) => {
+        if (error instanceof CryptoServiceError && error.isRetryable) {
+          throw new ServiceUnavailableError(
+            "The encryption service is unavailable, so nothing was saved. Try again."
+          );
+        }
+        return null;
+      })
   );
   let undecryptable = 0;
   rows.forEach((row, i) => {
@@ -197,6 +208,21 @@ async function canReadEnvironment(
   return userId
     ? resolveEffectivePermission(vaultId, environment, userId, role, "read")
     : hasEnvironmentPermission(vaultId, environment, role, "read");
+}
+
+async function requireEnvironment(
+  vaultId: string,
+  environment: string,
+  executor: DbExecutor = db
+): Promise<void> {
+  const names = await getVaultEnvironmentNames(vaultId, executor);
+  if (!names.includes(environment)) {
+    throw new BadRequestError(
+      `Environment '${environment}' does not exist in this vault. ` +
+        `Available environments: ${names.join(", ")}. ` +
+        `Create it first via the dashboard or API.`
+    );
+  }
 }
 
 // Postgres lock_not_available, raised by lock_timeout (drizzle wraps it in `cause`).
@@ -263,16 +289,7 @@ export async function secretsRoutes(fastify: FastifyInstance) {
         }
       }
 
-      // Validate environment exists in vault's environment list
-      const vaultEnvs = await getVaultEnvironmentNames(vault.id);
-
-      if (!vaultEnvs.includes(body.environment)) {
-        throw new BadRequestError(
-          `Environment '${body.environment}' does not exist in this vault. ` +
-            `Available environments: ${vaultEnvs.join(", ")}. ` +
-            `Create it first via the dashboard or API.`
-        );
-      }
+      await requireEnvironment(vault.id, body.environment);
 
       fastify.log.info(
         {
@@ -335,25 +352,31 @@ export async function secretsRoutes(fastify: FastifyInstance) {
             if (locked.length === 0) {
               throw new NotFoundError("Vault not found. Run keyway init first.");
             }
+            // Renaming or deleting an environment takes the vault lock first, so this holds
+            // until commit.
+            await requireEnvironment(vault.id, body.environment, tx);
             const rows = await tx.select().from(secrets).where(activeSecrets).for("no key update");
             if (!sameRows(rows, snapshot)) {
               return false;
             }
             const byKey = new Map(rows.map((row) => [row.key, row]));
 
-            // Keep every overwritten value restorable
+            // Keep every overwritten value restorable. A caller that cannot read rewrites
+            // values it did not change; archiving those again would push real history out.
             await saveSecretVersions(
-              candidate.update.map((key) => {
-                const row = byKey.get(key)!;
-                return {
-                  secretId: row.id,
-                  vaultId: vault.id,
-                  encryptedValue: row.encryptedValue,
-                  iv: row.iv,
-                  authTag: row.authTag,
-                  encryptionVersion: row.encryptionVersion,
-                };
-              }),
+              candidate.update
+                .filter((key) => current[key] !== body.secrets[key])
+                .map((key) => {
+                  const row = byKey.get(key)!;
+                  return {
+                    secretId: row.id,
+                    vaultId: vault.id,
+                    encryptedValue: row.encryptedValue,
+                    iv: row.iv,
+                    authTag: row.authTag,
+                    encryptionVersion: row.encryptionVersion,
+                  };
+                }),
               user?.id,
               tx
             );

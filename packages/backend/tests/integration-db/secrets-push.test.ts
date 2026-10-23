@@ -16,6 +16,8 @@ const control = vi.hoisted(() => ({
   failOn: undefined as undefined | string,
   // Runs inside the push transaction, after the locks are taken.
   insideTransaction: undefined as undefined | (() => Promise<void>),
+  // Decrypt calls throw this instead of decrypting.
+  decryptError: undefined as undefined | Error,
 }));
 
 vi.mock("../../src/utils/encryption", async () => {
@@ -43,6 +45,9 @@ vi.mock("../../src/utils/encryption", async () => {
         authTag: string;
         version: number;
       }) => {
+        if (control.decryptError) {
+          throw control.decryptError;
+        }
         const decipher = createDecipheriv(
           "aes-256-gcm",
           control.keys[data.version],
@@ -99,11 +104,14 @@ vi.mock("../../src/utils/github", async (original) => ({
 }));
 
 import { db } from "../../src/db";
-import { apiKeys, secrets, secretVersions } from "../../src/db/schema";
+import { apiKeys, secrets, secretVersions, vaultEnvironments } from "../../src/db/schema";
+import { DEFAULT_ENVIRONMENTS } from "../../src/types";
+import { inferEnvironmentType } from "../../src/utils/permissions";
 import { ApiError } from "../../src/lib";
 import { secretsRoutes } from "../../src/api/v1/routes/secrets.routes";
 import { vaultsRoutes } from "../../src/api/v1/routes/vaults.routes";
 import { getEncryptionService } from "../../src/utils/encryption";
+import { CryptoServiceError } from "../../src/utils/remoteEncryption";
 import { parseLegacyEnv, toEnvFormat } from "../../src/utils/legacyEnvFormat";
 
 const cleanupSql = postgres(TEST_DB_URL, { max: 1 });
@@ -128,9 +136,20 @@ const within = <T>(promise: Promise<T>, ms: number) =>
     new Promise<"pending">((resolve) => setTimeout(() => resolve("pending"), ms)),
   ]);
 
+type Env = Awaited<ReturnType<typeof setup>>;
+
 async function setup(stored: Record<string, string>, trashed: Record<string, string> = {}) {
   const user = await createUser(db);
   const vault = await createVault(db, user.id);
+  // Like POST /v1/vaults
+  await db.insert(vaultEnvironments).values(
+    DEFAULT_ENVIRONMENTS.map((name, index) => ({
+      vaultId: vault.id,
+      name,
+      type: inferEnvironmentType(name),
+      displayOrder: index,
+    }))
+  );
   Object.assign(session, {
     userId: user.id,
     username: user.username,
@@ -207,6 +226,14 @@ async function setup(stored: Record<string, string>, trashed: Record<string, str
     });
     return res.statusCode;
   };
+  const deleteEnvironment = async (name: string) => {
+    const res = await app.inject({
+      method: "DELETE",
+      url: `/v1/vaults/${vault.repoFullName}/environments/${name}`,
+      headers: { authorization: "Bearer test" },
+    });
+    return res.statusCode;
+  };
   const decrypt = (row: {
     encryptedValue: string;
     iv: string;
@@ -255,7 +282,18 @@ async function setup(stored: Record<string, string>, trashed: Record<string, str
       })
       .where(eq(secrets.key, key));
   };
-  return { user, vault, push, pull, renameEnvironment, rows, active, versions, overwrite };
+  return {
+    user,
+    vault,
+    push,
+    pull,
+    renameEnvironment,
+    deleteEnvironment,
+    rows,
+    active,
+    versions,
+    overwrite,
+  };
 }
 
 beforeEach(async () => {
@@ -264,6 +302,7 @@ beforeEach(async () => {
   control.beforeEncrypt = undefined;
   control.failOn = undefined;
   control.insideTransaction = undefined;
+  control.decryptError = undefined;
 });
 
 afterAll(async () => {
@@ -524,6 +563,76 @@ describe("POST /v1/secrets/push (real handler, real DB)", () => {
     expect(status).toBe(200);
     expect(body.data.stats).toMatchObject({ unchanged: 0, protected: 0, ignored: 0, updated: 2 });
     expect((await active()).MULTI).toBe('"first line');
-    expect((await versions()).sort()).toEqual([MULTI, "ok"].sort());
+    // PLAIN is rewritten like any other value, but its unchanged value is not archived again.
+    expect(await versions()).toEqual([MULTI]);
+  });
+  it.each([
+    ["renamed", (env: Env) => env.renameEnvironment("development", "dev2"), [["dev2", "A", "1"]]],
+    ["deleted", (env: Env) => env.deleteEnvironment("development"), []],
+  ] as const)(
+    "writes nothing when the environment is %s before the push writes",
+    async (_, change, expected) => {
+      const env = await setup({ A: "1" });
+      let changed = false;
+      control.beforeEncrypt = async (plaintext) => {
+        if (plaintext === "2" && !changed) {
+          changed = true;
+          expect(await change(env)).toBe(200);
+        }
+      };
+      const { status, body } = await env.push({ A: "2", NEW: "v" });
+      expect(status, JSON.stringify(body)).toBe(400);
+      expect(body.detail).toContain("does not exist");
+      const active = (await env.rows()).filter((row) => !row.trashed);
+      expect(active.map((row) => [row.environment, row.key, row.value])).toEqual(expected);
+      expect(await env.versions()).toEqual([]);
+    }
+  );
+
+  it("writes nothing while the crypto service is unavailable, even for a released client", async () => {
+    // Without the stored value, the released CLI's copy of A ("v2") would look like a change.
+    const stored = { A: "'v2'", B: "b" };
+    const { push, rows, versions } = await setup(stored);
+    const before = await rows();
+    control.decryptError = new CryptoServiceError(
+      "unavailable",
+      "decrypt",
+      "test",
+      undefined,
+      true
+    );
+    const sent = { ...parseLegacyEnv(toEnvFormat(stored), "go"), OTHER: "v" };
+    const { status } = await push(sent, { userAgent: RELEASED_CLI });
+    expect(status).toBe(503);
+    control.decryptError = undefined;
+    expect(await rows()).toEqual(before);
+    expect(await versions()).toEqual([]);
+  });
+
+  it("does not archive a value a write-only caller pushes unchanged", async () => {
+    const { user, push, active, versions } = await setup({ A: "1", B: "b" });
+    const key = `kw_live_${randomBytes(20).toString("hex")}`;
+    await db.insert(apiKeys).values({
+      userId: user.id,
+      name: "write only",
+      keyPrefix: key.slice(0, 16),
+      keyHash: createHash("sha256").update(key).digest("hex"),
+      environment: "live",
+      scopes: ["write:secrets"],
+    });
+    for (let i = 0; i < 3; i++) {
+      expect((await push({ A: "1", B: "b" }, { token: `Bearer ${key}` })).status).toBe(200);
+    }
+    expect((await push({ A: "2", B: "b" }, { token: `Bearer ${key}` })).status).toBe(200);
+    expect(await active()).toEqual({ A: "2", B: "b" });
+    expect(await versions()).toEqual(["1"]);
+  });
+
+  it("lets MCP 1.0.0 set one secret to what a released parser would read from it", async () => {
+    const { push, active } = await setup({ A: "'v1'", B: "2" });
+    const { status, body } = await push({ A: "v1" }, { userAgent: "keyway-mcp/1.0.0" });
+    expect(status).toBe(200);
+    expect(body.data.stats).toMatchObject({ updated: 1, protected: 0 });
+    expect(await active()).toEqual({ A: "v1", B: "2" });
   });
 });

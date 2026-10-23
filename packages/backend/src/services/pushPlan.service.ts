@@ -148,7 +148,11 @@ export function planPush(
   };
   // Fixed clients always send a mode, so a mode means the guard is not needed.
   const releasedCli = canRead && mode === undefined && isReleasedCli(userAgent);
-  const legacy = releasedCli || (canRead && mode === undefined && isReleasedMcp(userAgent));
+  // A single secret from MCP comes from keyway_set_secret, which never pulled it; generate,
+  // which pushes back what it pulled, adds the secret it generated.
+  const releasedMcp =
+    canRead && mode === undefined && isReleasedMcp(userAgent) && Object.keys(incoming).length > 1;
+  const legacy = releasedCli || releasedMcp;
   const changed = Object.keys(incoming).filter(
     (key) => !canRead || !Object.hasOwn(current, key) || current[key] !== incoming[key]
   );

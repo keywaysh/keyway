@@ -321,7 +321,7 @@ POST /v1/secrets/push
 
 Without `mode`, requests from the Keyway MCP server merge and all others replace. The response gives the mode that was applied in `data.mode`. If you rely on `merge`, check it: older self-hosted servers ignore the field and replace.
 
-Every overwritten value is kept as a version (the last 10 per secret), restorable from the dashboard. Values that did not change are not rewritten.
+Every overwritten value is kept as a version (the last 10 per secret), restorable from the dashboard. Pushing a value that did not change creates no version.
 
 ```json
 {
@@ -336,7 +336,7 @@ Every overwritten value is kept as a version (the last 10 per secret), restorabl
 
 `protected` and `ignored` only concern keyway CLI 0.6.0 and older and MCP 1.0.0, which cannot read multi-line or quoted values back. For them, the server keeps the stored value instead of their corrupted copy and skips keys they parsed out of multi-line values. They get a `400`, and nothing is saved, when they send a value they truncated.
 
-A `409` means the environment changed during the push or another push to the vault was running. Retry.
+A `409` means the environment changed during the push or another push to the vault was running. A `503` means the encryption service was unavailable. In both cases nothing was saved: retry.
 
 ### Pull secrets
 
