@@ -58,6 +58,8 @@ interface EncryptedRow {
 
 interface ColumnSet {
   name: string;
+  /** IV column of this ciphertext; identifies which encrypted column the set covers. */
+  iv: PgColumn;
   selectBatch(
     targetVersion: number,
     afterId: string | null,
@@ -79,6 +81,7 @@ function columnSet<TTable extends PgTable>(def: {
 }): ColumnSet {
   return {
     name: def.name,
+    iv: def.iv,
     async selectBatch(targetVersion, afterId, limit) {
       const conditions: (SQL | undefined)[] = [
         isNotNull(def.content),

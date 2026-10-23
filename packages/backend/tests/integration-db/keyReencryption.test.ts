@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterAll, vi } from "vitest";
 import postgres from "postgres";
-import { eq } from "drizzle-orm";
+import { eq, getTableName, is } from "drizzle-orm";
+import { getTableConfig, PgTable } from "drizzle-orm/pg-core";
 import { createUser, createVault, cleanTables, TEST_DB_URL } from "./helpers";
 
 // A faithful stand-in for keyway-crypto: real AES-256-GCM with a versioned
@@ -80,7 +81,8 @@ import {
   vcsAppInstallations,
   vcsAppInstallationTokens,
 } from "../../src/db/schema";
-import { reencryptToCurrentKey } from "../../src/services/keyReencryption";
+import * as schema from "../../src/db/schema";
+import { COLUMN_SETS, reencryptToCurrentKey } from "../../src/services/keyReencryption";
 
 const cleanupSql = postgres(TEST_DB_URL, { max: 1 });
 
@@ -290,6 +292,30 @@ beforeEach(async () => {
 
 afterAll(async () => {
   await cleanupSql.end();
+});
+
+describe("re-encryption coverage", () => {
+  // Every ciphertext in the schema is stored next to an IV column ("iv" or
+  // "*_iv"). If a new encrypted column is added without a matching entry in
+  // COLUMN_SETS, the job would report "0 rows left on older keys" while that
+  // column still depends on the old key — and removing the key would lose it.
+  it("re-encrypts every column set that has an IV column in the schema", () => {
+    const ivColumnsInSchema = Object.values(schema)
+      .filter((value): value is PgTable => is(value, PgTable))
+      .flatMap((table) => {
+        const config = getTableConfig(table);
+        return config.columns
+          .filter((column) => column.name === "iv" || column.name.endsWith("_iv"))
+          .map((column) => `${config.name}.${column.name}`);
+      })
+      .sort();
+
+    const ivColumnsCovered = COLUMN_SETS.map(
+      (set) => `${getTableName(set.iv.table)}.${set.iv.name}`
+    ).sort();
+
+    expect(ivColumnsCovered).toEqual(ivColumnsInSchema);
+  });
 });
 
 describe("reencryptToCurrentKey (real DB, versioned AES-GCM keyring)", () => {
