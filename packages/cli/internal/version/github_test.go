@@ -19,6 +19,14 @@ func TestLatestStableCLIVersion(t *testing.T) {
 			want: "v0.6.0",
 		},
 		{
+			name: "skips prerelease tags not flagged as prerelease",
+			releases: []githubRelease{
+				{TagName: "cli/v0.7.0-rc.1"},
+				{TagName: "cli/v0.6.0"},
+			},
+			want: "v0.6.0",
+		},
+		{
 			name: "only prereleases",
 			releases: []githubRelease{
 				{TagName: "cli/v0.6.0-rc.1", Prerelease: true},

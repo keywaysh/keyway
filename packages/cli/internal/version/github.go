@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"regexp"
 	"strings"
 
 	"github.com/keywaysh/cli/internal/config"
@@ -15,6 +16,10 @@ const (
 	defaultGitHubReleasesURL = "https://api.github.com/repos/keywaysh/keyway/releases?per_page=100"
 	cliTagPrefix             = "cli/v"
 )
+
+// stableCLITag matches stable CLI release tags (cli/vX.Y.Z), regardless of
+// how the GitHub release itself is flagged.
+var stableCLITag = regexp.MustCompile(`^cli/v\d+\.\d+\.\d+$`)
 
 type githubRelease struct {
 	TagName    string `json:"tag_name"`
@@ -61,9 +66,9 @@ func FetchLatestVersion(ctx context.Context) (string, error) {
 // (tagged cli/vX.Y.Z) that is not a prerelease. Releases are newest first.
 func latestStableCLIVersion(releases []githubRelease) (string, error) {
 	for _, r := range releases {
-		if !r.Prerelease && strings.HasPrefix(r.TagName, cliTagPrefix) {
+		if !r.Prerelease && stableCLITag.MatchString(r.TagName) {
 			// Strip "cli/" prefix, return "vX.X.X"
-			return strings.TrimPrefix(r.TagName, "cli/"), nil
+			return "v" + strings.TrimPrefix(r.TagName, cliTagPrefix), nil
 		}
 	}
 
