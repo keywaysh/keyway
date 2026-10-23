@@ -1,13 +1,20 @@
 #!/bin/sh
 # Keyway CLI installer
-# Usage: curl -fsSL https://get.keyway.sh | sh
+# Usage: curl -fsSL https://keyway.sh/install.sh | sh
 #    or: curl -fsSL https://raw.githubusercontent.com/keywaysh/keyway/main/packages/cli/scripts/install.sh | sh
+# keyway.sh/install.sh redirects here.
 
 set -e
 
 REPO="keywaysh/keyway"
-INSTALL_DIR="${KEYWAY_INSTALL_DIR:-/usr/local/bin}"
+# keyway.sh/install.sh has always installed to ~/.local/bin and put it first in
+# PATH: installing elsewhere would leave an older keyway shadowing the new one.
+DEFAULT_INSTALL_DIR="$HOME/.local/bin"
+INSTALL_DIR="${KEYWAY_INSTALL_DIR:-$DEFAULT_INSTALL_DIR}"
 BINARY_NAME="keyway"
+PATH_EXPORT='export PATH="$HOME/.local/bin:$PATH"'
+PATH_COMMENT="# Added by Keyway CLI installer"
+SHELL_CONFIG_FILE=""
 
 # Colors
 RED='\033[0;31m'
@@ -86,6 +93,35 @@ download() {
     fi
 }
 
+# Append the ~/.local/bin PATH line to a shell config file, unless it already
+# mentions .local/bin.
+add_path_line() {
+    if grep -q '.local/bin' "$1" 2>/dev/null; then
+        return 1
+    fi
+    printf '\n%s\n%s\n' "$PATH_COMMENT" "$PATH_EXPORT" >> "$1"
+    success "Added ~/.local/bin to PATH in $1"
+    SHELL_CONFIG_FILE="$1"
+}
+
+# Put ~/.local/bin in PATH for zsh and bash, creating ~/.zshrc if no config exists.
+configure_path() {
+    info "Configuring shell PATH"
+    if [ -f "$HOME/.zshrc" ]; then
+        add_path_line "$HOME/.zshrc" || true
+    fi
+    if [ -f "$HOME/.bashrc" ]; then
+        add_path_line "$HOME/.bashrc" || true
+    elif [ -f "$HOME/.bash_profile" ]; then
+        add_path_line "$HOME/.bash_profile" || true
+    fi
+    if [ -z "$SHELL_CONFIG_FILE" ] && [ ! -f "$HOME/.zshrc" ] && [ ! -f "$HOME/.bashrc" ]; then
+        printf '%s\n%s\n' "$PATH_COMMENT" "$PATH_EXPORT" > "$HOME/.zshrc"
+        success "Created ~/.zshrc with ~/.local/bin in PATH"
+        SHELL_CONFIG_FILE="$HOME/.zshrc"
+    fi
+}
+
 main() {
     printf "\n"
     printf "  ${CYAN}keyway${NC} installer\n"
@@ -150,28 +186,46 @@ main() {
     # Install
     info "Installing to $INSTALL_DIR"
 
-    # Check if we need sudo
-    if [ -w "$INSTALL_DIR" ]; then
+    # Sudo only for a KEYWAY_INSTALL_DIR the user cannot write to
+    if mkdir -p "$INSTALL_DIR" 2>/dev/null && [ -w "$INSTALL_DIR" ]; then
         mv "$BINARY_PATH" "${INSTALL_DIR}/${BINARY_NAME}"
         chmod +x "${INSTALL_DIR}/${BINARY_NAME}"
+    elif [ "$INSTALL_DIR" = "$DEFAULT_INSTALL_DIR" ]; then
+        # sudo here would leave a root-owned binary in the user's home
+        error "Cannot write to $INSTALL_DIR. Fix its ownership or set KEYWAY_INSTALL_DIR."
     else
         warn "Need sudo to install to $INSTALL_DIR"
+        sudo mkdir -p "$INSTALL_DIR"
         sudo mv "$BINARY_PATH" "${INSTALL_DIR}/${BINARY_NAME}"
         sudo chmod +x "${INSTALL_DIR}/${BINARY_NAME}"
     fi
 
-    # Verify installation
-    if command -v keyway >/dev/null 2>&1; then
-        success "keyway $VERSION installed successfully!"
-        printf "\n"
-        printf "  Run ${CYAN}keyway --help${NC} to get started\n"
-        printf "\n"
-    else
-        warn "Installed but 'keyway' not found in PATH"
-        printf "  Add ${CYAN}$INSTALL_DIR${NC} to your PATH:\n"
-        printf "  export PATH=\"\$PATH:$INSTALL_DIR\"\n"
-        printf "\n"
-    fi
+    success "keyway $VERSION installed successfully!"
+    printf "\n"
+
+    case ":$PATH:" in
+        *":$INSTALL_DIR:"*)
+            RESOLVED=$(command -v "$BINARY_NAME" 2>/dev/null || true)
+            if [ -n "$RESOLVED" ] && [ "$RESOLVED" != "${INSTALL_DIR}/${BINARY_NAME}" ]; then
+                warn "$RESOLVED comes first in your PATH and will run instead of ${INSTALL_DIR}/${BINARY_NAME}"
+                printf "  Remove it (brew uninstall keyway, npm uninstall -g @keywaysh/cli) or put ${CYAN}$INSTALL_DIR${NC} first in your PATH\n"
+            else
+                printf "  Run ${CYAN}keyway --help${NC} to get started\n"
+            fi
+            ;;
+        *)
+            if [ "$INSTALL_DIR" = "$DEFAULT_INSTALL_DIR" ]; then
+                configure_path
+            fi
+            if [ -n "$SHELL_CONFIG_FILE" ]; then
+                printf "\n  Restart your terminal or run: ${CYAN}source $SHELL_CONFIG_FILE${NC}\n"
+            else
+                warn "$INSTALL_DIR is not in your PATH. Add it with:"
+                printf "  export PATH=\"$INSTALL_DIR:\$PATH\"\n"
+            fi
+            ;;
+    esac
+    printf "\n"
 }
 
 main "$@"
