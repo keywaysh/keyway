@@ -304,6 +304,7 @@ POST /v1/secrets/push
 {
   "repoFullName": "owner/repo",
   "environment": "local",
+  "mode": "merge",
   "secrets": {
     "DATABASE_URL": "postgres://...",
     "API_KEY": "sk_test_..."
@@ -313,11 +314,29 @@ POST /v1/secrets/push
 
 **Scope required:** `write:secrets`
 
-:::caution Full replacement
-The API replaces all secrets in the environment. Secrets not in the payload are moved to trash.
+`mode` decides what happens to secrets missing from the payload:
 
-The CLI handles this differently: without `--prune`, it merges vault secrets into the payload before sending, so nothing is deleted. Use the CLI for additive pushes.
-:::
+- `replace` moves them to trash.
+- `merge` leaves them untouched.
+
+Without `mode`, requests from the Keyway MCP server merge and all others replace. The response gives the mode that was applied in `data.mode`. If you rely on `merge`, check it: older self-hosted servers ignore the field and replace.
+
+Every overwritten value is kept as a version (the last 10 per secret), restorable from the dashboard. Values that did not change are not rewritten.
+
+```json
+{
+  "data": {
+    "success": true,
+    "message": "Secrets pushed successfully",
+    "mode": "merge",
+    "stats": { "created": 1, "updated": 2, "deleted": 0, "unchanged": 5, "protected": 0, "ignored": 0 }
+  }
+}
+```
+
+`protected` and `ignored` only concern keyway CLI 0.6.0 and older and MCP 1.0.0, which cannot read multi-line or quoted values back. For them, the server keeps the stored value instead of their corrupted copy and skips keys they parsed out of multi-line values. They get a `400`, and nothing is saved, when they send a value they truncated.
+
+A `409` means the environment changed during the push or another push to the vault was running. Retry.
 
 ### Pull secrets
 
