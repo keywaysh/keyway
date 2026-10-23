@@ -1532,6 +1532,13 @@ export async function vaultsRoutes(fastify: FastifyInstance) {
 
       // Perform all updates in a transaction
       await db.transaction(async (tx) => {
+        // Lock the vault first, like secrets push, so the two never wait on each other
+        await tx
+          .select({ id: vaults.id })
+          .from(vaults)
+          .where(eq(vaults.id, vault.id))
+          .for("no key update");
+
         // Update vault_environments table
         await tx
           .update(vaultEnvironments)
@@ -1636,6 +1643,13 @@ export async function vaultsRoutes(fastify: FastifyInstance) {
 
       // Perform all updates in a transaction
       await db.transaction(async (tx) => {
+        // Lock the vault first, like secrets push, so the two never wait on each other
+        await tx
+          .select({ id: vaults.id })
+          .from(vaults)
+          .where(eq(vaults.id, vault.id))
+          .for("no key update");
+
         // Delete from vault_environments table
         await tx
           .delete(vaultEnvironments)
