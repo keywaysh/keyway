@@ -181,7 +181,7 @@ Key points:
 
 1. **Network isolation required**: This service must run on a private network (Docker network, VPC). Never expose port 50051 to the internet.
 2. **Key management**: Never commit `ENCRYPTION_KEY` to version control. Use a secrets manager in production.
-3. **Key rotation**: Use `ENCRYPTION_KEYS` with versioned keys (e.g., `1:oldkey,2:newkey`) for zero-downtime rotation.
+3. **Key rotation**: Use `ENCRYPTION_KEYS` with versioned keys (e.g., `1:oldkey,2:newkey`) for zero-downtime rotation. New writes use the highest version. Existing data stays on the old key until you run `node dist/scripts/reencrypt-keys.js --expect-version=N` (dry run, N = the new highest version) then the same with `--apply` from the backend container. Remove the old key only once the script reports that every row decrypts and is on vN, and re-run the dry run right before removing it.
 4. **Logging**: The service never logs plaintext, ciphertext, IVs, auth tags, or keys.
 5. **Authentication**: Set `CRYPTO_AUTH_TOKEN` on both the crypto service and the backend to require a shared secret on every gRPC call. Uses SHA-256 + constant-time comparison.
 6. **TLS**: Set `CRYPTO_TLS_CERT_PATH` to enable auto-generated self-signed TLS. The cert is shared with the backend via Docker volume or env var. Recommended for Docker Compose and Kubernetes. On Railway, the private network isolation makes TLS unnecessary -- use `CRYPTO_AUTH_TOKEN` alone.
