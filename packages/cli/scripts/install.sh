@@ -58,7 +58,8 @@ detect_arch() {
 
 # Get latest CLI version from GitHub (filter for cli/v* tags)
 get_latest_version() {
-    local api_url="https://api.github.com/repos/${REPO}/releases"
+    # The monorepo also publishes mcp/v* releases: look past the default 30.
+    local api_url="https://api.github.com/repos/${REPO}/releases?per_page=100"
     local json
     if command -v curl >/dev/null 2>&1; then
         json=$(curl -fsSL "$api_url")
@@ -67,8 +68,8 @@ get_latest_version() {
     else
         error "Neither curl nor wget found. Please install one of them."
     fi
-    # Find latest cli/v* tag and strip the cli/ prefix
-    echo "$json" | grep '"tag_name"' | grep 'cli/v' | head -1 | sed -E 's/.*"cli\/(v[^"]+)".*/\1/'
+    # Find latest stable cli/vX.Y.Z tag (prereleases excluded) and strip the cli/ prefix
+    echo "$json" | grep '"tag_name"' | grep -E '"cli/v[0-9]+\.[0-9]+\.[0-9]+"' | head -1 | sed -E 's/.*"cli\/(v[^"]+)".*/\1/'
 }
 
 # Download file

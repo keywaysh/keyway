@@ -25,39 +25,13 @@ builds:
       - -X main.commit={{.ShortCommit}}
       - -X main.date={{.Date}}
 
-# macOS code signing
-signs:
-  - cmd: codesign
-    args:
-      - "--force"
-      - "--options=runtime"
-      - "--sign"
-      - "{{ .Env.MACOS_SIGNING_IDENTITY }}"
-      - "--timestamp"
-      - "${artifact}"
-    artifacts: binary
-    ids:
-      - keyway
-    output: false
-
-# macOS notarization
-notarize:
-  macos:
-    - enabled: '{{ isEnvSet "AC_KEY_ID" }}'
-      sign:
-        certificate: "{{.Env.MACOS_SIGNING_IDENTITY}}"
-      notarize:
-        issuer_id: "{{.Env.AC_ISSUER_ID}}"
-        key_id: "{{.Env.AC_KEY_ID}}"
-        key: "~/private_keys/AuthKey_{{.Env.AC_KEY_ID}}.p8"
-
 archives:
   - id: default
-    format: tar.gz
+    formats: [tar.gz]
     name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
     format_overrides:
       - goos: windows
-        format: zip
+        formats: [zip]
     files:
       - README.md
       - LICENSE*
@@ -77,23 +51,21 @@ changelog:
       - "Merge branch"
 
 release:
-  github:
-    owner: keywaysh
-    name: keyway
-  draft: false
-  prerelease: auto
-  name_template: "cli/v{{.Version}}"
+  # Published by the release workflow under the cli/v* tag: GoReleaser OSS can
+  # only publish under GORELEASER_CURRENT_TAG (vX.Y.Z).
+  disable: true
 
 brews:
   - name: keyway
-    skip_upload: "{{ if .Prerelease }}true{{ end }}"
+    # The workflow pushes the generated formula to the tap after the release exists.
+    skip_upload: true
+    url_template: "https://github.com/keywaysh/keyway/releases/download/cli%2Fv{{ .Version }}/{{ .ArtifactName }}"
     homepage: https://keyway.sh
     description: "GitHub-native secrets management CLI"
     license: "MIT"
     repository:
       owner: keywaysh
       name: homebrew-tap
-      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
     commit_author:
       name: keywaysh-bot
       email: bot@keyway.sh

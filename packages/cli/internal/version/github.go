@@ -5,18 +5,25 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"regexp"
 	"strings"
 
 	"github.com/keywaysh/cli/internal/config"
 )
 
 const (
-	defaultGitHubReleasesURL = "https://api.github.com/repos/keywaysh/keyway/releases?per_page=20"
+	// The monorepo also publishes mcp/v* releases and CLI prereleases.
+	defaultGitHubReleasesURL = "https://api.github.com/repos/keywaysh/keyway/releases?per_page=100"
 	cliTagPrefix             = "cli/v"
 )
 
+// stableCLITag matches stable CLI release tags (cli/vX.Y.Z), regardless of
+// how the GitHub release itself is flagged.
+var stableCLITag = regexp.MustCompile(`^cli/v\d+\.\d+\.\d+$`)
+
 type githubRelease struct {
-	TagName string `json:"tag_name"`
+	TagName    string `json:"tag_name"`
+	Prerelease bool   `json:"prerelease"`
 }
 
 // FetchLatestVersion fetches the latest CLI version from GitHub Releases.
@@ -52,11 +59,16 @@ func FetchLatestVersion(ctx context.Context) (string, error) {
 		return "", err
 	}
 
-	// Find the latest CLI release (tagged cli/vX.X.X)
+	return latestStableCLIVersion(releases)
+}
+
+// latestStableCLIVersion returns "vX.Y.Z" for the newest CLI release
+// (tagged cli/vX.Y.Z) that is not a prerelease. Releases are newest first.
+func latestStableCLIVersion(releases []githubRelease) (string, error) {
 	for _, r := range releases {
-		if strings.HasPrefix(r.TagName, cliTagPrefix) {
+		if !r.Prerelease && stableCLITag.MatchString(r.TagName) {
 			// Strip "cli/" prefix, return "vX.X.X"
-			return strings.TrimPrefix(r.TagName, "cli/"), nil
+			return "v" + strings.TrimPrefix(r.TagName, cliTagPrefix), nil
 		}
 	}
 
