@@ -32,17 +32,14 @@ jobs:
 
       - name: Extract version from tag
         id: version
+        run: sh scripts/release_version.sh "$GITHUB_REF_NAME" >> "$GITHUB_OUTPUT"
+
+      - name: Check the tagged commit is on main
         run: |
-          # Tag is cli/v1.2.3 or cli/v1.2.3-rc.1
-          VERSION="${GITHUB_REF_NAME#cli/v}"
-          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]]; then
-            echo "::error::Tag $GITHUB_REF_NAME is not cli/vMAJOR.MINOR.PATCH[-PRERELEASE]"
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "::error::$GITHUB_REF_NAME points at a commit that is not on main"
             exit 1
           fi
-          PRERELEASE=false
-          if [[ "$VERSION" == *-* ]]; then PRERELEASE=true; fi
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "prerelease=$PRERELEASE" >> "$GITHUB_OUTPUT"
 
       - name: Create local vX.Y.Z tag for GoReleaser
         # GoReleaser OSS only understands vX.Y.Z tags and validates that the
@@ -63,6 +60,19 @@ jobs:
       - name: Verify Go toolchain of built binaries
         run: sh scripts/check_toolchain.sh go.mod dist
 
+      # The tap update runs in its own job from this exact formula, so a tap
+      # failure neither blocks npm nor forces a rebuild (new archives would no
+      # longer match the published sha256s). Uploaded before publishing so an
+      # upload failure cannot leave a public release without npm and brew.
+      - name: Upload Homebrew formula
+        if: steps.version.outputs.prerelease == 'false'
+        uses: actions/upload-artifact@v4
+        with:
+          name: homebrew-formula
+          path: packages/cli/dist/homebrew/Formula/keyway.rb
+          if-no-files-found: error
+          retention-days: 30
+
       - name: Publish GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -77,18 +87,6 @@ jobs:
             --generate-notes \
             "${FLAGS[@]}" \
             dist/*.tar.gz dist/*.zip dist/checksums.txt
-
-      # The tap update runs in its own job from this exact formula, so a tap
-      # failure neither blocks npm nor forces a rebuild (new archives would no
-      # longer match the published sha256s).
-      - name: Upload Homebrew formula
-        if: steps.version.outputs.prerelease == 'false'
-        uses: actions/upload-artifact@v4
-        with:
-          name: homebrew-formula
-          path: packages/cli/dist/homebrew/Formula/keyway.rb
-          if-no-files-found: error
-          retention-days: 30
 
   homebrew:
     needs: release
@@ -149,8 +147,12 @@ jobs:
       - name: Publish to npm
         working-directory: packages/cli/npm
         run: |
-          if [[ "${{ needs.release.outputs.prerelease }}" == "true" ]]; then
+          PRERELEASE="${{ needs.release.outputs.prerelease }}"
+          if [[ "$PRERELEASE" == "true" ]]; then
             npm publish --access public --provenance --tag beta
-          else
+          elif [[ "$PRERELEASE" == "false" ]]; then
             npm publish --access public --provenance
+          else
+            echo "::error::Unexpected prerelease output: '$PRERELEASE'"
+            exit 1
           fi

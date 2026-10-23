@@ -1,5 +1,6 @@
 #!/bin/sh
-# Fails unless every keyway binary GoReleaser built uses the toolchain pinned in go.mod.
+# Fails unless every binary GoReleaser built (the "Binary" entries of
+# <dist-dir>/artifacts.json) uses the toolchain pinned in go.mod.
 # Usage: sh scripts/check_toolchain.sh <go.mod> <dist-dir>
 set -eu
 
@@ -12,9 +13,15 @@ if [ -z "$WANT" ]; then
     exit 1
 fi
 
+if [ ! -f "$DIST/artifacts.json" ]; then
+    echo "error: $DIST/artifacts.json not found" >&2
+    exit 1
+fi
+
+BINARIES=$(jq -r '.[] | select(.type == "Binary") | .path' "$DIST/artifacts.json")
+
 count=0
-for bin in "$DIST"/*/keyway "$DIST"/*/keyway.exe; do
-    [ -f "$bin" ] || continue
+for bin in $BINARIES; do
     got=$(go version "$bin" | awk '{ print $NF }')
     if [ "$got" != "$WANT" ]; then
         echo "error: $bin was built with $got, expected $WANT" >&2
@@ -24,7 +31,7 @@ for bin in "$DIST"/*/keyway "$DIST"/*/keyway.exe; do
 done
 
 if [ "$count" -eq 0 ]; then
-    echo "error: no keyway binaries found under $DIST" >&2
+    echo "error: no binaries listed in $DIST/artifacts.json" >&2
     exit 1
 fi
 

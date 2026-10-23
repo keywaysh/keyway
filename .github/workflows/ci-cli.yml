@@ -36,6 +36,7 @@ jobs:
       - name: Test release scripts
         run: |
           sh scripts/install_test.sh
+          sh scripts/release_version_test.sh
           sh scripts/check_toolchain_test.sh
           sh scripts/update_tap_test.sh
 
