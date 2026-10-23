@@ -45,21 +45,41 @@ vi.mock('../../src/db', () => {
     },
   };
 
-  return {
-    db: {
-      query: mockQuery,
-      insert: vi.fn().mockReturnValue({
-        values: vi.fn().mockResolvedValue(undefined),
-      }),
-      update: vi.fn().mockReturnValue({
-        set: vi.fn().mockReturnValue({
-          where: vi.fn().mockResolvedValue(undefined),
-        }),
-      }),
-      delete: vi.fn().mockReturnValue({
+  // The push route reads secrets with select().from().where() (awaited, or locked with
+  // .for()), returning what the test configured through query.secrets.findMany; it locks the
+  // vault with select({ id }).from().where().for().
+  const selectChain = (rows: () => unknown) => {
+    const chain: Record<string, unknown> = {};
+    chain.from = vi.fn(() => chain);
+    chain.where = vi.fn(() => chain);
+    chain.for = vi.fn(() => Promise.resolve(rows()));
+    chain.then = (resolve: (value: unknown) => unknown, reject: (reason: unknown) => unknown) =>
+      Promise.resolve(rows()).then(resolve, reject);
+    return chain;
+  };
+
+  const db: Record<string, unknown> = {
+    query: mockQuery,
+    select: vi.fn((projection?: unknown) =>
+      projection ? selectChain(() => [{ id: 'vault-id' }]) : selectChain(() => mockQuery.secrets.findMany())
+    ),
+    execute: vi.fn().mockResolvedValue(undefined),
+    insert: vi.fn().mockReturnValue({
+      values: vi.fn().mockResolvedValue(undefined),
+    }),
+    update: vi.fn().mockReturnValue({
+      set: vi.fn().mockReturnValue({
         where: vi.fn().mockResolvedValue(undefined),
       }),
-    },
+    }),
+    delete: vi.fn().mockReturnValue({
+      where: vi.fn().mockResolvedValue(undefined),
+    }),
+  };
+  db.transaction = vi.fn((callback: (tx: unknown) => unknown) => callback(db));
+
+  return {
+    db,
     users: { id: 'id', forgeType: 'forgeType', forgeUserId: 'forgeUserId' },
     vaults: { id: 'id', repoFullName: 'repoFullName' },
     secrets: { id: 'id', vaultId: 'vaultId', environment: 'environment', key: 'key', deletedAt: 'deletedAt' },
@@ -158,6 +178,11 @@ vi.mock('../../src/services', () => ({
 }));
 
 // Mock security service
+vi.mock('../../src/services/secretVersion.service', () => ({
+  saveSecretVersion: vi.fn().mockResolvedValue(undefined),
+  saveSecretVersions: vi.fn().mockResolvedValue(undefined),
+}));
+
 vi.mock('../../src/services/security.service', () => ({
   processPullEvent: vi.fn().mockResolvedValue(undefined),
   generateDeviceId: vi.fn().mockReturnValue('device-123'),
@@ -194,6 +219,7 @@ vi.mock('../../src/utils/apiKeys', () => ({
 vi.mock('../../src/config', () => ({
   config: {
     server: { isProduction: false },
+    app: { dashboardUrl: 'https://app.keyway.sh' },
   },
 }));
 
@@ -340,7 +366,7 @@ describe('Secrets Routes', () => {
       });
 
       expect(response.statusCode).toBe(200);
-      expect(mockTrashSecretsByIds).toHaveBeenCalledWith(['delete-this']);
+      expect(mockTrashSecretsByIds).toHaveBeenCalledWith(['delete-this'], expect.anything());
     });
 
     it('should return 403 for non-existent vault (access denied)', async () => {

@@ -1,4 +1,4 @@
-import { FastifyInstance } from "fastify";
+import { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
 import {
   authenticateGitHub,
@@ -6,10 +6,18 @@ import {
   requireApiKeyScope,
 } from "../../../middleware/auth";
 import { db, vaults, users, secrets } from "../../../db";
-import { eq, and, isNull } from "drizzle-orm";
+import { eq, and, isNull, sql } from "drizzle-orm";
 import { getEncryptionService } from "../../../utils/encryption";
 import { toEnvFormat } from "../../../utils/legacyEnvFormat";
-import { sendData, NotFoundError, BadRequestError, PlanLimitError } from "../../../lib";
+import { hasRequiredScopes } from "../../../utils/apiKeys";
+import { resolveEffectivePermission, hasEnvironmentPermission } from "../../../utils/permissions";
+import {
+  sendData,
+  NotFoundError,
+  BadRequestError,
+  ConflictError,
+  PlanLimitError,
+} from "../../../lib";
 import { trackEvent, AnalyticsEvents } from "../../../utils/analytics";
 import {
   logActivity,
@@ -26,6 +34,15 @@ import {
   type PullSource,
 } from "../../../services/security.service";
 import { canWriteToVault } from "../../../services/usage.service";
+import { saveSecretVersions } from "../../../services/secretVersion.service";
+import {
+  planPush,
+  resolvePushMode,
+  describeRejections,
+  describeKept,
+  type PushPlan,
+} from "../../../services/pushPlan.service";
+import { config } from "../../../config";
 import { repoFullNameSchema } from "../../../types";
 import type { RecordAccessContext, SecretAccessRecord } from "../../../services";
 
@@ -33,6 +50,7 @@ import type { RecordAccessContext, SecretAccessRecord } from "../../../services"
 const MAX_SECRET_KEY_LENGTH = 256;
 const MAX_SECRET_VALUE_SIZE = 64 * 1024; // 64KB
 const MAX_SECRETS_PER_PUSH = 1000; // Maximum secrets per push operation
+const MAX_PUSH_ATTEMPTS = 3; // Plans re-made when the environment changes mid-push
 
 // Schemas
 const PushSecretsSchema = z.object({
@@ -50,6 +68,8 @@ const PushSecretsSchema = z.object({
     .refine((secrets) => Object.keys(secrets).length <= MAX_SECRETS_PER_PUSH, {
       message: `Cannot push more than ${MAX_SECRETS_PER_PUSH} secrets at once`,
     }),
+  // merge keeps secrets missing from the push; replace trashes them. Released clients send none.
+  mode: z.enum(["merge", "replace"]).optional(),
 });
 
 const PullSecretsQuerySchema = z.object({
@@ -99,6 +119,91 @@ function _parseEnvContent(content: string): Record<string, string> {
   }
 
   return result;
+}
+
+type EncryptionService = Awaited<ReturnType<typeof getEncryptionService>>;
+type SecretRow = typeof secrets.$inferSelect;
+
+// Crypto service calls run a few at a time: an environment can hold up to 1000 secrets.
+async function inBatches<T, R>(items: T[], call: (item: T) => Promise<R>): Promise<R[]> {
+  const results: R[] = [];
+  for (let i = 0; i < items.length; i += 25) {
+    results.push(...(await Promise.all(items.slice(i, i + 25).map(call))));
+  }
+  return results;
+}
+
+// Stored values by key. A value the crypto service cannot decrypt (e.g. its key version was
+// retired) becomes a placeholder no client sends, so the push can still overwrite it.
+async function decryptValues(
+  encryptionService: EncryptionService,
+  rows: SecretRow[]
+): Promise<{ values: Record<string, string>; undecryptable: number }> {
+  const values: Record<string, string> = Object.create(null);
+  const decrypted = await inBatches(rows, (row) =>
+    encryptionService
+      .decrypt({
+        encryptedContent: row.encryptedValue,
+        iv: row.iv,
+        authTag: row.authTag,
+        version: row.encryptionVersion,
+      })
+      .catch(() => null)
+  );
+  let undecryptable = 0;
+  rows.forEach((row, i) => {
+    const value = decrypted[i];
+    if (value === null) {
+      undecryptable++;
+    }
+    values[row.key] = value ?? `\0undecryptable:${row.id}`;
+  });
+  return { values, undecryptable };
+}
+
+// True when `rows` are the rows of `snapshot`, with the same ciphertext.
+function sameRows(rows: SecretRow[], snapshot: SecretRow[]): boolean {
+  const byId = new Map(snapshot.map((row) => [row.id, row]));
+  return (
+    rows.length === snapshot.length &&
+    rows.every((row) => {
+      const before = byId.get(row.id);
+      return (
+        before !== undefined &&
+        before.key === row.key &&
+        before.encryptedValue === row.encryptedValue &&
+        before.iv === row.iv &&
+        before.authTag === row.authTag &&
+        before.encryptionVersion === row.encryptionVersion
+      );
+    })
+  );
+}
+
+// API keys need the read scope, and every caller needs read permission on the environment.
+async function canReadEnvironment(
+  request: FastifyRequest,
+  vaultId: string,
+  environment: string,
+  userId: string | undefined
+): Promise<boolean> {
+  if (request.apiKey && !hasRequiredScopes(request.apiKey.scopes, ["read:secrets"])) {
+    return false;
+  }
+  const role = request.repoRole;
+  if (!role) {
+    return false;
+  }
+  return userId
+    ? resolveEffectivePermission(vaultId, environment, userId, role, "read")
+    : hasEnvironmentPermission(vaultId, environment, role, "read");
+}
+
+// Postgres lock_not_available, raised by lock_timeout (drizzle wraps it in `cause`).
+function isLockTimeout(error: unknown): boolean {
+  const code = (error as { code?: string; cause?: { code?: string } } | undefined)?.code;
+  const causeCode = (error as { cause?: { code?: string } } | undefined)?.cause?.code;
+  return code === "55P03" || causeCode === "55P03";
 }
 
 /**
@@ -169,96 +274,184 @@ export async function secretsRoutes(fastify: FastifyInstance) {
         );
       }
 
-      const secretEntries = Object.entries(body.secrets);
-
       fastify.log.info(
         {
           repoFullName: body.repoFullName,
           environment: body.environment,
-          secretCount: secretEntries.length,
+          secretCount: Object.keys(body.secrets).length,
         },
         "Pushing secrets via v1 API"
       );
 
-      // Get existing secrets for this environment (active only, excludes trash)
-      const existingSecrets = await db.query.secrets.findMany({
-        where: and(
-          eq(secrets.vaultId, vault.id),
-          eq(secrets.environment, body.environment),
-          isNull(secrets.deletedAt)
-        ),
-      });
-
-      const existingByKey = new Map(existingSecrets.map((s) => [s.key, s]));
-
-      let created = 0;
-      let updated = 0;
-
+      const platform = detectPlatform(request);
+      const userAgent = request.headers["user-agent"];
       const encryptionService = await getEncryptionService();
-      for (const [key, value] of secretEntries) {
-        const encryptedData = await encryptionService.encrypt(value);
-        const existing = existingByKey.get(key);
+      const canRead = await canReadEnvironment(request, vault.id, body.environment, user?.id);
+      // Active secrets of this environment (trash excluded)
+      const activeSecrets = and(
+        eq(secrets.vaultId, vault.id),
+        eq(secrets.environment, body.environment),
+        isNull(secrets.deletedAt)
+      );
 
-        if (existing) {
-          await db
-            .update(secrets)
-            .set({
-              encryptedValue: encryptedData.encryptedContent,
-              iv: encryptedData.iv,
-              authTag: encryptedData.authTag,
-              encryptionVersion: encryptedData.version ?? 1,
-              updatedAt: new Date(),
-            })
-            .where(eq(secrets.id, existing.id));
-          updated++;
-        } else {
-          await db.insert(secrets).values({
-            vaultId: vault.id,
-            environment: body.environment,
-            key,
-            encryptedValue: encryptedData.encryptedContent,
-            iv: encryptedData.iv,
-            authTag: encryptedData.authTag,
-            encryptionVersion: encryptedData.version ?? 1,
+      // Crypto calls happen before the transaction, which only re-checks and writes, so its
+      // locks last a few queries. If another write landed in between, plan again.
+      let plan: PushPlan | undefined;
+      for (let attempt = 0; attempt < MAX_PUSH_ATTEMPTS && !plan; attempt++) {
+        const snapshot = await db.select().from(secrets).where(activeSecrets);
+        const { values: current, undecryptable } = await decryptValues(encryptionService, snapshot);
+        if (undecryptable > 0) {
+          request.log.warn({ undecryptable, platform }, "Push: stored values cannot be decrypted");
+        }
+        const candidate = planPush(current, body.secrets, { mode: body.mode, userAgent, canRead });
+
+        // Refuse before any write
+        if (candidate.rejected.length > 0) {
+          request.log.warn(
+            { rejected: candidate.rejected.length, platform },
+            "Push refused: values a released client mis-parsed"
+          );
+          throw new BadRequestError(
+            describeRejections(candidate.rejected, config.app.dashboardUrl)
+          );
+        }
+
+        const toWrite = [...candidate.update, ...candidate.create];
+        const encryptedValues = await inBatches(toWrite, (key) =>
+          encryptionService.encrypt(body.secrets[key])
+        );
+        const encrypted = new Map(toWrite.map((key, i) => [key, encryptedValues[i]]));
+
+        const committed = await db
+          .transaction(async (tx) => {
+            await tx.execute(sql`SET LOCAL lock_timeout = '5s'`);
+            // Pushes to a vault run one at a time. NO KEY UPDATE does not block the foreign
+            // key checks of other requests (e.g. the activity log written by a pull).
+            const locked = await tx
+              .select({ id: vaults.id })
+              .from(vaults)
+              .where(eq(vaults.id, vault.id))
+              .for("no key update");
+            if (locked.length === 0) {
+              throw new NotFoundError("Vault not found. Run keyway init first.");
+            }
+            const rows = await tx.select().from(secrets).where(activeSecrets).for("no key update");
+            if (!sameRows(rows, snapshot)) {
+              return false;
+            }
+            const byKey = new Map(rows.map((row) => [row.key, row]));
+
+            // Keep every overwritten value restorable
+            await saveSecretVersions(
+              candidate.update.map((key) => {
+                const row = byKey.get(key)!;
+                return {
+                  secretId: row.id,
+                  vaultId: vault.id,
+                  encryptedValue: row.encryptedValue,
+                  iv: row.iv,
+                  authTag: row.authTag,
+                  encryptionVersion: row.encryptionVersion,
+                };
+              }),
+              user?.id,
+              tx
+            );
+
+            const now = new Date();
+            for (const key of candidate.update) {
+              const data = encrypted.get(key)!;
+              await tx
+                .update(secrets)
+                .set({
+                  encryptedValue: data.encryptedContent,
+                  iv: data.iv,
+                  authTag: data.authTag,
+                  encryptionVersion: data.version ?? 1,
+                  lastModifiedById: user?.id ?? null,
+                  updatedAt: now,
+                })
+                .where(eq(secrets.id, byKey.get(key)!.id));
+            }
+
+            if (candidate.create.length > 0) {
+              await tx.insert(secrets).values(
+                candidate.create.map((key) => {
+                  const data = encrypted.get(key)!;
+                  return {
+                    vaultId: vault.id,
+                    environment: body.environment,
+                    key,
+                    encryptedValue: data.encryptedContent,
+                    iv: data.iv,
+                    authTag: data.authTag,
+                    encryptionVersion: data.version ?? 1,
+                    lastModifiedById: user?.id ?? null,
+                  };
+                })
+              );
+            }
+
+            // Soft-delete secrets the plan removes (move to trash)
+            await trashSecretsByIds(
+              candidate.trash.map((key) => byKey.get(key)!.id),
+              tx
+            );
+
+            // Update vault timestamp
+            await tx.update(vaults).set({ updatedAt: now }).where(eq(vaults.id, vault.id));
+            return true;
+          })
+          .catch((error: unknown) => {
+            if (isLockTimeout(error)) {
+              throw new ConflictError("Another push to this vault is still running. Try again.");
+            }
+            throw error;
           });
-          created++;
+
+        if (committed) {
+          plan = candidate;
         }
       }
 
-      // Soft-delete secrets not in the pushed set (move to trash)
-      const idsToTrash = existingSecrets
-        .filter((s) => !Object.hasOwn(body.secrets, s.key))
-        .map((s) => s.id);
-
-      if (idsToTrash.length > 0) {
-        await trashSecretsByIds(idsToTrash);
+      if (!plan) {
+        throw new ConflictError("The environment changed while pushing. Try again.");
       }
 
-      // Update vault timestamp
-      await db.update(vaults).set({ updatedAt: new Date() }).where(eq(vaults.id, vault.id));
+      if (plan.protected.length > 0 || plan.ignored.length > 0) {
+        request.log.warn(
+          { protected: plan.protected.length, ignored: plan.ignored.length, platform },
+          "Push kept stored values a released client sent back corrupted"
+        );
+      }
+
+      const stats = {
+        created: plan.create.length,
+        updated: plan.update.length,
+        deleted: plan.trash.length,
+        unchanged: plan.unchanged.length,
+        protected: plan.protected.length,
+        ignored: plan.ignored.length,
+      };
 
       // Note: 'user' was already fetched above for plan limit check
       trackEvent(user?.id || "anonymous", AnalyticsEvents.SECRETS_PUSHED, {
         repoFullName: body.repoFullName,
         environment: body.environment,
-        created,
-        updated,
-        deleted: idsToTrash.length,
-        platform: detectPlatform(request),
+        ...stats,
+        platform,
       });
 
       if (user) {
         await logActivity({
           userId: user.id,
           action: "secrets_pushed",
-          platform: detectPlatform(request),
+          platform,
           vaultId: vault.id,
           metadata: {
             repoFullName: body.repoFullName,
             environment: body.environment,
-            created,
-            updated,
-            deleted: idsToTrash.length,
+            ...stats,
           },
           ...extractRequestInfo(request),
         });
@@ -268,8 +461,12 @@ export async function secretsRoutes(fastify: FastifyInstance) {
         reply,
         {
           success: true,
-          message: "Secrets pushed successfully",
-          stats: { created, updated, deleted: idsToTrash.length },
+          message:
+            describeKept(plan.protected, plan.ignored, config.app.dashboardUrl) ??
+            "Secrets pushed successfully",
+          // Lets a client confirm the server applied the mode it asked for
+          mode: resolvePushMode(body.mode, userAgent),
+          stats,
         },
         { requestId: request.id }
       );
