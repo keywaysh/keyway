@@ -2,7 +2,7 @@ module github.com/keywaysh/cli
 
 go 1.25.0
 
-toolchain go1.26.6
+toolchain go1.26.10
 
 require (
 	github.com/charmbracelet/huh v1.0.0
@@ -12,7 +12,7 @@ require (
 	github.com/pkg/browser v0.0.0-20240102092130-5ac0b6a4141c
 	github.com/posthog/posthog-go v1.11.1
 	github.com/spf13/cobra v1.10.2
-	golang.org/x/text v0.35.0
+	golang.org/x/text v0.39.0
 )
 
 require (
