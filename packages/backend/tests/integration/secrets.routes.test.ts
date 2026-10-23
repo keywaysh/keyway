@@ -431,6 +431,9 @@ describe('Secrets Routes', () => {
         { ...mockSecret, key: 'API_KEY' },
         { ...mockSecret, key: 'DB_URL', id: 'secret-2' },
       ]);
+      const { getEncryptionService } = await import('../../src/utils/encryption');
+      const encryption = await getEncryptionService();
+      (encryption.decrypt as any).mockResolvedValueOnce('two words').mockResolvedValueOnce('plain');
 
       const response = await app.inject({
         method: 'GET',
@@ -442,8 +445,8 @@ describe('Secrets Routes', () => {
 
       expect(response.statusCode).toBe(200);
       const body = JSON.parse(response.body);
-      expect(body.data.content).toContain('API_KEY=');
-      expect(body.data.content).toContain('DB_URL=');
+      // Released clients parse this exact format (see utils/legacyEnvFormat.ts).
+      expect(body.data.content).toBe('API_KEY="two words"\nDB_URL=plain');
     });
 
     it('should return 403 for non-existent vault (access denied)', async () => {

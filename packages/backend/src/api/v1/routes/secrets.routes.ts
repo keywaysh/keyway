@@ -8,6 +8,7 @@ import {
 import { db, vaults, users, secrets } from "../../../db";
 import { eq, and, isNull } from "drizzle-orm";
 import { getEncryptionService } from "../../../utils/encryption";
+import { toEnvFormat } from "../../../utils/legacyEnvFormat";
 import { sendData, NotFoundError, BadRequestError, PlanLimitError } from "../../../lib";
 import { trackEvent, AnalyticsEvents } from "../../../utils/analytics";
 import {
@@ -98,20 +99,6 @@ function _parseEnvContent(content: string): Record<string, string> {
   }
 
   return result;
-}
-
-/**
- * Convert secrets to .env format
- */
-function toEnvFormat(secretsMap: Record<string, string>): string {
-  return Object.entries(secretsMap)
-    .map(([key, value]) => {
-      if (value.includes(" ") || value.includes("\n") || value.includes('"')) {
-        return `${key}="${value.replace(/"/g, '\\"')}"`;
-      }
-      return `${key}=${value}`;
-    })
-    .join("\n");
 }
 
 /**
