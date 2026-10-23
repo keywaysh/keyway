@@ -117,7 +117,8 @@ jobs:
 
   publish-npm:
     needs: release
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    # npm trusted publishing only supports GitHub-hosted runners.
+    runs-on: ubuntu-24.04
     environment: npm
     permissions:
       contents: read
