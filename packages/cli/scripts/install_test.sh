@@ -174,4 +174,34 @@ output=$(HOME="$TMP/home" PATH="$TMP/bin:/usr/bin:/bin" KEYWAY_INSTALL_DIR="$TMP
 [ "$(count_path_lines "$TMP/home/.zshrc")" = 0 ] || fail "a custom KEYWAY_INSTALL_DIR must not edit shell config"
 [ ! -e "$TMP/home/.local/bin/keyway" ] || fail "a custom KEYWAY_INSTALL_DIR must not install to ~/.local/bin"
 
+# Shadowing: an older keyway earlier in PATH is reported, not hidden behind a
+# success message.
+reset_home .zshrc
+mkdir -p "$TMP/old"
+printf '#!/bin/sh\necho "keyway version 0.5.3"\n' > "$TMP/old/keyway"
+chmod +x "$TMP/old/keyway"
+output=$(HOME="$TMP/home" PATH="$TMP/old:$TMP/home/.local/bin:$TMP/bin:/usr/bin:/bin" sh "$SCRIPT_DIR/install.sh" 2>&1 || true)
+case "$output" in
+  *"$TMP/old/keyway comes first in your PATH"*) ;;
+  *) fail "an older keyway earlier in PATH must be reported" ;;
+esac
+output=$(HOME="$TMP/home" PATH="$TMP/home/.local/bin:$TMP/old:$TMP/bin:/usr/bin:/bin" sh "$SCRIPT_DIR/install.sh" 2>&1 || true)
+case "$output" in
+  *"comes first in your PATH"*) fail "no shadowing warning when the new keyway comes first" ;;
+esac
+
+# An unwritable ~/.local/bin is an error, never a root-owned file in HOME.
+if [ "$(id -u)" != 0 ]; then
+  reset_home .zshrc
+  mkdir -p "$TMP/home/.local/bin"
+  chmod 555 "$TMP/home/.local/bin"
+  run_default_install
+  chmod 755 "$TMP/home/.local/bin"
+  [ ! -e "$TMP/sudo-calls" ] || fail "an unwritable ~/.local/bin must not use sudo"
+  case "$output" in
+    *"Cannot write to $TMP/home/.local/bin"*) ;;
+    *) fail "an unwritable ~/.local/bin must be reported" ;;
+  esac
+fi
+
 echo "PASS: install.sh installs to ~/.local/bin and configures PATH like keyway.sh/install.sh"

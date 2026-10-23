@@ -190,6 +190,9 @@ main() {
     if mkdir -p "$INSTALL_DIR" 2>/dev/null && [ -w "$INSTALL_DIR" ]; then
         mv "$BINARY_PATH" "${INSTALL_DIR}/${BINARY_NAME}"
         chmod +x "${INSTALL_DIR}/${BINARY_NAME}"
+    elif [ "$INSTALL_DIR" = "$DEFAULT_INSTALL_DIR" ]; then
+        # sudo here would leave a root-owned binary in the user's home
+        error "Cannot write to $INSTALL_DIR. Fix its ownership or set KEYWAY_INSTALL_DIR."
     else
         warn "Need sudo to install to $INSTALL_DIR"
         sudo mkdir -p "$INSTALL_DIR"
@@ -202,7 +205,13 @@ main() {
 
     case ":$PATH:" in
         *":$INSTALL_DIR:"*)
-            printf "  Run ${CYAN}keyway --help${NC} to get started\n"
+            RESOLVED=$(command -v "$BINARY_NAME" 2>/dev/null || true)
+            if [ -n "$RESOLVED" ] && [ "$RESOLVED" != "${INSTALL_DIR}/${BINARY_NAME}" ]; then
+                warn "$RESOLVED comes first in your PATH and will run instead of ${INSTALL_DIR}/${BINARY_NAME}"
+                printf "  Remove it (brew uninstall keyway, npm uninstall -g @keywaysh/cli) or put ${CYAN}$INSTALL_DIR${NC} first in your PATH\n"
+            else
+                printf "  Run ${CYAN}keyway --help${NC} to get started\n"
+            fi
             ;;
         *)
             if [ "$INSTALL_DIR" = "$DEFAULT_INSTALL_DIR" ]; then
