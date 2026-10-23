@@ -1,4 +1,4 @@
-import { db, secrets } from "../db";
+import { db, secrets, type DbExecutor } from "../db";
 import { eq, and, desc, count, isNull, isNotNull, lt, inArray } from "drizzle-orm";
 import { getEncryptionService } from "../utils/encryption";
 import { saveSecretVersion } from "./secretVersion.service";
@@ -240,12 +240,18 @@ export async function trashSecret(
  * Bulk soft-delete secrets by IDs (move to trash)
  * Used by push operation when secrets are removed from .env file
  */
-export async function trashSecretsByIds(secretIds: string[]): Promise<void> {
+export async function trashSecretsByIds(
+  secretIds: string[],
+  executor: DbExecutor = db
+): Promise<void> {
   if (secretIds.length === 0) {
     return;
   }
 
-  await db.update(secrets).set({ deletedAt: new Date() }).where(inArray(secrets.id, secretIds));
+  await executor
+    .update(secrets)
+    .set({ deletedAt: new Date() })
+    .where(inArray(secrets.id, secretIds));
 }
 
 /**

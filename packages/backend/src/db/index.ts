@@ -18,4 +18,7 @@ export const sql = postgres(connectionString);
 // Create drizzle instance
 export const db = drizzle(sql, { schema });
 
+/** The database or a transaction, for helpers that must run inside the caller's transaction. */
+export type DbExecutor = typeof db | Parameters<Parameters<typeof db.transaction>[0]>[0];
+
 export * from "./schema";
