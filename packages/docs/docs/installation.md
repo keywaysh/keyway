@@ -21,11 +21,11 @@ Works on **macOS** and **Linux**.
 curl -fsSL https://keyway.sh/install.sh | sh
 ```
 
-Downloads the binary to `/usr/local/bin/keyway`.
+Installs the latest release to `~/.local/bin/keyway` and adds `~/.local/bin` to your PATH in `~/.zshrc` or `~/.bashrc`. Run it again to upgrade. Set `KEYWAY_INSTALL_DIR` to install elsewhere, or `KEYWAY_VERSION` (for example `v0.6.0`) to pin a version.
 
 ## Windows
 
-Download `keyway-win-x64.exe` from [GitHub Releases](https://github.com/keywaysh/keyway/releases), rename to `keyway.exe`, and add to your PATH.
+Download `keyway_<version>_windows_amd64.zip` (or `windows_arm64`) from the latest `cli/v*` release on [GitHub Releases](https://github.com/keywaysh/keyway/releases), extract `keyway.exe`, and add its folder to your PATH.
 
 ## npm
 
