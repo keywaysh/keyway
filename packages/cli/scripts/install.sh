@@ -58,7 +58,8 @@ detect_arch() {
 
 # Get latest CLI version from GitHub (filter for cli/v* tags)
 get_latest_version() {
-    local api_url="https://api.github.com/repos/${REPO}/releases"
+    # The monorepo also publishes mcp/v* releases: look past the default 30.
+    local api_url="https://api.github.com/repos/${REPO}/releases?per_page=100"
     local json
     if command -v curl >/dev/null 2>&1; then
         json=$(curl -fsSL "$api_url")
