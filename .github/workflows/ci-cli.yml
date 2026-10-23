@@ -33,8 +33,11 @@ jobs:
       - name: Run tests
         run: go test -v -race -coverprofile=coverage.out ./...
 
-      - name: Test install.sh
-        run: sh scripts/install_test.sh
+      - name: Test release scripts
+        run: |
+          sh scripts/install_test.sh
+          sh scripts/check_toolchain_test.sh
+          sh scripts/update_tap_test.sh
 
       - name: Upload coverage reports to Codecov
         uses: codecov/codecov-action@v5

@@ -11,7 +11,6 @@ permissions:
 jobs:
   release:
     runs-on: blacksmith-4vcpu-ubuntu-2404
-    environment: release
     permissions:
       contents: write
     outputs:
@@ -61,6 +60,9 @@ jobs:
         env:
           GORELEASER_CURRENT_TAG: "v${{ steps.version.outputs.version }}"
 
+      - name: Verify Go toolchain of built binaries
+        run: sh scripts/check_toolchain.sh go.mod dist
+
       - name: Publish GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -76,19 +78,42 @@ jobs:
             "${FLAGS[@]}" \
             dist/*.tar.gz dist/*.zip dist/checksums.txt
 
-      - name: Update Homebrew tap
+      # The tap update runs in its own job from this exact formula, so a tap
+      # failure neither blocks npm nor forces a rebuild (new archives would no
+      # longer match the published sha256s).
+      - name: Upload Homebrew formula
         if: steps.version.outputs.prerelease == 'false'
+        uses: actions/upload-artifact@v4
+        with:
+          name: homebrew-formula
+          path: packages/cli/dist/homebrew/Formula/keyway.rb
+          if-no-files-found: error
+          retention-days: 30
+
+  homebrew:
+    needs: release
+    if: needs.release.outputs.prerelease == 'false'
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    environment: release
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: packages/cli
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download Homebrew formula
+        uses: actions/download-artifact@v4
+        with:
+          name: homebrew-formula
+          path: packages/cli/dist/homebrew/Formula
+
+      - name: Update Homebrew tap
         env:
           GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
-        run: |
-          FORMULA_PATH="Formula/keyway.rb"
-          SHA=$(gh api "repos/keywaysh/homebrew-tap/contents/$FORMULA_PATH" --jq .sha)
-          gh api -X PUT "repos/keywaysh/homebrew-tap/contents/$FORMULA_PATH" \
-            -f message="Brew formula update for keyway version v${{ steps.version.outputs.version }}" \
-            -f content="$(base64 -w0 dist/homebrew/Formula/keyway.rb)" \
-            -f sha="$SHA" \
-            -f "committer[name]=keywaysh-bot" \
-            -f "committer[email]=bot@keyway.sh"
+        run: sh scripts/update_tap.sh dist/homebrew/Formula/keyway.rb "${{ needs.release.outputs.version }}"
 
   publish-npm:
     needs: release
