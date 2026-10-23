@@ -6,7 +6,9 @@
  * ENCRYPTION_KEYS. Run it through `src/scripts/reencrypt-keys.ts`.
  *
  * Safety properties:
- * - Dry run by default: every candidate row is decrypted, nothing is written.
+ * - `verifyAllRows` decrypts every row under its own version label without
+ *   writing; an old key is removable only when it reports every row
+ *   decryptable and on the current version.
  * - A new ciphertext is decrypted back and compared before it is written.
  * - Writes are conditional on the row's IV being unchanged, so a value saved
  *   or restored concurrently by a user is never overwritten.
@@ -27,9 +29,18 @@ import {
 import { getEncryptionService, type EncryptedData } from "../utils/encryption";
 
 export interface ReencryptOptions {
-  /** Write the re-encrypted values. When false (default), only verify. */
-  apply?: boolean;
+  /** Abort unless keyway-crypto currently encrypts with this version. */
+  expectVersion?: number;
   batchSize?: number;
+}
+
+export interface VerifyReport {
+  columnSets: {
+    name: string;
+    /** Row count per stored key version (NULL counted as 1, like decrypt does) */
+    byVersion: Record<number, number>;
+    failed: { id: string; error: string }[];
+  }[];
 }
 
 export interface ColumnSetReport {
@@ -44,7 +55,6 @@ export interface ColumnSetReport {
 
 export interface ReencryptReport {
   targetVersion: number;
-  apply: boolean;
   columnSets: ColumnSetReport[];
 }
 
@@ -60,8 +70,9 @@ interface ColumnSet {
   name: string;
   /** IV column of this ciphertext; identifies which encrypted column the set covers. */
   iv: PgColumn;
+  /** Rows ordered by id after `afterId`; only those not on `notOnVersion` when given. */
   selectBatch(
-    targetVersion: number,
+    notOnVersion: number | null,
     afterId: string | null,
     limit: number
   ): Promise<EncryptedRow[]>;
@@ -82,10 +93,10 @@ function columnSet<TTable extends PgTable>(def: {
   return {
     name: def.name,
     iv: def.iv,
-    async selectBatch(targetVersion, afterId, limit) {
+    async selectBatch(notOnVersion, afterId, limit) {
       const conditions: (SQL | undefined)[] = [
         isNotNull(def.content),
-        or(isNull(def.version), ne(def.version, targetVersion)),
+        notOnVersion === null ? undefined : or(isNull(def.version), ne(def.version, notOnVersion)),
         afterId ? gt(def.id, afterId) : undefined,
       ];
       const rows = await db
@@ -212,6 +223,60 @@ function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
+type EncryptionService = Awaited<ReturnType<typeof getEncryptionService>>;
+
+/** Pages through a column set by id; rows inserted behind the cursor are left to a later pass. */
+async function forEachRow(
+  set: ColumnSet,
+  notOnVersion: number | null,
+  batchSize: number,
+  visit: (row: EncryptedRow) => Promise<void>
+) {
+  let afterId: string | null = null;
+  for (;;) {
+    const batch = await set.selectBatch(notOnVersion, afterId, batchSize);
+    if (batch.length === 0) {
+      return;
+    }
+    afterId = batch[batch.length - 1].id;
+    for (const row of batch) {
+      await visit(row);
+    }
+  }
+}
+
+/** Decrypts a row under its own version label (NULL means v1, as everywhere in the app). */
+async function decryptRow(
+  encryption: EncryptionService,
+  row: EncryptedRow
+): Promise<{ plaintext: string; iv: string } | { error: string }> {
+  const { content, iv, authTag } = row;
+  if (content === null || iv === null || authTag === null) {
+    return { error: "incomplete ciphertext (missing iv or auth tag)" };
+  }
+  try {
+    const plaintext = await encryption.decrypt({
+      encryptedContent: content,
+      iv,
+      authTag,
+      version: row.version ?? 1,
+    });
+    return { plaintext, iv };
+  } catch (err) {
+    return { error: `decrypt v${row.version ?? 1}: ${errorMessage(err)}` };
+  }
+}
+
+/** The key version keyway-crypto encrypts new values with (the highest in ENCRYPTION_KEYS). */
+export async function getCurrentKeyVersion(): Promise<number> {
+  const encryption = await getEncryptionService();
+  const probe = await encryption.encrypt("keyway-reencrypt-probe");
+  if (!probe.version) {
+    throw new Error("Crypto service did not report a key version");
+  }
+  return probe.version;
+}
+
 /**
  * Re-encrypt every value that is not on the key version keyway-crypto
  * currently encrypts with. Never logs or returns plaintext.
@@ -219,16 +284,17 @@ function errorMessage(err: unknown): string {
 export async function reencryptToCurrentKey(
   options: ReencryptOptions = {}
 ): Promise<ReencryptReport> {
-  const { apply = false, batchSize = 100 } = options;
+  const { expectVersion, batchSize = 100 } = options;
   const encryption = await getEncryptionService();
 
-  const probe = await encryption.encrypt("keyway-reencrypt-probe");
-  if (!probe.version) {
-    throw new Error("Crypto service did not report a key version");
+  const targetVersion = await getCurrentKeyVersion();
+  if (expectVersion !== undefined && targetVersion !== expectVersion) {
+    throw new Error(
+      `Crypto service encrypts with key version ${targetVersion}, expected ${expectVersion}.`
+    );
   }
-  const targetVersion = probe.version;
 
-  const report: ReencryptReport = { targetVersion, apply, columnSets: [] };
+  const report: ReencryptReport = { targetVersion, columnSets: [] };
 
   for (const set of COLUMN_SETS) {
     const result: ColumnSetReport = {
@@ -240,73 +306,71 @@ export async function reencryptToCurrentKey(
     };
     report.columnSets.push(result);
 
-    let afterId: string | null = null;
-    for (;;) {
-      const batch = await set.selectBatch(targetVersion, afterId, batchSize);
-      if (batch.length === 0) {
-        break;
+    await forEachRow(set, targetVersion, batchSize, async (row) => {
+      result.candidates++;
+      const read = await decryptRow(encryption, row);
+      if ("error" in read) {
+        result.failed.push({ id: row.id, error: read.error });
+        return;
       }
-      afterId = batch[batch.length - 1].id;
 
-      for (const row of batch) {
-        result.candidates++;
-        const { content, iv, authTag } = row;
-        if (content === null || iv === null || authTag === null) {
-          result.failed.push({
-            id: row.id,
-            error: "incomplete ciphertext (missing iv or auth tag)",
-          });
-          continue;
-        }
-        let plaintext: string;
-        try {
-          plaintext = await encryption.decrypt({
-            encryptedContent: content,
-            iv,
-            authTag,
-            version: row.version ?? 1,
-          });
-        } catch (err) {
-          result.failed.push({
-            id: row.id,
-            error: `decrypt v${row.version ?? 1}: ${errorMessage(err)}`,
-          });
-          continue;
-        }
-        if (!apply) {
-          continue;
-        }
-
-        const encrypted = await encryption.encrypt(plaintext);
-        if (encrypted.version !== targetVersion) {
-          // keyway-crypto was reconfigured mid-run: stop rather than guess.
-          throw new Error(
-            `Crypto service now encrypts with key version ${encrypted.version}, expected ${targetVersion}. ` +
-              "Nothing was written for the current row; re-run the job."
-          );
-        }
-
-        try {
-          const roundTrip = await encryption.decrypt(encrypted);
-          if (roundTrip !== plaintext) {
-            throw new Error("round-trip mismatch");
-          }
-        } catch (err) {
-          result.failed.push({
-            id: row.id,
-            error: `verify v${targetVersion}: ${errorMessage(err)}`,
-          });
-          continue;
-        }
-
-        const written = await set.replace(row.id, iv, { ...encrypted, version: targetVersion });
-        if (written) {
-          result.reencrypted++;
-        } else {
-          result.skippedConcurrent++;
-        }
+      const encrypted = await encryption.encrypt(read.plaintext);
+      if (encrypted.version !== targetVersion) {
+        // keyway-crypto was reconfigured mid-run: stop rather than guess.
+        throw new Error(
+          `Crypto service now encrypts with key version ${encrypted.version}, expected ${targetVersion}. ` +
+            "Nothing was written for the current row; re-run the job."
+        );
       }
-    }
+
+      try {
+        const roundTrip = await encryption.decrypt(encrypted);
+        if (roundTrip !== read.plaintext) {
+          throw new Error("round-trip mismatch");
+        }
+      } catch (err) {
+        result.failed.push({ id: row.id, error: `verify v${targetVersion}: ${errorMessage(err)}` });
+        return;
+      }
+
+      const written = await set.replace(row.id, read.iv, { ...encrypted, version: targetVersion });
+      if (written) {
+        result.reencrypted++;
+      } else {
+        result.skippedConcurrent++;
+      }
+    });
+  }
+
+  return report;
+}
+
+/**
+ * Decrypt every stored value under its own version label and count rows per
+ * version. Read-only. Unlike a version count, this also catches a row whose
+ * label does not match the key its ciphertext was made with.
+ */
+export async function verifyAllRows(options: { batchSize?: number } = {}): Promise<VerifyReport> {
+  const { batchSize = 100 } = options;
+  const encryption = await getEncryptionService();
+  const report: VerifyReport = { columnSets: [] };
+
+  for (const set of COLUMN_SETS) {
+    const result: VerifyReport["columnSets"][number] = {
+      name: set.name,
+      byVersion: {},
+      failed: [],
+    };
+    report.columnSets.push(result);
+
+    await forEachRow(set, null, batchSize, async (row) => {
+      const version = row.version ?? 1;
+      result.byVersion[version] = (result.byVersion[version] ?? 0) + 1;
+      const read = await decryptRow(encryption, row);
+      if ("error" in read) {
+        result.failed.push({ id: row.id, error: read.error });
+      }
+    });
   }
 
   return report;
