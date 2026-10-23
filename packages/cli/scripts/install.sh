@@ -67,8 +67,8 @@ get_latest_version() {
     else
         error "Neither curl nor wget found. Please install one of them."
     fi
-    # Find latest cli/v* tag and strip the cli/ prefix
-    echo "$json" | grep '"tag_name"' | grep 'cli/v' | head -1 | sed -E 's/.*"cli\/(v[^"]+)".*/\1/'
+    # Find latest stable cli/vX.Y.Z tag (prereleases excluded) and strip the cli/ prefix
+    echo "$json" | grep '"tag_name"' | grep -E '"cli/v[0-9]+\.[0-9]+\.[0-9]+"' | head -1 | sed -E 's/.*"cli\/(v[^"]+)".*/\1/'
 }
 
 # Download file
