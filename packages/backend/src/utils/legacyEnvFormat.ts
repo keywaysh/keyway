@@ -23,12 +23,37 @@ export type LegacyParserFlavor = "go" | "js";
 
 // Go's strings.TrimSpace (unicode.IsSpace) differs from String.prototype.trim:
 // it trims U+0085 and keeps U+FEFF.
-const GO_SPACE =
-  "\\t\\n\\v\\f\\r \\u0085\\u00a0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000";
-const GO_TRIM = new RegExp(`^[${GO_SPACE}]+|[${GO_SPACE}]+$`, "g");
+function isGoSpace(code: number): boolean {
+  return (
+    (code >= 0x09 && code <= 0x0d) ||
+    code === 0x20 ||
+    code === 0x85 ||
+    code === 0xa0 ||
+    code === 0x1680 ||
+    (code >= 0x2000 && code <= 0x200a) ||
+    code === 0x2028 ||
+    code === 0x2029 ||
+    code === 0x202f ||
+    code === 0x205f ||
+    code === 0x3000
+  );
+}
 
+// Linear scan: a regex such as /\s+$/ is quadratic on long inner whitespace runs, and
+// stored values can be 64 KB.
 function trim(value: string, flavor: LegacyParserFlavor): string {
-  return flavor === "go" ? value.replace(GO_TRIM, "") : value.trim();
+  if (flavor === "js") {
+    return value.trim();
+  }
+  let start = 0;
+  let end = value.length;
+  while (start < end && isGoSpace(value.charCodeAt(start))) {
+    start++;
+  }
+  while (end > start && isGoSpace(value.charCodeAt(end - 1))) {
+    end--;
+  }
+  return value.slice(start, end);
 }
 
 /**
@@ -39,7 +64,8 @@ export function parseLegacyEnv(
   content: string,
   flavor: LegacyParserFlavor
 ): Record<string, string> {
-  const result: Record<string, string> = {};
+  // A Go map keeps a "__proto__" key; assigning it on a plain JavaScript object drops it.
+  const result: Record<string, string> = flavor === "go" ? Object.create(null) : {};
   for (const rawLine of content.split("\n")) {
     const line = trim(rawLine, flavor);
     if (line === "" || line.startsWith("#")) {

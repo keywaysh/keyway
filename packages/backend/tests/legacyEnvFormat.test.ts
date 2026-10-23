@@ -76,6 +76,25 @@ describe("parseLegacyEnv (released CLI, MCP and keyway-action)", () => {
     expect(parseLegacyEnv("A=x\uFEFF", "js")).toEqual({ A: "x" });
   });
 
+  it("keeps a __proto__ key like Go, drops it like a JavaScript object", () => {
+    expect(Object.keys(parseLegacyEnv("__proto__=x\nA=1", "go"))).toEqual(["__proto__", "A"]);
+    expect(Object.keys(parseLegacyEnv("__proto__=x\nA=1", "js"))).toEqual(["A"]);
+  });
+
+  it("trims long internal whitespace runs in linear time", () => {
+    for (const space of [" ", "\u3000"]) {
+      const line = `K=a${space.repeat(65534)}a`;
+      for (const flavor of ["go", "js"] as const) {
+        const start = performance.now();
+        parseLegacyEnv(line, flavor);
+        expect(
+          performance.now() - start,
+          `${flavor} U+${space.charCodeAt(0).toString(16)}`
+        ).toBeLessThan(100);
+      }
+    }
+  });
+
   it("strips a lone quote like JavaScript, keeps it like Go", () => {
     expect(parseLegacyEnv('U="', "go")).toEqual({ U: '"' });
     expect(parseLegacyEnv('U="', "js")).toEqual({ U: "" });
