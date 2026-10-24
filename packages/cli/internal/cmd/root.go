@@ -221,6 +221,8 @@ func printCustomHelp(cmd *cobra.Command) {
 // Execute runs the root command
 func Execute(ver string) error {
 	rootCmd.Version = ver
+	// The server recognizes clients that predate fixes by this version
+	api.SetVersion(ver)
 
 	// Start non-blocking version check
 	updateChan := make(chan *version.UpdateInfo, 1)

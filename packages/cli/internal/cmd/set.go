@@ -279,7 +279,7 @@ func runSetRemote(opts SetOptions, deps *Dependencies) error {
 	vaultSecrets[opts.Key] = opts.Value
 
 	err = deps.UI.Spin("Pushing to vault...", func() error {
-		_, pushErr := client.PushSecrets(ctx, repo, envName, vaultSecrets)
+		_, pushErr := client.PushSecrets(ctx, repo, envName, vaultSecrets, api.PushReplace)
 		return pushErr
 	})
 
@@ -291,7 +291,7 @@ func runSetRemote(opts SetOptions, deps *Dependencies) error {
 			}
 			client = deps.APIFactory.NewClient(newToken)
 			err = deps.UI.Spin("Pushing to vault...", func() error {
-				_, pushErr := client.PushSecrets(ctx, repo, envName, vaultSecrets)
+				_, pushErr := client.PushSecrets(ctx, repo, envName, vaultSecrets, api.PushReplace)
 				return pushErr
 			})
 		}

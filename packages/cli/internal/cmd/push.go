@@ -319,7 +319,7 @@ func runPushWithDeps(opts PushOptions, deps *Dependencies) error {
 	var resp *api.PushSecretsResponse
 	err = deps.UI.Spin("Uploading secrets...", func() error {
 		var err error
-		resp, err = client.PushSecrets(ctx, repo, envName, secretsToSend)
+		resp, err = client.PushSecrets(ctx, repo, envName, secretsToSend, api.PushReplace)
 		return err
 	})
 
@@ -334,7 +334,7 @@ func runPushWithDeps(opts PushOptions, deps *Dependencies) error {
 			client = deps.APIFactory.NewClient(newToken)
 			err = deps.UI.Spin("Uploading secrets...", func() error {
 				var pushErr error
-				resp, pushErr = client.PushSecrets(ctx, repo, envName, secretsToSend)
+				resp, pushErr = client.PushSecrets(ctx, repo, envName, secretsToSend, api.PushReplace)
 				return pushErr
 			})
 		}

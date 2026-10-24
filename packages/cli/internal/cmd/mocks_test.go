@@ -156,6 +156,8 @@ type MockAPIClient struct {
 	PushResponse                       *api.PushSecretsResponse
 	PushError                          error
 	PushedSecrets                      map[string]string // Captures secrets sent in PushSecrets call
+	PushedMode                         api.PushMode      // Captures the mode sent in PushSecrets call
+	PushCalls                          int               // Number of PushSecrets calls
 	InitResponse                       *api.InitVaultResponse
 	InitError                          error
 	VaultExists                        bool
@@ -195,8 +197,10 @@ func (m *MockAPIClient) GetVaultDetails(ctx context.Context, repoFullName string
 func (m *MockAPIClient) GetVaultEnvironments(ctx context.Context, repoFullName string) ([]string, error) {
 	return m.VaultEnvs, m.VaultEnvsError
 }
-func (m *MockAPIClient) PushSecrets(ctx context.Context, repo, env string, secrets map[string]string) (*api.PushSecretsResponse, error) {
+func (m *MockAPIClient) PushSecrets(ctx context.Context, repo, env string, secrets map[string]string, mode api.PushMode) (*api.PushSecretsResponse, error) {
+	m.PushCalls++
 	m.PushedSecrets = secrets
+	m.PushedMode = mode
 	return m.PushResponse, m.PushError
 }
 func (m *MockAPIClient) PullSecrets(ctx context.Context, repo, env string) (*api.PullSecretsResponse, error) {

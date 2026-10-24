@@ -19,6 +19,15 @@ const (
 	defaultTimeout = 30 * time.Second
 )
 
+// version is the CLI version sent in the User-Agent; the server uses it to recognize clients
+// that predate fixes.
+var version = "dev"
+
+// SetVersion sets the CLI version sent by clients created afterwards.
+func SetVersion(v string) {
+	version = v
+}
+
 // Client is the Keyway API client
 type Client struct {
 	baseURL    string
@@ -74,7 +83,7 @@ func NewClient(token string) *Client {
 		baseURL:    config.GetAPIURL(),
 		httpClient: httpClient,
 		token:      token,
-		userAgent:  "keyway-cli/dev", // Will be set properly at build time
+		userAgent:  "keyway-cli/" + version,
 	}
 }
 
