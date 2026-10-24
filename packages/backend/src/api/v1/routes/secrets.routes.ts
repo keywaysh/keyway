@@ -6,7 +6,7 @@ import {
   requireApiKeyScope,
 } from "../../../middleware/auth";
 import { db, vaults, users, secrets, type DbExecutor } from "../../../db";
-import { eq, and, isNull, sql } from "drizzle-orm";
+import { eq, and, isNull, sql, asc } from "drizzle-orm";
 import { getEncryptionService } from "../../../utils/encryption";
 import { CryptoServiceError } from "../../../utils/remoteEncryption";
 import { toEnvFormat } from "../../../utils/legacyEnvFormat";
@@ -582,13 +582,15 @@ export async function secretsRoutes(fastify: FastifyInstance) {
         throw new NotFoundError("Vault not found");
       }
 
-      // Fetch secrets with optional pagination (active only, excludes trash)
+      // Fetch secrets with optional pagination (active only, excludes trash), by key so that
+      // pages and pulls always list them the same way
       const queryOptions: any = {
         where: and(
           eq(secrets.vaultId, vault.id),
           eq(secrets.environment, environment),
           isNull(secrets.deletedAt)
         ),
+        orderBy: asc(secrets.key),
       };
 
       if (query.limit !== undefined) {

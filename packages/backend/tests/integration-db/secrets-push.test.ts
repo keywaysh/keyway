@@ -854,7 +854,7 @@ describe("POST /v1/secrets/push: keys it creates", () => {
 
 describe("GET /v1/secrets/pull (real handler, real DB)", () => {
   it("returns each stored value exactly next to the .env content", async () => {
-    // toEnvFormat cannot represent every value (e.g. one ending with a backslash), so
+    // A .env file cannot hold every value exactly (e.g. 'x', or one ending with \r), so
     // clients read secrets, not content.
     const stored = {
       MULTI,
@@ -871,5 +871,15 @@ describe("GET /v1/secrets/pull (real handler, real DB)", () => {
     expect(Object.keys(data.secrets).sort()).toEqual(Object.keys(stored).sort());
     // Same values, in the order the rows came back
     expect(data.content).toBe(toEnvFormat(data.secrets));
+  });
+
+  it("lists secrets by key, whatever order they were stored in", async () => {
+    // The same environment always reads the same way, page after page
+    const { pullResponse } = await setup({ ZETA: "1", ALPHA: "2", MID: "3" });
+    // With fresh statistics, Postgres reads a tiny table in storage order, not by index
+    await cleanupSql`ANALYZE secrets`;
+    const { data } = JSON.parse((await pullResponse("development")).body);
+    expect(Object.keys(data.secrets)).toEqual(["ALPHA", "MID", "ZETA"]);
+    expect(data.content).toBe("ALPHA=2\nMID=3\nZETA=1");
   });
 });
