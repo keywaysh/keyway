@@ -814,4 +814,19 @@ describe("POST /v1/secrets/push (real handler, real DB)", () => {
     expect((await second).status).toBe(200);
     expect(await active()).toEqual({ A: "1", B: "2" });
   });
+  it("refuses a released client's push while a stored value cannot be decrypted", async () => {
+    // Without that value, the guard cannot recognize the client's copy of it, nor the keys the
+    // client read from inside it. These clients cannot pull such an environment anyway.
+    const stored = { A: "'v2'", B: "b" };
+    const { push, rows, versions } = await setup(stored);
+    const before = await rows();
+    control.decryptError = new CryptoServiceError("no key", "decrypt", "test", undefined, false);
+    const sent = { ...parseLegacyEnv(toEnvFormat(stored), "go"), OTHER: "v" };
+    const { status, body } = await push(sent, { userAgent: RELEASED_CLI });
+    control.decryptError = undefined;
+    expect(status, JSON.stringify(body)).toBe(400);
+    expect(body.detail).toContain("nothing was saved");
+    expect(await rows()).toEqual(before);
+    expect(await versions()).toEqual([]);
+  });
 });

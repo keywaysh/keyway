@@ -17,6 +17,9 @@ describe("sanitizeError", () => {
     expect(sanitized.message).toContain("Failed query: update secrets");
     expect(sanitized.message).not.toMatch(/ciphertext-1|key-name-1/);
     expect(sanitized.cause.message).toBe("value out of range");
+    // The stack starts with the message: its frames stay, the values go.
+    expect(sanitized.stack).toMatch(/\n\s+at /);
+    expect(JSON.stringify(sanitized)).not.toMatch(/ciphertext-1|key-name-1/);
   });
 });
 

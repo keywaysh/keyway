@@ -16,7 +16,10 @@ export interface PushPlan {
   trash: string[];
 }
 
-export type RejectReason = "truncated" | "escaped-quote" | "invalid-key";
+export type RejectReason = "truncated" | "escaped-quote" | "invalid-key" | "undecryptable";
+
+/** Prefix of the value the push route gives a stored secret it cannot decrypt. */
+export const UNDECRYPTABLE = "\0undecryptable:";
 
 export interface Rejection {
   key: string;
@@ -186,6 +189,19 @@ export function planPush(
   // Phantom keys only come from multi-line values.
   const hasMultiline = releasedCli && Object.values(current).some((value) => value.includes("\n"));
 
+  // Without a stored value, its copy and the keys read from inside it look like changes. A
+  // released client could not have pulled it anyway.
+  if (legacy) {
+    for (const [key, value] of Object.entries(current)) {
+      if (value.startsWith(UNDECRYPTABLE)) {
+        plan.rejected.push({ key, reason: "undecryptable", stored: true });
+      }
+    }
+    if (plan.rejected.length > 0) {
+      return plan;
+    }
+  }
+
   for (const [key, value] of Object.entries(incoming)) {
     const exists = Object.hasOwn(current, key);
     if (canRead && exists && current[key] === value) {
@@ -217,6 +233,7 @@ const REJECT_REASONS: Record<RejectReason, string> = {
   truncated: "multi-line value",
   "escaped-quote": "contains escaped quotes",
   "invalid-key": "looks like a line of a multi-line value, not a key",
+  undecryptable: "stored value cannot be decrypted",
 };
 const MAX_LISTED = 10;
 const MAX_KEY_LENGTH = 40;

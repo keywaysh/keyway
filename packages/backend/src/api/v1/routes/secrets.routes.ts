@@ -43,6 +43,7 @@ import {
   resolvePushMode,
   describeRejections,
   describeKept,
+  UNDECRYPTABLE,
   type PushPlan,
 } from "../../../services/pushPlan.service";
 import { config } from "../../../config";
@@ -177,7 +178,7 @@ async function decryptValues(
     if (value === null) {
       undecryptable++;
     }
-    values[row.key] = value ?? `\0undecryptable:${row.id}`;
+    values[row.key] = value ?? `${UNDECRYPTABLE}${row.id}`;
   });
   return { values, undecryptable };
 }
