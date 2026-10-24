@@ -125,20 +125,25 @@ func TestRunPullWithDeps_Success(t *testing.T) {
 
 ### Auth Error Handling
 
-401 errors are handled with automatic re-login prompt:
+401 errors are handled with automatic re-login prompt. Run API calls through `spinWithRelogin`, which shows the spinner, signs in again on a 401 and retries once:
 
 ```go
-// In any command that makes API calls:
-if isAuthError(err) {
-    newToken, authErr := handleAuthError(err, deps)
-    if authErr != nil {
-        return authErr
+var resp *api.PullSecretsResponse
+client, explained, err := spinWithRelogin(deps, client, "Downloading secrets...", func(c api.APIClient) error {
+    var callErr error
+    resp, callErr = c.PullSecrets(ctx, repo, envName)
+    return callErr
+})
+if err != nil {
+    if !explained { // the sign-in did not show the error already
+        deps.UI.Error(err.Error())
     }
-    // Retry with new token
-    client = deps.APIFactory.NewClient(newToken)
+    return err
 }
+// keep using the returned client: it holds the new token
 ```
 
+- Sign-in goes through `deps.Relogin` (nil means `handleAuthError`; tests set it)
 - Interactive mode: clears token, prompts to re-login via browser
 - Non-interactive mode: shows clear instructions to run `keyway logout && keyway login`
 
@@ -147,7 +152,8 @@ if isAuthError(err) {
 ```go
 client := api.NewClient(token)
 resp, err := client.PullSecrets(ctx, "owner/repo", "development")
-// resp.Content contains the env file content
+// resp.Secrets holds the exact values (nil from servers before them); resp.Content is the
+// same secrets as .env text, which cannot hold every value: read the vault with readVault
 ```
 
 ### UI Helpers

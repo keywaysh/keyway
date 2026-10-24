@@ -361,7 +361,7 @@ GET /v1/secrets/pull?repo=owner/repo&environment=local
 }
 ```
 
-`data.secrets` holds every value exactly. `data.content` is the same secrets in `.env` format, for writing a file; it cannot represent every value (for example one ending with a backslash), so read `data.secrets` to process values.
+`data.secrets` holds every value exactly, by key. `data.content` is the same secrets in `.env` format, for writing a file: a file cannot hold some values exactly (`'x'` reads as `x`, a trailing `\r` is dropped) nor some keys created before the server refused them, so read `data.secrets` to process values. Both list secrets in key order.
 
 ---
 
