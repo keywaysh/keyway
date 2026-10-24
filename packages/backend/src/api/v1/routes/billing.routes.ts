@@ -14,6 +14,7 @@ import {
   type ResolvedPrice,
 } from "../../../services";
 import { config } from "../../../config";
+import { isAllowedOrigin } from "../../../utils/origins";
 import { sendData } from "../../../lib/response";
 import {
   ServiceUnavailableError,
@@ -209,12 +210,11 @@ export async function billingRoutes(fastify: FastifyInstance) {
 
       // Validate URLs are from allowed origins
       const allowedOrigins = config.cors.allowedOrigins;
-      if (allowedOrigins.length > 0) {
-        const successOrigin = new URL(successUrl).origin;
-        const cancelOrigin = new URL(cancelUrl).origin;
-        if (!allowedOrigins.includes(successOrigin) || !allowedOrigins.includes(cancelOrigin)) {
-          throw new BadRequestError("Redirect URLs must be from allowed origins");
-        }
+      if (
+        allowedOrigins.length > 0 &&
+        (!isAllowedOrigin(successUrl, allowedOrigins) || !isAllowedOrigin(cancelUrl, allowedOrigins))
+      ) {
+        throw new BadRequestError("Redirect URLs must be from allowed origins");
       }
 
       // Use existing user ID or we'll need to create user first via the service
@@ -283,11 +283,8 @@ export async function billingRoutes(fastify: FastifyInstance) {
 
       // Validate return URL is from allowed origins
       const allowedOrigins = config.cors.allowedOrigins;
-      if (allowedOrigins.length > 0) {
-        const returnOrigin = new URL(returnUrl).origin;
-        if (!allowedOrigins.includes(returnOrigin)) {
-          throw new BadRequestError("Return URL must be from an allowed origin");
-        }
+      if (allowedOrigins.length > 0 && !isAllowedOrigin(returnUrl, allowedOrigins)) {
+        throw new BadRequestError("Return URL must be from an allowed origin");
       }
 
       try {
