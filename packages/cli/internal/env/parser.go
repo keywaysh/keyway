@@ -38,9 +38,9 @@ func Parse(content string) (map[string]string, error) {
 	return newParser(strings.TrimPrefix(content, "\uFEFF")).parse(lenient)
 }
 
-// ParseServer reads the .env text the server sends (its toEnvFormat) exactly. Single quotes,
-// \r and tabs are part of values there. It returns a *ParseError for text the server does not
-// write.
+// ParseServer reads the .env text the server sends (its toEnvFormat): exactly, for keys a line
+// can hold (no "=" or line break). Single quotes, \r and tabs are part of values there. It
+// returns a *ParseError for text the server does not write, such as a key on two lines.
 func ParseServer(content string) (map[string]string, error) {
 	return newParser(content).parse(server)
 }
@@ -60,8 +60,9 @@ const (
 	written
 )
 
-// Lines scanned in total before giving up: bounds the work on adversarial content.
-const maxScannedLines = 5_000_000
+// Lines scanned in total before giving up: bounds the work on adversarial content. A
+// variable so that tests can lower it.
+var maxScannedLines = 5_000_000
 
 type parser struct {
 	lines   []string
@@ -142,6 +143,9 @@ func (p *parser) parse(g grammar) (map[string]string, error) {
 			return nil, &ParseError{Line: i + 1, Msg: "not a line of the server's .env format"}
 		case skip:
 			i++
+		case g == server && hasKey(out, st.key):
+			// Read from a key holding "=" or a line break. Keys stay out of messages.
+			return nil, &ParseError{Line: i + 1, Msg: "a key appears twice, which the server never writes"}
 		case !st.quoted:
 			out[st.key] = st.value
 			i++
@@ -155,6 +159,11 @@ func (p *parser) parse(g grammar) (map[string]string, error) {
 		}
 	}
 	return out, nil
+}
+
+func hasKey(m map[string]string, key string) bool {
+	_, ok := m[key]
+	return ok
 }
 
 // holdsFrom reports whether the lines from index from read to the end under grammar g, for
@@ -215,7 +224,7 @@ type reading struct {
 // choose picks the reading of the quoted value starting on line start; rest is that line's
 // text after "=".
 func (p *parser) choose(start int, rest string, g grammar) (reading, error) {
-	readings, fallback, sawClosing := p.readings(start, rest, g)
+	readings, fallback, closedOnFirstLine := p.readings(start, rest, g)
 	if p.scanned > maxScannedLines {
 		return reading{}, &ParseError{Line: start + 1, Msg: "too complex to read safely"}
 	}
@@ -230,7 +239,8 @@ func (p *parser) choose(start int, rest string, g grammar) (reading, error) {
 			line := strings.TrimRight(rest, " \r")
 			return reading{value: line[1 : len(line)-1], final: true, next: start + 1}, nil
 		}
-		if sawClosing {
+		// A quote on a later line with text after it (B="world") belongs to that line.
+		if closedOnFirstLine {
 			return reading{}, &ParseError{Line: start + 1, Msg: "unexpected text after the closing quote"}
 		}
 		return reading{}, &ParseError{Line: start + 1, Msg: "quote never closed"}
@@ -275,9 +285,10 @@ func (p *parser) choose(start int, rest string, g grammar) (reading, error) {
 
 // readings lists the ways grammar g can read the quoted value starting on line start, in line
 // order; rest is that line's text after "=". fallback reports whether, under the lenient
-// grammar, that line on its own starts and ends with the quote; sawClosing whether a closing
-// quote was found at all. Under the server's grammars, only the server's own readings count.
-func (p *parser) readings(start int, rest string, g grammar) (readings []reading, fallback, sawClosing bool) {
+// grammar, that line on its own starts and ends with the quote; closedOnFirstLine whether a
+// closing quote was found on it. Under the server's grammars, only the server's own readings
+// count.
+func (p *parser) readings(start int, rest string, g grammar) (readings []reading, fallback, closedOnFirstLine bool) {
 	quote := rest[0]
 	firstLine := strings.TrimRight(rest, " \r")
 	fallback = g == lenient && len(firstLine) >= 2 && firstLine[len(firstLine)-1] == quote
@@ -320,7 +331,7 @@ func (p *parser) readings(start int, rest string, g grammar) (readings []reading
 					asServer: quote == '"' && after == "" && quotable(line, segment[:at]),
 				})
 			}
-			return readings, fallback, true
+			return readings, fallback, line == start
 		}
 		// `\"` ending a line is an escaped quote, or a backslash ending the value followed by
 		// the closing quote: keep both readings.

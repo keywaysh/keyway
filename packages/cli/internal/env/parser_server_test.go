@@ -119,18 +119,6 @@ func TestParse_ReadsCRLFFilesAsTheirValues(t *testing.T) {
 	}
 }
 
-func TestParse_RefusesWhenTheWorkBudgetRunsOut(t *testing.T) {
-	// Telling the readings apart needs more work than allowed: refuse, never pick one.
-	content := "S=\"a \\\"\nP = 1\nM='\n" + strings.Repeat("c\n", 3_000_000) + "x'\nZ=1\" #c"
-
-	_, err := Parse(content)
-
-	var parseErr *ParseError
-	if !errors.As(err, &parseErr) {
-		t.Fatalf("expected a ParseError, got %v", err)
-	}
-}
-
 func TestParseServer_KeepsALeadingByteOrderMark(t *testing.T) {
 	// The server never writes one: it belongs to the first key.
 	result := mustParseServer(t, "\uFEFFK=1")
@@ -163,5 +151,48 @@ func TestParse_RefusesWhenNoReadingHolds(t *testing.T) {
 	var parseErr *ParseError
 	if !errors.As(err, &parseErr) || parseErr.Line != 1 {
 		t.Fatalf("expected a ParseError on line 1, got %v", err)
+	}
+}
+
+func TestParseServer_RefusesAKeyOnTwoLines(t *testing.T) {
+	// The server writes each key once. Twice means a stored key holds "=" or a line break
+	// ({"TOKEN_KEY": "1", "TOKEN_KEY=TAIL": "2"}): refuse rather than keep either value, and
+	// keep the key out of the message.
+	_, err := ParseServer("TOKEN_KEY=1\nTOKEN_KEY=TAIL=2")
+
+	var parseErr *ParseError
+	if !errors.As(err, &parseErr) || parseErr.Line != 2 {
+		t.Fatalf("expected a ParseError on line 2, got %v", err)
+	}
+	if strings.Contains(err.Error(), "TOKEN_KEY") {
+		t.Errorf("the message names the key: %v", err)
+	}
+}
+
+func TestParse_SaysWhenAQuoteNeverClosesBeforeTheNextKey(t *testing.T) {
+	// The quote found on line 2 opens B's value; it does not close A's.
+	_, err := Parse("A=\"hello\nB=\"world\"")
+
+	var parseErr *ParseError
+	if !errors.As(err, &parseErr) || parseErr.Line != 1 || parseErr.Msg != "quote never closed" {
+		t.Fatalf("expected \"quote never closed\" on line 1, got %v", err)
+	}
+}
+
+func TestParse_RefusesPastTheWorkBudget(t *testing.T) {
+	// Every line ends with \": each one is a place where the value may end.
+	content := "K=\"" + strings.Repeat("line \\\"\n", 100) + "end\""
+	want := "line \"\n"
+	if got := mustParse(t, content)["K"]; got != strings.Repeat(want, 100)+"end" {
+		t.Fatalf("within the budget, K = %q", got)
+	}
+
+	defer func(budget int) { maxScannedLines = budget }(maxScannedLines)
+	maxScannedLines = 50
+	_, err := Parse(content)
+
+	var parseErr *ParseError
+	if !errors.As(err, &parseErr) || parseErr.Msg != "too complex to read safely" {
+		t.Fatalf("expected \"too complex to read safely\", got %v", err)
 	}
 }
