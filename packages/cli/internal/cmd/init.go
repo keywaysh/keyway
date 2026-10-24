@@ -192,7 +192,7 @@ func runInitWithDeps(opts InitOptions, deps *Dependencies) error {
 			if apiErr.StatusCode == 403 && apiErr.TrialInfo != nil && apiErr.TrialInfo.Eligible && deps.UI.IsInteractive() {
 				trialInfo := apiErr.TrialInfo
 				deps.UI.Warn("This repository belongs to an organization on the Free plan")
-				deps.UI.Message(deps.UI.Dim(fmt.Sprintf("Private organization repos require a Team plan, but you can start a %d-day free trial.", trialInfo.DaysAvailable)))
+				deps.UI.Message(deps.UI.Dim(fmt.Sprintf("The organization has reached a Free plan limit, but you can start a %d-day free trial.", trialInfo.DaysAvailable)))
 
 				startTrial, _ := deps.UI.Confirm(fmt.Sprintf("Start %d-day free trial for %s?", trialInfo.DaysAvailable, trialInfo.OrgLogin), true)
 				if startTrial {
