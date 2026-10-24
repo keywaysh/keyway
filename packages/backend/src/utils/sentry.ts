@@ -1,5 +1,6 @@
 import * as Sentry from "@sentry/node";
 import { config } from "../config";
+import { withoutQueryParams } from "./logger";
 
 let isInitialized = false;
 
@@ -40,7 +41,7 @@ export function initSentry(): void {
         }
       }
 
-      return event;
+      return scrubQueryParams(event);
     },
 
     // Sanitize sensitive data
@@ -147,3 +148,16 @@ export async function closeSentry(timeoutMs = 2000): Promise<void> {
 }
 
 export { Sentry };
+
+/** Removes the bound values of a failed query from an error event. */
+export function scrubQueryParams(event: Sentry.ErrorEvent): Sentry.ErrorEvent {
+  if (event.message) {
+    event.message = withoutQueryParams(event.message);
+  }
+  for (const exception of event.exception?.values ?? []) {
+    if (exception.value) {
+      exception.value = withoutQueryParams(exception.value);
+    }
+  }
+  return event;
+}

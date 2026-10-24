@@ -304,6 +304,7 @@ POST /v1/secrets/push
 {
   "repoFullName": "owner/repo",
   "environment": "local",
+  "mode": "merge",
   "secrets": {
     "DATABASE_URL": "postgres://...",
     "API_KEY": "sk_test_..."
@@ -313,11 +314,33 @@ POST /v1/secrets/push
 
 **Scope required:** `write:secrets`
 
-:::caution Full replacement
-The API replaces all secrets in the environment. Secrets not in the payload are moved to trash.
+`mode` decides what happens to secrets missing from the payload:
 
-The CLI handles this differently: without `--prune`, it merges vault secrets into the payload before sending, so nothing is deleted. Use the CLI for additive pushes.
+- `replace` moves them to trash.
+- `merge` leaves them untouched.
+
+Without `mode`, requests from the Keyway MCP server merge and all others replace. The response gives the mode that was applied in `data.mode`.
+
+:::caution
+Self-hosted servers that predate `mode` ignore it and replace, which moves every secret missing from the payload to the trash. Send a partial set of secrets with `merge` only to a server you know supports it.
 :::
+
+Every overwritten value is kept as a version (the last 10 per secret), restorable from the dashboard. Pushing a value that did not change creates no version.
+
+```json
+{
+  "data": {
+    "success": true,
+    "message": "Secrets pushed successfully",
+    "mode": "merge",
+    "stats": { "created": 1, "updated": 2, "deleted": 0, "unchanged": 5, "protected": 0, "ignored": 0 }
+  }
+}
+```
+
+`protected` and `ignored` only concern keyway CLI 0.6.0 and older and MCP 1.0.0, which cannot read multi-line or quoted values back. For them, the server keeps the stored value instead of their corrupted copy and skips keys they parsed out of multi-line values. A push from these CLI versions is refused with a `400`, and nothing is saved, when it contains a value cut at its first line, a value whose quotes are all left escaped, or a mixed-case key next to multi-line values.
+
+A `409` means the environment changed during the push or another push to the vault was running. A `503` means the encryption service was unavailable. In both cases nothing was saved: retry.
 
 ### Pull secrets
 

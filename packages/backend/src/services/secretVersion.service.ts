@@ -1,5 +1,5 @@
-import { db, secrets, secretVersions } from "../db";
-import { eq, and, desc, inArray, isNull } from "drizzle-orm";
+import { db, secrets, secretVersions, type DbExecutor } from "../db";
+import { eq, and, desc, inArray, isNull, max, sql } from "drizzle-orm";
 import { getEncryptionService } from "../utils/encryption";
 
 // Maximum number of versions to keep per secret
@@ -26,10 +26,11 @@ export async function saveSecretVersion(
   iv: string,
   authTag: string,
   encryptionVersion: number,
-  userId?: string
+  userId?: string,
+  executor: DbExecutor = db
 ): Promise<void> {
   // Get current max version number for this secret
-  const existingVersions = await db
+  const existingVersions = await executor
     .select({ versionNumber: secretVersions.versionNumber })
     .from(secretVersions)
     .where(eq(secretVersions.secretId, secretId))
@@ -39,7 +40,7 @@ export async function saveSecretVersion(
   const nextVersion = (existingVersions[0]?.versionNumber ?? 0) + 1;
 
   // Insert new version
-  await db.insert(secretVersions).values({
+  await executor.insert(secretVersions).values({
     secretId,
     vaultId,
     versionNumber: nextVersion,
@@ -51,15 +52,70 @@ export async function saveSecretVersion(
   });
 
   // Prune old versions if > MAX_VERSIONS_PER_SECRET
-  await pruneOldVersions(secretId);
+  await pruneOldVersions(secretId, executor);
+}
+
+export interface SecretVersionToSave {
+  secretId: string;
+  vaultId: string;
+  encryptedValue: string;
+  iv: string;
+  authTag: string;
+  encryptionVersion: number;
+}
+
+/**
+ * Save the current values of several secrets as versions before updating them, in three
+ * queries whatever the count (numbering, insert, pruning).
+ */
+export async function saveSecretVersions(
+  entries: SecretVersionToSave[],
+  userId?: string,
+  executor: DbExecutor = db
+): Promise<void> {
+  if (entries.length === 0) {
+    return;
+  }
+  const secretIds = entries.map((entry) => entry.secretId);
+
+  const latest = await executor
+    .select({ secretId: secretVersions.secretId, versionNumber: max(secretVersions.versionNumber) })
+    .from(secretVersions)
+    .where(inArray(secretVersions.secretId, secretIds))
+    .groupBy(secretVersions.secretId);
+  const latestById = new Map(latest.map((row) => [row.secretId, row.versionNumber ?? 0]));
+
+  await executor.insert(secretVersions).values(
+    entries.map((entry) => ({
+      ...entry,
+      versionNumber: (latestById.get(entry.secretId) ?? 0) + 1,
+      createdById: userId ?? null,
+    }))
+  );
+
+  // Keep the MAX_VERSIONS_PER_SECRET most recent versions of each secret
+  await executor.execute(sql`
+    DELETE FROM ${secretVersions}
+    WHERE ${secretVersions.id} IN (
+      SELECT id FROM (
+        SELECT ${secretVersions.id} AS id,
+          row_number() OVER (
+            PARTITION BY ${secretVersions.secretId} ORDER BY ${secretVersions.versionNumber} DESC
+          ) AS rank
+        FROM ${secretVersions}
+        WHERE ${inArray(secretVersions.secretId, secretIds)}
+      ) ranked
+      WHERE rank > ${MAX_VERSIONS_PER_SECRET}
+    )
+  `);
 }
 
 /**
  * Remove oldest versions if count exceeds MAX_VERSIONS_PER_SECRET
  */
-async function pruneOldVersions(secretId: string): Promise<void> {
+async function pruneOldVersions(secretId: string, executor: DbExecutor): Promise<void> {
   // Get all versions ordered by version number desc
-  const versions = await db
+  const versions = await executor
     .select({ id: secretVersions.id, versionNumber: secretVersions.versionNumber })
     .from(secretVersions)
     .where(eq(secretVersions.secretId, secretId))
@@ -69,7 +125,7 @@ async function pruneOldVersions(secretId: string): Promise<void> {
     const idsToDelete = versions.slice(MAX_VERSIONS_PER_SECRET).map((v) => v.id);
 
     if (idsToDelete.length > 0) {
-      await db.delete(secretVersions).where(inArray(secretVersions.id, idsToDelete));
+      await executor.delete(secretVersions).where(inArray(secretVersions.id, idsToDelete));
     }
   }
 }

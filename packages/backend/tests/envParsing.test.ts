@@ -1,43 +1,8 @@
 import { describe, it, expect } from 'vitest';
+import { toEnvFormat, parseLegacyEnv } from '../src/utils/legacyEnvFormat';
 
-// Replicate the parseEnvContent and toEnvFormat functions from secrets.routes.ts
-// These are critical for data integrity
-
-function parseEnvContent(content: string): Record<string, string> {
-  const result: Record<string, string> = {};
-  const lines = content.split('\n');
-
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith('#')) continue;
-
-    const eqIndex = trimmed.indexOf('=');
-    if (eqIndex === -1) continue;
-
-    const key = trimmed.substring(0, eqIndex).trim();
-    let value = trimmed.substring(eqIndex + 1);
-
-    if ((value.startsWith('"') && value.endsWith('"')) ||
-        (value.startsWith("'") && value.endsWith("'"))) {
-      value = value.slice(1, -1);
-    }
-
-    if (key) result[key] = value;
-  }
-
-  return result;
-}
-
-function toEnvFormat(secretsMap: Record<string, string>): string {
-  return Object.entries(secretsMap)
-    .map(([key, value]) => {
-      if (value.includes(' ') || value.includes('\n') || value.includes('"')) {
-        return `${key}="${value.replace(/"/g, '\\"')}"`;
-      }
-      return `${key}=${value}`;
-    })
-    .join('\n');
-}
+// The parser shipped in MCP 1.0.0 and keyway-action. These are critical for data integrity.
+const parseEnvContent = (content: string) => parseLegacyEnv(content, 'js');
 
 describe('.env Parsing (Data Integrity Critical)', () => {
   describe('parseEnvContent', () => {

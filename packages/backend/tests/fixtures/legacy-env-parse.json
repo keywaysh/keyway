@@ -1,0 +1,2261 @@
+{
+ "description": "Output of the .env parsers shipped in released clients, recorded on 2026-10-23. go: keyway CLI internal/env.Parse (identical in 0.5.3 and 0.6.0). js: @keywaysh/mcp 1.0.0 parseEnvContent (keyway-action ships the same code). These clients cannot change, so this file must not be regenerated from fixed parsers.",
+ "vectors": [
+  {
+   "content": "# comment\n\nA=1\nB=\"two words\"\nC='single'\nD=a=b\r\n",
+   "go": {
+    "A": "1",
+    "B": "two words",
+    "C": "single",
+    "D": "a=b"
+   },
+   "js": {
+    "A": "1",
+    "B": "two words",
+    "C": "single",
+    "D": "a=b"
+   }
+  },
+  {
+   "content": "# KEY=commented\nK=v",
+   "go": {
+    "K": "v"
+   },
+   "js": {
+    "K": "v"
+   }
+  },
+  {
+   "content": "  K = v  ",
+   "go": {
+    "K": " v"
+   },
+   "js": {
+    "K": " v"
+   }
+  },
+  {
+   "content": "=novalue\nK=1",
+   "go": {
+    "K": "1"
+   },
+   "js": {
+    "K": "1"
+   }
+  },
+  {
+   "content": "export X=1",
+   "go": {
+    "export X": "1"
+   },
+   "js": {
+    "export X": "1"
+   }
+  },
+  {
+   "content": "\ufeffBOM=1",
+   "go": {
+    "\ufeffBOM": "1"
+   },
+   "js": {
+    "BOM": "1"
+   }
+  },
+  {
+   "content": "K=v # inline",
+   "go": {
+    "K": "v # inline"
+   },
+   "js": {
+    "K": "v # inline"
+   }
+  },
+  {
+   "content": "K=\"unterminated",
+   "go": {
+    "K": "\"unterminated"
+   },
+   "js": {
+    "K": "\"unterminated"
+   }
+  },
+  {
+   "content": "U=\"",
+   "go": {
+    "U": "\""
+   },
+   "js": {
+    "U": ""
+   }
+  },
+  {
+   "content": "U='",
+   "go": {
+    "U": "'"
+   },
+   "js": {
+    "U": ""
+   }
+  },
+  {
+   "content": "Q=\"a\"b\"",
+   "go": {
+    "Q": "a\"b"
+   },
+   "js": {
+    "Q": "a\"b"
+   }
+  },
+  {
+   "content": "S=' spaced '",
+   "go": {
+    "S": " spaced "
+   },
+   "js": {
+    "S": " spaced "
+   }
+  },
+  {
+   "content": "K=1\nK=2",
+   "go": {
+    "K": "2"
+   },
+   "js": {
+    "K": "2"
+   }
+  },
+  {
+   "content": "K\t=\tv",
+   "go": {
+    "K": "\tv"
+   },
+   "js": {
+    "K": "\tv"
+   }
+  },
+  {
+   "content": "K=\u00a0v\u00a0",
+   "go": {
+    "K": "\u00a0v"
+   },
+   "js": {
+    "K": "\u00a0v"
+   }
+  },
+  {
+   "content": "K=v\u0085",
+   "go": {
+    "K": "v"
+   },
+   "js": {
+    "K": "v\u0085"
+   }
+  },
+  {
+   "content": "K=v\ufeff",
+   "go": {
+    "K": "v\ufeff"
+   },
+   "js": {
+    "K": "v"
+   }
+  },
+  {
+   "content": "K=v\u2028",
+   "go": {
+    "K": "v"
+   },
+   "js": {
+    "K": "v"
+   }
+  },
+  {
+   "content": "xA\"\\= \"\u2028=_#\"\t\u00e9\u00a0",
+   "go": {
+    "xA\"\\": " \"\u2028=_#\"\t\u00e9"
+   },
+   "js": {
+    "xA\"\\": " \"\u2028=_#\"\t\u00e9"
+   }
+  },
+  {
+   "content": "\u0085\u0085x\u00e9b\n\u200b\\\\ =\r'#=\u200b\"\\\"\nbAexport \"Aexport \u00e9b=\\ \r",
+   "go": {
+    "bAexport \"Aexport \u00e9b": "\\",
+    "\u200b\\\\": "\r'#=\u200b\"\\\""
+   },
+   "js": {
+    "\u200b\\\\": "\r'#=\u200b\"\\\"",
+    "bAexport \"Aexport \u00e9b": "\\"
+   }
+  },
+  {
+   "content": "\u0085bexport \"=1\tK\u0085export 11 x\n#A\ufeff export \"= A\\\r\n\u0085'1===\r\u2028 ",
+   "go": {
+    "'1": "==",
+    "bexport \"": "1\tK\u0085export 11 x"
+   },
+   "js": {
+    "\u0085bexport \"": "1\tK\u0085export 11 x",
+    "\u0085'1": "=="
+   }
+  },
+  {
+   "content": "==\u0085\rexport \r\u00e9x==\u00e9=1K\u00e91",
+   "go": {},
+   "js": {}
+  },
+  {
+   "content": "\t=\r\r\"x#bA\u00e9\u200bb\ufeff'\u2028\u00a0_\n\ufeffexport x K\ufeffK=\r='x\tx\ufeff1#\r\n_b_\u2028 \"\u200bx= \u2028bK\\\u0085\nK\u00a0\"\u00a0\u0085\ufeff\r\r1=K\u00a0 export #\ufeff\u00a0",
+   "go": {
+    "K\u00a0\"\u00a0\u0085\ufeff\r\r1": "K\u00a0 export #\ufeff",
+    "_b_\u2028 \"\u200bx": " \u2028bK\\",
+    "\ufeffexport x K\ufeffK": "\r='x\tx\ufeff1#"
+   },
+   "js": {
+    "export x K\ufeffK": "\r='x\tx\ufeff1#",
+    "_b_\u2028 \"\u200bx": " \u2028bK\\\u0085",
+    "K\u00a0\"\u00a0\u0085\ufeff\r\r1": "K\u00a0 export #"
+   }
+  },
+  {
+   "content": "\u00e9=='export A=\u00e9_\n_\"\"= #=# ",
+   "go": {
+    "_\"\"": " #=#",
+    "\u00e9": "='export A=\u00e9_"
+   },
+   "js": {
+    "\u00e9": "='export A=\u00e9_",
+    "_\"\"": " #=#"
+   }
+  },
+  {
+   "content": "\"\u2028\u200b'\ufeff  \ufeff=\u200b\r\u0085_\\\n\u00a0b\\\t\u00e9#\u200b\"=_K\t\nb\u200b\"'\u0085x'\u00a0\tA\"1\" ",
+   "go": {
+    "\"\u2028\u200b'\ufeff  \ufeff": "\u200b\r\u0085_\\",
+    "b\\\t\u00e9#\u200b\"": "_K"
+   },
+   "js": {
+    "\"\u2028\u200b'": "\u200b\r\u0085_\\",
+    "b\\\t\u00e9#\u200b\"": "_K"
+   }
+  },
+  {
+   "content": "'\"\"\nK\u200b \u2028=AA\u00a0== K\"1#'\"",
+   "go": {
+    "K\u200b": "AA\u00a0== K\"1#'\""
+   },
+   "js": {
+    "K\u200b": "AA\u00a0== K\"1#'\""
+   }
+  },
+  {
+   "content": " b export ==",
+   "go": {
+    "b export": "="
+   },
+   "js": {
+    "b export": "="
+   }
+  },
+  {
+   "content": "\ufeff'\\x\ufeff\ufeff#\u00a0\"\n\ufeff\u00e9A1\u0085K\\1=\u00e9 1==K\r\"\u200b _\nbb\"x \t\u00a0=x",
+   "go": {
+    "bb\"x": "x",
+    "\ufeff\u00e9A1\u0085K\\1": "\u00e9 1==K\r\"\u200b _"
+   },
+   "js": {
+    "\u00e9A1\u0085K\\1": "\u00e9 1==K\r\"\u200b _",
+    "bb\"x": "x"
+   }
+  },
+  {
+   "content": "\\1\"_=\"=b\r\u0085 \t\u00a0'x",
+   "go": {
+    "\\1\"_": "\"=b\r\u0085 \t\u00a0'x"
+   },
+   "js": {
+    "\\1\"_": "\"=b\r\u0085 \t\u00a0'x"
+   }
+  },
+  {
+   "content": "\"\"\u00e9x\u2028=b= \ufeff\\\u00a0\"\r\u00e9xexport export _\n\\_A=K=export \r'=\u00e9\t =A",
+   "go": {
+    "\"\"\u00e9x": "b= \ufeff\\\u00a0\"\r\u00e9xexport export _",
+    "\\_A": "K=export \r'=\u00e9\t =A"
+   },
+   "js": {
+    "\"\"\u00e9x": "b= \ufeff\\\u00a0\"\r\u00e9xexport export _",
+    "\\_A": "K=export \r'=\u00e9\t =A"
+   }
+  },
+  {
+   "content": "\"\u200b=_\u00a0\ufeff\u200bA\t\u2028\"'\n\ufeff\"\u00e9\" \r\"Kx\n=K= \u00e9#",
+   "go": {
+    "\"\u200b": "_\u00a0\ufeff\u200bA\t\u2028\"'"
+   },
+   "js": {
+    "\"\u200b": "_\u00a0\ufeff\u200bA\t\u2028\"'"
+   }
+  },
+  {
+   "content": "\u200bb\\\u0085_ =\"\"\"\u00e9\n\u2028\t A\u0085A=\u200bexport 1\\\\\\\u200b' ",
+   "go": {
+    "A\u0085A": "\u200bexport 1\\\\\\\u200b'",
+    "\u200bb\\\u0085_": "\"\"\"\u00e9"
+   },
+   "js": {
+    "\u200bb\\\u0085_": "\"\"\"\u00e9",
+    "A\u0085A": "\u200bexport 1\\\\\\\u200b'"
+   }
+  },
+  {
+   "content": "\\\\1=#export =#K_\u200b\r\\\u00e9=\n\u2028 '\"\nA1export \"x\"\u0085K\u00a0K",
+   "go": {
+    "\\\\1": "#export =#K_\u200b\r\\\u00e9="
+   },
+   "js": {
+    "\\\\1": "#export =#K_\u200b\r\\\u00e9="
+   }
+  },
+  {
+   "content": "\u00e9\u00a0 1\ufeff\u0085\u2028x==1",
+   "go": {
+    "\u00e9\u00a0 1\ufeff\u0085\u2028x": "=1"
+   },
+   "js": {
+    "\u00e9\u00a0 1\ufeff\u0085\u2028x": "=1"
+   }
+  },
+  {
+   "content": "\tA\u00a0 K\t\u200b\u00a0\u2028\n\"\n# =\"K\"1export #\n\u0085=",
+   "go": {},
+   "js": {
+    "\u0085": ""
+   }
+  },
+  {
+   "content": " Kexport \u00a0=\"\"\"\u0085\u200b\\=\u200bA",
+   "go": {
+    "Kexport": "\"\"\"\u0085\u200b\\=\u200bA"
+   },
+   "js": {
+    "Kexport": "\"\"\"\u0085\u200b\\=\u200bA"
+   }
+  },
+  {
+   "content": "export _#=export \\\u0085K\u00e9=\"\r\u0085\u200b\r\nexport ==\"= ",
+   "go": {
+    "export": "=\"=",
+    "export _#": "export \\\u0085K\u00e9=\"\r\u0085\u200b"
+   },
+   "js": {
+    "export _#": "export \\\u0085K\u00e9=\"\r\u0085\u200b",
+    "export": "=\"="
+   }
+  },
+  {
+   "content": "=Kexport \u00a01\\\u2028\"",
+   "go": {},
+   "js": {}
+  },
+  {
+   "content": "\u0085A\u00e9Kexport b = \"_\"\\=x\u00a0\u0085\n\u2028\u2028\"\r\r\ufeff\u0085=\ufeff=\ufeff\"\u00a0\u00a0\t\r",
+   "go": {
+    "\"\r\r\ufeff": "\ufeff=\ufeff\"",
+    "A\u00e9Kexport b": " \"_\"\\=x"
+   },
+   "js": {
+    "\u0085A\u00e9Kexport b": " \"_\"\\=x\u00a0\u0085",
+    "\"\r\r\ufeff\u0085": "\ufeff=\ufeff\""
+   }
+  },
+  {
+   "content": "b\ufeff 1==\"xx\n=\ufeffK_\u00a0 =#\u0085\t",
+   "go": {
+    "b\ufeff 1": "=\"xx"
+   },
+   "js": {
+    "b\ufeff 1": "=\"xx"
+   }
+  },
+  {
+   "content": "1= b",
+   "go": {
+    "1": " b"
+   },
+   "js": {
+    "1": " b"
+   }
+  },
+  {
+   "content": " \u200b \\x=b\ufeff_'\u2028\"\ufeff\u200b\"x\n\u00a0\u2028\u0085\ufeffAb'xA\"\rA=\"11\u2028='\n\u2028\u200b=K=\n_\u200bexport _\u00a0#\u00a0 b\u2028# \" \u2028\u2028\u0085",
+   "go": {
+    "\u200b": "K=",
+    "\u200b \\x": "b\ufeff_'\u2028\"\ufeff\u200b\"x",
+    "\ufeffAb'xA\"\rA": "\"11\u2028='"
+   },
+   "js": {
+    "\u200b \\x": "b\ufeff_'\u2028\"\ufeff\u200b\"x",
+    "\u0085\ufeffAb'xA\"\rA": "\"11\u2028='",
+    "\u200b": "K="
+   }
+  },
+  {
+   "content": "export \ufeff\u00e9\r\\\u0085x'_ \n\u00a0\u00e9= _#=\rK'A_\ufeffA\n=\u200b\t\"x=\r\u00a0 \ufeff=\"_\nKxexport =",
+   "go": {
+    "Kxexport": "",
+    "\u00e9": " _#=\rK'A_\ufeffA"
+   },
+   "js": {
+    "\u00e9": " _#=\rK'A_\ufeffA",
+    "Kxexport": ""
+   }
+  },
+  {
+   "content": "\u0085=x\u2028\u0085\u00e9=b\"\"\u2028x\u0085#\n\"1A_=1\r=\u200b= \\\\=\u0085b\u200b\u00e9\\\t\u00e9",
+   "go": {
+    "\"1A_": "1\r=\u200b= \\\\=\u0085b\u200b\u00e9\\\t\u00e9"
+   },
+   "js": {
+    "\u0085": "x\u2028\u0085\u00e9=b\"\"\u2028x\u0085#",
+    "\"1A_": "1\r=\u200b= \\\\=\u0085b\u200b\u00e9\\\t\u00e9"
+   }
+  },
+  {
+   "content": "b'\"\u0085AA_  \u00e9\t\u2028\"=\n=\t11\"\u00a0\u0085'==K=b \u00e9\t",
+   "go": {
+    "b'\"\u0085AA_  \u00e9\t\u2028\"": ""
+   },
+   "js": {
+    "b'\"\u0085AA_  \u00e9\t\u2028\"": ""
+   }
+  },
+  {
+   "content": "\u00e91\ufeff'=A\\",
+   "go": {
+    "\u00e91\ufeff'": "A\\"
+   },
+   "js": {
+    "\u00e91\ufeff'": "A\\"
+   }
+  },
+  {
+   "content": "#\u2028\u00a0\u0085\u00e9b\u0085==",
+   "go": {},
+   "js": {}
+  },
+  {
+   "content": " =\ufeff\u2028\ufeff=A b#\n\u00a0export =\r",
+   "go": {
+    "export": ""
+   },
+   "js": {
+    "export": ""
+   }
+  },
+  {
+   "content": "\u200b b\"K\"\u00a0\u200b\r=#\"x\"\nKA\\export \\export \r\t",
+   "go": {
+    "\u200b b\"K\"\u00a0\u200b": "#\"x\""
+   },
+   "js": {
+    "\u200b b\"K\"\u00a0\u200b": "#\"x\""
+   }
+  },
+  {
+   "content": "Abexport \u00e9'\"#\ufeff\u200b",
+   "go": {},
+   "js": {}
+  },
+  {
+   "content": "='\u00e9b1==#\u200b==\u00e9\t K\nb= \r \\\t#\u2028\u2028\rx\n#\"A\tx\u2028=x\"=\\",
+   "go": {
+    "b": " \r \\\t#\u2028\u2028\rx"
+   },
+   "js": {
+    "b": " \r \\\t#\u2028\u2028\rx"
+   }
+  },
+  {
+   "content": "=\u0085=1_export \u2028\nb\"=\u0085'=\ufeff\u0085_='\"K'",
+   "go": {
+    "b\"": "\u0085'=\ufeff\u0085_='\"K'"
+   },
+   "js": {
+    "b\"": "\u0085'=\ufeff\u0085_='\"K'"
+   }
+  },
+  {
+   "content": "# 1_K_\u0085K_\u200b\r\n\u00a0#export \u200b\u00a0_\t#export \t1=\t\n= =\u2028x\\\u00e9\r\n\\\t\u00e9\u00a0A \u2028",
+   "go": {},
+   "js": {}
+  },
+  {
+   "content": "=\t\\",
+   "go": {},
+   "js": {}
+  },
+  {
+   "content": "=b=export 1=K\u00e9\u00a0",
+   "go": {},
+   "js": {}
+  },
+  {
+   "content": "K=A=_1\u200b\ufeff\nAAexport A'='1 =",
+   "go": {
+    "AAexport A'": "'1 =",
+    "K": "A=_1\u200b\ufeff"
+   },
+   "js": {
+    "K": "A=_1\u200b",
+    "AAexport A'": "'1 ="
+   }
+  },
+  {
+   "content": "#_\r\ufeff\"=x\"export \ufeffexport b\u200b\n \u2028 =\"\n\" \ufeff'\r\"\"=\r_\u2028\n\u0085=",
+   "go": {
+    "\" \ufeff'\r\"\"": "\r_"
+   },
+   "js": {
+    "\" \ufeff'\r\"\"": "\r_",
+    "\u0085": ""
+   }
+  },
+  {
+   "content": "A\u2028\"\u00a0K \r\u00a0=b\u200b\t\"1x1A#\n\u00e9\"\u00a0==_#\nexport \rexport =\u0085\r\"A#=\"Aexport _\n\"=A\"1 =b\t\u2028K\u200b\tKK\t x",
+   "go": {
+    "\"": "A\"1 =b\t\u2028K\u200b\tKK\t x",
+    "A\u2028\"\u00a0K": "b\u200b\t\"1x1A#",
+    "export \rexport": "\u0085\r\"A#=\"Aexport _",
+    "\u00e9\"": "=_#"
+   },
+   "js": {
+    "A\u2028\"\u00a0K": "b\u200b\t\"1x1A#",
+    "\u00e9\"": "=_#",
+    "export \rexport": "\u0085\r\"A#=\"Aexport _",
+    "\"": "A\"1 =b\t\u2028K\u200b\tKK\t x"
+   }
+  },
+  {
+   "content": "\u00e9export \\=\u0085x==\u00a0=K\ufeff\ufeff\\x_\\\t\n \ufeffx\"\t\u2028\u2028 \ufeff=bK\u00a0\u00a0\t\u0085\"A_\\\n_\u2028\"#\t\u2028=\"=\r\u20281A\u2028_\u00e9",
+   "go": {
+    "_\u2028\"#": "\"=\r\u20281A\u2028_\u00e9",
+    "\u00e9export \\": "\u0085x==\u00a0=K\ufeff\ufeff\\x_\\",
+    "\ufeffx\"\t\u2028\u2028 \ufeff": "bK\u00a0\u00a0\t\u0085\"A_\\"
+   },
+   "js": {
+    "\u00e9export \\": "\u0085x==\u00a0=K\ufeff\ufeff\\x_\\",
+    "x\"": "bK\u00a0\u00a0\t\u0085\"A_\\",
+    "_\u2028\"#": "\"=\r\u20281A\u2028_\u00e9"
+   }
+  },
+  {
+   "content": "\"=\nA=\"\u00a0 \u00e9b\t\u2028",
+   "go": {
+    "\"": "",
+    "A": "\"\u00a0 \u00e9b"
+   },
+   "js": {
+    "\"": "",
+    "A": "\"\u00a0 \u00e9b"
+   }
+  },
+  {
+   "content": "x1=\u20281_1\u00e9A\t\ufeffA\n export \u2028\u2028#\"_\u00e9#=A '\u200b# \\\n\"\\\"\u200b\\'#\t",
+   "go": {
+    "export \u2028\u2028#\"_\u00e9#": "A '\u200b# \\",
+    "x1": "\u20281_1\u00e9A\t\ufeffA"
+   },
+   "js": {
+    "x1": "\u20281_1\u00e9A\t\ufeffA",
+    "export \u2028\u2028#\"_\u00e9#": "A '\u200b# \\"
+   }
+  },
+  {
+   "content": "\\export K=\u2028\u0085_#b\r \u00e9\u200b\n#\"A=\rexport \n\u00a0\\=#=Kb\ufeff\u200b\u0085\n",
+   "go": {
+    "\\": "#=Kb\ufeff\u200b",
+    "\\export K": "\u2028\u0085_#b\r \u00e9\u200b"
+   },
+   "js": {
+    "\\export K": "\u2028\u0085_#b\r \u00e9\u200b",
+    "\\": "#=Kb\ufeff\u200b\u0085"
+   }
+  },
+  {
+   "content": "=_\u0085_b A'x1\n#\u0085=\"export ",
+   "go": {},
+   "js": {}
+  },
+  {
+   "content": "\rA\t\u2028export =\n\u00a0\u0085\u200b\rexport K\\'\u00e9\tK=\"\r\r\n\r\u00a0xb \"=\n export K==\u00a01\u2028\"_ #",
+   "go": {
+    "A\t\u2028export": "",
+    "export K": "=\u00a01\u2028\"_ #",
+    "xb \"": "",
+    "\u200b\rexport K\\'\u00e9\tK": "\""
+   },
+   "js": {
+    "A\t\u2028export": "",
+    "\u0085\u200b\rexport K\\'\u00e9\tK": "",
+    "xb \"": "",
+    "export K": "=\u00a01\u2028\"_ #"
+   }
+  },
+  {
+   "content": "\"x1\t\u00e9=1=\n=A \u20281\u2028 \\x",
+   "go": {
+    "\"x1\t\u00e9": "1="
+   },
+   "js": {
+    "\"x1\t\u00e9": "1="
+   }
+  },
+  {
+   "content": "=\"\\=\"\n \rK\ufeff\" \r_\\b\u00a0=K1\"\u00e9\t\n\u0085\tbA\u00a0\"_ '#\n#\"export \u00e9=\\\u200b",
+   "go": {
+    "K\ufeff\" \r_\\b": "K1\"\u00e9"
+   },
+   "js": {
+    "K\ufeff\" \r_\\b": "K1\"\u00e9"
+   }
+  },
+  {
+   "content": "\u00e9\u200b'\u0085\ufeff\u2028\r\"=\u00a0",
+   "go": {
+    "\u00e9\u200b'\u0085\ufeff\u2028\r\"": ""
+   },
+   "js": {
+    "\u00e9\u200b'\u0085\ufeff\u2028\r\"": ""
+   }
+  },
+  {
+   "content": "11x\t\u00a0\u0085Ax'\t\"\u2028\"A=\u0085\n=",
+   "go": {
+    "11x\t\u00a0\u0085Ax'\t\"\u2028\"A": ""
+   },
+   "js": {
+    "11x\t\u00a0\u0085Ax'\t\"\u2028\"A": "\u0085"
+   }
+  },
+  {
+   "content": "#_\u0085 =x=\"bexport =A\n\"  A\t\u00a0\"\\=  #=b\nA#\\=\t=K",
+   "go": {
+    "\"  A\t\u00a0\"\\": "  #=b",
+    "A#\\": "\t=K"
+   },
+   "js": {
+    "\"  A\t\u00a0\"\\": "  #=b",
+    "A#\\": "\t=K"
+   }
+  },
+  {
+   "content": "\ufeff\t=Kexport =KKx",
+   "go": {
+    "\ufeff": "Kexport =KKx"
+   },
+   "js": {}
+  },
+  {
+   "content": "b\"\u00e9\u0085\u2028b\u0085=A\u0085export \u0085\u200bexport 'export \n\t\\=_\\'=\\''\nAx\"\r ==export ==\u00a0K  \"#\u0085\t\\'",
+   "go": {
+    "Ax\"": "=export ==\u00a0K  \"#\u0085\t\\'",
+    "\\": "_\\'=\\''",
+    "b\"\u00e9\u0085\u2028b": "A\u0085export \u0085\u200bexport 'export"
+   },
+   "js": {
+    "b\"\u00e9\u0085\u2028b\u0085": "A\u0085export \u0085\u200bexport 'export",
+    "\\": "_\\'=\\''",
+    "Ax\"": "=export ==\u00a0K  \"#\u0085\t\\'"
+   }
+  },
+  {
+   "content": "#=\"=K\u2028\ufeff=\u00a0\rexport \u0085_\u2028\nA \ufeff=1\u00a0= \t \n1\t\u2028\r\ufeff_\\ ",
+   "go": {
+    "A \ufeff": "1\u00a0="
+   },
+   "js": {
+    "A": "1\u00a0="
+   }
+  },
+  {
+   "content": "xx\"\u00e9\"11'x=  #\u2028\rA\n\u0085\u00a0\u00a01\\\"\"b=\nA1\ufeff_xx\" \u200b='=",
+   "go": {
+    "1\\\"\"b": "",
+    "A1\ufeff_xx\" \u200b": "'=",
+    "xx\"\u00e9\"11'x": "  #\u2028\rA"
+   },
+   "js": {
+    "xx\"\u00e9\"11'x": "  #\u2028\rA",
+    "\u0085\u00a0\u00a01\\\"\"b": "",
+    "A1\ufeff_xx\" \u200b": "'="
+   }
+  },
+  {
+   "content": " \ufeff\tx\u00e9\u0085\u200b\ufeff\t\t\u00e9\n\"\u2028 x\tA\t=x_\n\u00e9\u00e9\\'\"\u00a0x\ufeff=\u0085b'x#",
+   "go": {
+    "\"\u2028 x\tA": "x_",
+    "\u00e9\u00e9\\'\"\u00a0x\ufeff": "\u0085b'x#"
+   },
+   "js": {
+    "\"\u2028 x\tA": "x_",
+    "\u00e9\u00e9\\'\"\u00a0x": "\u0085b'x#"
+   }
+  },
+  {
+   "content": "b\u2028\\x#",
+   "go": {},
+   "js": {}
+  },
+  {
+   "content": "= \u200b\u200b1==1_\"#\\\nbb\ufeff\u00e9\"\" \u0085=x\u200b\rbexport xexport =\u200b=1\nexport \u200b\ufeff#=\"\t\"\u00e9",
+   "go": {
+    "bb\ufeff\u00e9\"\"": "x\u200b\rbexport xexport =\u200b=1",
+    "export \u200b\ufeff#": "\"\t\"\u00e9"
+   },
+   "js": {
+    "bb\ufeff\u00e9\"\" \u0085": "x\u200b\rbexport xexport =\u200b=1",
+    "export \u200b\ufeff#": "\"\t\"\u00e9"
+   }
+  },
+  {
+   "content": "=\u2028\rAexport \tb_\n =K A\u200bx'#",
+   "go": {},
+   "js": {}
+  },
+  {
+   "content": "1Kbb'K=K=\ufeff\"export \ufeffb",
+   "go": {
+    "1Kbb'K": "K=\ufeff\"export \ufeffb"
+   },
+   "js": {
+    "1Kbb'K": "K=\ufeff\"export \ufeffb"
+   }
+  },
+  {
+   "content": "#=\ufeff\u200b1\u0085=\u00a01\u2028\t\tAx\n\\=export \"export = \u200b\u00e9\"A\u2028\nx \"A\n_=_export \u2028=\\\u2028A\u2028=\tA",
+   "go": {
+    "\\": "export \"export = \u200b\u00e9\"A",
+    "_": "_export \u2028=\\\u2028A\u2028=\tA"
+   },
+   "js": {
+    "\\": "export \"export = \u200b\u00e9\"A",
+    "_": "_export \u2028=\\\u2028A\u2028=\tA"
+   }
+  },
+  {
+   "content": "\" =\u200bA \r\n\u00a0 \ufeffx\" \u00e91=\u00a0\"A\"\u00a0'\n\u0085\u00e9\"'\"\u0085=\u200b\rb_",
+   "go": {
+    "\"": "\u200bA",
+    "\u00e9\"'\"": "\u200b\rb_",
+    "\ufeffx\" \u00e91": "\u00a0\"A\"\u00a0'"
+   },
+   "js": {
+    "\"": "\u200bA",
+    "x\" \u00e91": "\u00a0\"A\"\u00a0'",
+    "\u0085\u00e9\"'\"\u0085": "\u200b\rb_"
+   }
+  },
+  {
+   "content": " _K====\ufeff_\"x\n#\u00e9\u0085\r=_\u00a0'\u200b\"\n_=\u2028K\u00e9export 1\"\nKb= \tb\u00e9\"\r=K\u0085\r\u00a0'export =#\u200b\"1",
+   "go": {
+    "Kb": " \tb\u00e9\"\r=K\u0085\r\u00a0'export =#\u200b\"1",
+    "_": "\u2028K\u00e9export 1\"",
+    "_K": "===\ufeff_\"x"
+   },
+   "js": {
+    "_K": "===\ufeff_\"x",
+    "_": "\u2028K\u00e9export 1\"",
+    "Kb": " \tb\u00e9\"\r=K\u0085\r\u00a0'export =#\u200b\"1"
+   }
+  },
+  {
+   "content": "\"= #\u0085=# \"\u0085\rxb\n\"=\r\u0085=\u2028=",
+   "go": {
+    "\"": "\r\u0085=\u2028="
+   },
+   "js": {
+    "\"": "\r\u0085=\u2028="
+   }
+  },
+  {
+   "content": "_ _Kx\"=K\n\u00e9=_x _\u00a0\u0085\ufeff =\u00a0=\"=\n\u00a0\u00e9\u2028\r",
+   "go": {
+    "_ _Kx\"": "K",
+    "\u00e9": "_x _\u00a0\u0085\ufeff =\u00a0=\"="
+   },
+   "js": {
+    "_ _Kx\"": "K",
+    "\u00e9": "_x _\u00a0\u0085\ufeff =\u00a0=\"="
+   }
+  },
+  {
+   "content": "K\u200bK_x\"\u00a0export \u200b\u2028=\t\u00a0\u2028\"=#\n=\u2028\r\"=\"\u0085\tx\nbA\"\"1=export KK\ufeff\ufeff\u00e9 \"\r_\u00a0\u00a0xexport \n\u00a0\u00e9\u00e9 \u200b= ",
+   "go": {
+    "K\u200bK_x\"\u00a0export \u200b": "\t\u00a0\u2028\"=#",
+    "bA\"\"1": "export KK\ufeff\ufeff\u00e9 \"\r_\u00a0\u00a0xexport",
+    "\u00e9\u00e9 \u200b": ""
+   },
+   "js": {
+    "K\u200bK_x\"\u00a0export \u200b": "\t\u00a0\u2028\"=#",
+    "bA\"\"1": "export KK\ufeff\ufeff\u00e9 \"\r_\u00a0\u00a0xexport",
+    "\u00e9\u00e9 \u200b": ""
+   }
+  },
+  {
+   "content": "b1\t\ufeff\"'\u2028==\ufeff\n=\\\"_\u200b= export ' ",
+   "go": {
+    "b1\t\ufeff\"'": "=\ufeff"
+   },
+   "js": {
+    "b1\t\ufeff\"'": "="
+   }
+  },
+  {
+   "content": "  export 1\"x\"\u200bx\u2028 A\n==\rexport \t export _",
+   "go": {},
+   "js": {}
+  },
+  {
+   "content": "=' \u00a0=\r\u200b\u2028\u200b\r \n\ufeff=export bK\r\u2028#=b\"\u200b\n\u00a0_\rK=export \u200b#\u0085=b\u00e9 1\\\rA1\\ \n==\"x\ufeff\u00a0=b#\u200b",
+   "go": {
+    "_\rK": "export \u200b#\u0085=b\u00e9 1\\\rA1\\",
+    "\ufeff": "export bK\r\u2028#=b\"\u200b"
+   },
+   "js": {
+    "_\rK": "export \u200b#\u0085=b\u00e9 1\\\rA1\\"
+   }
+  },
+  {
+   "content": "\ufeff\u00e9bK\u00e9'\t'1 export b=\u2028\nA\"= Aexport  x\n_\"A =\u0085\u200b=_\\_=\u00a0",
+   "go": {
+    "A\"": " Aexport  x",
+    "_\"A": "\u0085\u200b=_\\_=",
+    "\ufeff\u00e9bK\u00e9'\t'1 export b": ""
+   },
+   "js": {
+    "\u00e9bK\u00e9'\t'1 export b": "",
+    "A\"": " Aexport  x",
+    "_\"A": "\u0085\u200b=_\\_="
+   }
+  },
+  {
+   "content": "=\u200b\ufeff\u200b\ufeff\u00a0=x ",
+   "go": {},
+   "js": {}
+  },
+  {
+   "content": " export K\\_=\\",
+   "go": {
+    "export K\\_": "\\"
+   },
+   "js": {
+    "export K\\_": "\\"
+   }
+  },
+  {
+   "content": "\\\"= ",
+   "go": {
+    "\\\"": ""
+   },
+   "js": {
+    "\\\"": ""
+   }
+  },
+  {
+   "content": "\\ =x=K\r\"1_\u200b\r#x\n\u00a0x=\"\\\"\"_=_\n=\u200b\"\u00e9x ",
+   "go": {
+    "\\": "x=K\r\"1_\u200b\r#x",
+    "x": "\"\\\"\"_=_"
+   },
+   "js": {
+    "\\": "x=K\r\"1_\u200b\r#x",
+    "x": "\"\\\"\"_=_"
+   }
+  },
+  {
+   "content": "1\\K b\ufeff=K\u2028\n=\r1x'b\n'=\u00a0b\u200b",
+   "go": {
+    "'": "\u00a0b\u200b",
+    "1\\K b\ufeff": "K"
+   },
+   "js": {
+    "1\\K b": "K",
+    "'": "\u00a0b\u200b"
+   }
+  },
+  {
+   "content": "x #\"b\"\u0085=A\u200b_\t\u00a0\ufeff\n\r \n\"=_export   \r=\n\r \u00a0\u0085\"x\\\u00e9",
+   "go": {
+    "\"": "_export   \r=",
+    "x #\"b\"": "A\u200b_\t\u00a0\ufeff"
+   },
+   "js": {
+    "x #\"b\"\u0085": "A\u200b_",
+    "\"": "_export   \r="
+   }
+  },
+  {
+   "content": "'b\u2028\\b\u200b\u200b\u00a0\t \n\\\u00a0\"'=b\" KA\u2028",
+   "go": {
+    "\\\u00a0\"'": "b\" KA"
+   },
+   "js": {
+    "\\\u00a0\"'": "b\" KA"
+   }
+  },
+  {
+   "content": "x==1",
+   "go": {
+    "x": "=1"
+   },
+   "js": {
+    "x": "=1"
+   }
+  },
+  {
+   "content": "\"\u00a0\"==b\"\"=\"xexport '_\u00e9\n\\Aexport \t\u00e9b\\_#\u00e9\n\r \u2028\r\"",
+   "go": {
+    "\"\u00a0\"": "=b\"\"=\"xexport '_\u00e9"
+   },
+   "js": {
+    "\"\u00a0\"": "=b\"\"=\"xexport '_\u00e9"
+   }
+  },
+  {
+   "content": "\t\u2028 \t\u00e9=\t\r=K\"#\u00e9\"=\u00e91\ufeffb",
+   "go": {
+    "\u00e9": "\t\r=K\"#\u00e9\"=\u00e91\ufeffb"
+   },
+   "js": {
+    "\u00e9": "\t\r=K\"#\u00e9\"=\u00e91\ufeffb"
+   }
+  },
+  {
+   "content": "_\u0085_\\\u00e9\u2028 \ufeff \n1#=b#\ufeff\"\\b",
+   "go": {
+    "1#": "b#\ufeff\"\\b"
+   },
+   "js": {
+    "1#": "b#\ufeff\"\\b"
+   }
+  },
+  {
+   "content": "\"_ \"= \ufeffb==b\u00a0K'\n\t=\u00a0xb\"\u2028=x\u00a0",
+   "go": {
+    "\"_ \"": " \ufeffb==b\u00a0K'"
+   },
+   "js": {
+    "\"_ \"": " \ufeffb==b\u00a0K'"
+   }
+  },
+  {
+   "content": "\"K _\u00e9b \u200bK \"_A\u200b\u0085\n \r\\   =K_=\u2028 #\tx\"\r=_\n=export \u00e9x\\\r_\ufeff\u2028\t#\u00a0\n\"#\u200b\tK\t\\\u00a0\u00a0",
+   "go": {
+    "\\": "K_=\u2028 #\tx\"\r=_"
+   },
+   "js": {
+    "\\": "K_=\u2028 #\tx\"\r=_"
+   }
+  },
+  {
+   "content": "K\u200b#export \u2028''\u00e9\\=export \u0085=\u00a0 A\n'Aexport \u200b\"=\u00e9\u2028_ export =1 K#\nA\"\r\u0085\u200b=\u0085export  \" \ufeffexport  _x_",
+   "go": {
+    "'Aexport \u200b\"": "\u00e9\u2028_ export =1 K#",
+    "A\"\r\u0085\u200b": "\u0085export  \" \ufeffexport  _x_",
+    "K\u200b#export \u2028''\u00e9\\": "export \u0085=\u00a0 A"
+   },
+   "js": {
+    "K\u200b#export \u2028''\u00e9\\": "export \u0085=\u00a0 A",
+    "'Aexport \u200b\"": "\u00e9\u2028_ export =1 K#",
+    "A\"\r\u0085\u200b": "\u0085export  \" \ufeffexport  _x_"
+   }
+  },
+  {
+   "content": " \u0085\r==\u00a0'\u200b\r'\u200b\n#\\=1A",
+   "go": {},
+   "js": {
+    "\u0085": "=\u00a0'\u200b\r'\u200b"
+   }
+  },
+  {
+   "content": "K1xx\txK\u00851\nA export 1export  =_\n\u00e9\"=\n\"==K'bA\t'\"xK1",
+   "go": {
+    "\"": "=K'bA\t'\"xK1",
+    "A export 1export": "_",
+    "\u00e9\"": ""
+   },
+   "js": {
+    "A export 1export": "_",
+    "\u00e9\"": "",
+    "\"": "=K'bA\t'\"xK1"
+   }
+  },
+  {
+   "content": "A\rexport \u00e9=\rA \n\"\u200b\u200b\r\ufeffb  \u0085=\u00a0\u2028=\r x\u0085x _\ufeff\n\u00a0\r\u00e9",
+   "go": {
+    "\"\u200b\u200b\r\ufeffb": "\u00a0\u2028=\r x\u0085x _\ufeff",
+    "A\rexport \u00e9": "\rA"
+   },
+   "js": {
+    "A\rexport \u00e9": "\rA",
+    "\"\u200b\u200b\r\ufeffb  \u0085": "\u00a0\u2028=\r x\u0085x _"
+   }
+  },
+  {
+   "content": "#_\u0085=1\u2028#",
+   "go": {},
+   "js": {}
+  },
+  {
+   "content": "\u00e9\t\ufeff=1\r K=xexport \u0085\u2028_bA",
+   "go": {
+    "\u00e9\t\ufeff": "1\r K=xexport \u0085\u2028_bA"
+   },
+   "js": {
+    "\u00e9": "1\r K=xexport \u0085\u2028_bA"
+   }
+  },
+  {
+   "content": "\u2028K \u00e9=export \"=\\x=\\\u00a0\u0085\n  x_b\t\u0085=A=\r K =\r1 #\"1\nK==1b=_\r\n\u00e9\u00e9\tx#K\r_",
+   "go": {
+    "K": "=1b=_",
+    "K \u00e9": "export \"=\\x=\\",
+    "x_b": "A=\r K =\r1 #\"1"
+   },
+   "js": {
+    "K \u00e9": "export \"=\\x=\\\u00a0\u0085",
+    "x_b\t\u0085": "A=\r K =\r1 #\"1",
+    "K": "=1b=_"
+   }
+  },
+  {
+   "content": "1\r#\u200b\u00e9=x\r\u00a0\"_\n\u00a0=\"_A\u00a0K1#\nA\u200b\u2028Ab Kexport '\n=\u00a0",
+   "go": {
+    "1\r#\u200b\u00e9": "x\r\u00a0\"_"
+   },
+   "js": {
+    "1\r#\u200b\u00e9": "x\r\u00a0\"_"
+   }
+  },
+  {
+   "content": "\u2028=\u00e9\\_\"K=  =1 \"\u00e9\u00e9\n==\rb_\"\u200b#",
+   "go": {},
+   "js": {}
+  },
+  {
+   "content": "\u200bA\u00e9\u00e9\u0085A=_x1\n\\\ufeff===_\u2028 \u00e9\u00851_",
+   "go": {
+    "\\\ufeff": "==_\u2028 \u00e9\u00851_",
+    "\u200bA\u00e9\u00e9\u0085A": "_x1"
+   },
+   "js": {
+    "\u200bA\u00e9\u00e9\u0085A": "_x1",
+    "\\": "==_\u2028 \u00e9\u00851_"
+   }
+  },
+  {
+   "content": "\r111 Ab\nA \"\u00a0b_\n=\u0085\ufeffAK1A 1\n1=export =\u200b\t\ufeff_1_\u00a0K",
+   "go": {
+    "1": "export =\u200b\t\ufeff_1_\u00a0K"
+   },
+   "js": {
+    "1": "export =\u200b\t\ufeff_1_\u00a0K"
+   }
+  },
+  {
+   "content": "1\u00a0b1\u2028K _=\u20281\"\nb\u200b=export \u0085A \ufeff\ufeff'\n=_1 \u200b=\u0085x \r\\=\n'=Aexport #x\" \u0085=",
+   "go": {
+    "'": "Aexport #x\" \u0085=",
+    "1\u00a0b1\u2028K _": "\u20281\"",
+    "b\u200b": "export \u0085A \ufeff\ufeff'"
+   },
+   "js": {
+    "1\u00a0b1\u2028K _": "\u20281\"",
+    "b\u200b": "export \u0085A \ufeff\ufeff'",
+    "'": "Aexport #x\" \u0085="
+   }
+  },
+  {
+   "content": "\t\ufeff\u0085=\u00a0\t#b=\u00e9 A \r\n\rK\u00a0\" \\\n= \u00e9\u0085#\"1=\n=#xA_\r'xb1b=\"",
+   "go": {
+    "\ufeff": "\u00a0\t#b=\u00e9 A"
+   },
+   "js": {
+    "\u0085": "\u00a0\t#b=\u00e9 A"
+   }
+  },
+  {
+   "content": "A1\t\u00e9\u200b\u20281\t =A\"==\t=\n\"\u2028\u0085'\u2028\"\ufeff\r=\tx\u0085\ufeff\"A\t\u0085export \ufeff\n\ufeff1\u00a0\" ==\t _1",
+   "go": {
+    "\"\u2028\u0085'\u2028\"\ufeff": "\tx\u0085\ufeff\"A\t\u0085export \ufeff",
+    "A1\t\u00e9\u200b\u20281": "A\"==\t=",
+    "\ufeff1\u00a0\"": "=\t _1"
+   },
+   "js": {
+    "A1\t\u00e9\u200b\u20281": "A\"==\t=",
+    "\"\u2028\u0085'\u2028\"": "\tx\u0085\ufeff\"A\t\u0085export",
+    "1\u00a0\"": "=\t _1"
+   }
+  },
+  {
+   "content": "#\u0085x=export   \r='",
+   "go": {},
+   "js": {}
+  },
+  {
+   "content": "#b= \ufeff '\n= =K\u2028'\n=\u00e9\u0085\"K\r#_\ufeff=\r\n\"=\u2028=A=",
+   "go": {
+    "\"": "\u2028=A="
+   },
+   "js": {
+    "\"": "\u2028=A="
+   }
+  },
+  {
+   "content": "\tA\\\n\u00e9= \"\n=b\"\u200b'1=b\u2028_A\n #\u200b==1=\u200b",
+   "go": {
+    "\u00e9": " \""
+   },
+   "js": {
+    "\u00e9": " \""
+   }
+  },
+  {
+   "content": "  x\u2028 \u200b\u200b_=1\ufeffA\u00a0 b\\x\\",
+   "go": {
+    "x\u2028 \u200b\u200b_": "1\ufeffA\u00a0 b\\x\\"
+   },
+   "js": {
+    "x\u2028 \u200b\u200b_": "1\ufeffA\u00a0 b\\x\\"
+   }
+  },
+  {
+   "content": " ='#\t=\"export \u00e9 1\\\nexport \ufeff\u00a0\u00e9\ufeff\ufeff x\u2028\\A\u200b\n= x\"\"='_\u00a0'export =\"#\u200bb\n\u00e9\r\u200b\"_=\u200b=A\"",
+   "go": {
+    "\u00e9\r\u200b\"_": "\u200b=A\""
+   },
+   "js": {
+    "\u00e9\r\u200b\"_": "\u200b=A\""
+   }
+  },
+  {
+   "content": "\u2028xexport \u00e9==1 _\u00e9 \n\"export   x=\t\"\r",
+   "go": {
+    "\"export   x": "\t\"",
+    "xexport \u00e9": "=1 _\u00e9"
+   },
+   "js": {
+    "xexport \u00e9": "=1 _\u00e9",
+    "\"export   x": "\t\""
+   }
+  },
+  {
+   "content": "\" \u2028\t\"#\u2028\u2028A\u0085\n\\x\u00e9\nb==\u2028'\n#\u00a0\r#\"='",
+   "go": {
+    "b": "=\u2028'"
+   },
+   "js": {
+    "b": "=\u2028'"
+   }
+  },
+  {
+   "content": "\r\u00e9#==x\"\u0085b= \\\"_\u00a0",
+   "go": {
+    "\u00e9#": "=x\"\u0085b= \\\"_"
+   },
+   "js": {
+    "\u00e9#": "=x\"\u0085b= \\\"_"
+   }
+  },
+  {
+   "content": "\ufeff \"\ufeff\u200b1\r \u2028 A \"'=_\n\"\\1'\u00e9\"==A\u2028_\ufeff \u2028\u0085\u00851\\\n =\"\ufeffx\\\n==\u00e9'K export '",
+   "go": {
+    "\"\\1'\u00e9\"": "=A\u2028_\ufeff \u2028\u0085\u00851\\",
+    "\ufeff \"\ufeff\u200b1\r \u2028 A \"'": "_"
+   },
+   "js": {
+    "\"\ufeff\u200b1\r \u2028 A \"'": "_",
+    "\"\\1'\u00e9\"": "=A\u2028_\ufeff \u2028\u0085\u00851\\"
+   }
+  },
+  {
+   "content": "A\n#A\u00e9\u200b\u200b\u00a0\u200b'\u00a0'\tA\\ ",
+   "go": {},
+   "js": {}
+  },
+  {
+   "content": "\r=\"\r",
+   "go": {},
+   "js": {}
+  },
+  {
+   "content": "K \u2028K='\u00e9\t=_\u2028\n\u200bK\t\t1'1#=1'\ufeffA'  ",
+   "go": {
+    "K \u2028K": "'\u00e9\t=_",
+    "\u200bK\t\t1'1#": "1'\ufeffA'"
+   },
+   "js": {
+    "K \u2028K": "'\u00e9\t=_",
+    "\u200bK\t\t1'1#": "1'\ufeffA'"
+   }
+  },
+  {
+   "content": "'#\u200b \"A\\\tA_\"'\u00a0_ \"\n \u0085 \ufeff\u00a0# \u0085export =='\"1\u200b#\u00e9x\"\n_x=b\"Aexport  ##\u0085=_\"\nxb\u2028\rx \u0085\u00e9",
+   "go": {
+    "_x": "b\"Aexport  ##\u0085=_\"",
+    "\ufeff\u00a0# \u0085export": "='\"1\u200b#\u00e9x\""
+   },
+   "js": {
+    "\u0085 \ufeff\u00a0# \u0085export": "='\"1\u200b#\u00e9x\"",
+    "_x": "b\"Aexport  ##\u0085=_\""
+   }
+  },
+  {
+   "content": "=\\1 =\u200b\u200b1#\u00e9 b\u0085\u2028\u00a0",
+   "go": {},
+   "js": {}
+  },
+  {
+   "content": "'\r\r\u2028\u0085x\"export x=A",
+   "go": {
+    "'\r\r\u2028\u0085x\"export x": "A"
+   },
+   "js": {
+    "'\r\r\u2028\u0085x\"export x": "A"
+   }
+  },
+  {
+   "content": "K\u200b\t=\u2028\u2028\u2028\t\u00e9'\u00a0\nexport A=\ufeff=",
+   "go": {
+    "K\u200b": "\u2028\u2028\u2028\t\u00e9'",
+    "export A": "\ufeff="
+   },
+   "js": {
+    "K\u200b": "\u2028\u2028\u2028\t\u00e9'",
+    "export A": "\ufeff="
+   }
+  },
+  {
+   "content": "1=\t\n=\"x\\b\r\\",
+   "go": {
+    "1": ""
+   },
+   "js": {
+    "1": ""
+   }
+  },
+  {
+   "content": "Aexport =export \\\\K\\\t\"_K\u0085x\n'K\"\u00e9_K\u00e9\r=\t\t#_\n\u00851=\"  b \ufeff",
+   "go": {
+    "'K\"\u00e9_K\u00e9": "\t\t#_",
+    "1": "\"  b \ufeff",
+    "Aexport": "export \\\\K\\\t\"_K\u0085x"
+   },
+   "js": {
+    "Aexport": "export \\\\K\\\t\"_K\u0085x",
+    "'K\"\u00e9_K\u00e9": "\t\t#_",
+    "\u00851": "\"  b"
+   }
+  },
+  {
+   "content": "\"=\"=x\"b\u0085b=\ufeff =K\ufeff\u00e9",
+   "go": {
+    "\"": "\"=x\"b\u0085b=\ufeff =K\ufeff\u00e9"
+   },
+   "js": {
+    "\"": "\"=x\"b\u0085b=\ufeff =K\ufeff\u00e9"
+   }
+  },
+  {
+   "content": "_\ufeff' =xb\n_A=export \u00e9K\u00e9 \n\tK1\t \\=\r#export ",
+   "go": {
+    "K1\t \\": "\r#export",
+    "_A": "export \u00e9K\u00e9",
+    "_\ufeff'": "xb"
+   },
+   "js": {
+    "_\ufeff'": "xb",
+    "_A": "export \u00e9K\u00e9",
+    "K1\t \\": "\r#export"
+   }
+  },
+  {
+   "content": " \u200b=\r'\t\u0085=\u200b=1\u200b\"A\nexport \u200b'\"\u00a0#==\u0085'\u200b\"\u200b K \nK\u00e9export A K\u00a0x\u0085",
+   "go": {
+    "export \u200b'\"\u00a0#": "=\u0085'\u200b\"\u200b K",
+    "\u200b": "\r'\t\u0085=\u200b=1\u200b\"A"
+   },
+   "js": {
+    "\u200b": "\r'\t\u0085=\u200b=1\u200b\"A",
+    "export \u200b'\"\u00a0#": "=\u0085'\u200b\"\u200b K"
+   }
+  },
+  {
+   "content": "\u00e91\r\\\"x_export \n_\u00e9export \u2028=\u00a0=K\r \"\u200b=\r#\n \u0085export export \r\r\n\u20281\u0085=\\\u00e9",
+   "go": {
+    "1": "\\\u00e9",
+    "_\u00e9export": "\u00a0=K\r \"\u200b=\r#"
+   },
+   "js": {
+    "_\u00e9export": "\u00a0=K\r \"\u200b=\r#",
+    "1\u0085": "\\\u00e9"
+   }
+  },
+  {
+   "content": "\\\u2028\u2028\u200b1'export \n\rx\r\t\\_\ufeff\t==\r\ufeffA\\\u2028\n=Ab\ufeff\t=\"A_K '\n''=\r\\\"\" =\"=",
+   "go": {
+    "''": "\r\\\"\" =\"=",
+    "x\r\t\\_\ufeff": "=\r\ufeffA\\"
+   },
+   "js": {
+    "x\r\t\\_": "=\r\ufeffA\\",
+    "''": "\r\\\"\" =\"="
+   }
+  },
+  {
+   "content": "#=\u200b'\n _ #K=\\1K\t\t=\n\"export \u00e9 \u200b=\"=\\K\u00a01=#'\"export A",
+   "go": {
+    "\"export \u00e9 \u200b": "\"=\\K\u00a01=#'\"export A",
+    "_ #K": "\\1K\t\t="
+   },
+   "js": {
+    "_ #K": "\\1K\t\t=",
+    "\"export \u00e9 \u200b": "\"=\\K\u00a01=#'\"export A"
+   }
+  },
+  {
+   "content": "x\u200b\r=\ufeff'\u200b\u2028#'\r=\n\u0085export \" \\\"\u00e9\\\u2028\ufeff",
+   "go": {
+    "x\u200b": "\ufeff'\u200b\u2028#'\r="
+   },
+   "js": {
+    "x\u200b": "\ufeff'\u200b\u2028#'\r="
+   }
+  },
+  {
+   "content": "=A=\u0085\u00e9\ufeff_\u00a0\nKx\"=Ax export \nb\u200b==\u00a0K \u200bK\n AK=export b\"'\"=\u0085",
+   "go": {
+    "AK": "export b\"'\"=",
+    "Kx\"": "Ax export",
+    "b\u200b": "=\u00a0K \u200bK"
+   },
+   "js": {
+    "Kx\"": "Ax export",
+    "b\u200b": "=\u00a0K \u200bK",
+    "AK": "export b\"'\"=\u0085"
+   }
+  },
+  {
+   "content": "#x\\\u2028='1 #=1\"\n\ufeff=\u00a0x\\\t export ==\nK \t\u00e9=K\nb\"\u0085\"\\=\u2028=\u200b\u00e9'\t1 \r\rxx'",
+   "go": {
+    "K \t\u00e9": "K",
+    "b\"\u0085\"\\": "\u2028=\u200b\u00e9'\t1 \r\rxx'",
+    "\ufeff": "\u00a0x\\\t export =="
+   },
+   "js": {
+    "K \t\u00e9": "K",
+    "b\"\u0085\"\\": "\u2028=\u200b\u00e9'\t1 \r\rxx'"
+   }
+  },
+  {
+   "content": "==\u00e9A\"b\nexport =\"\u0085= b\u0085\\\u0085export b",
+   "go": {
+    "export": "\"\u0085= b\u0085\\\u0085export b"
+   },
+   "js": {
+    "export": "\"\u0085= b\u0085\\\u0085export b"
+   }
+  },
+  {
+   "content": "\ufeff\"=b1\u00a0K\u0085A \u2028\t\ufeff\nexport \rKK\r\u200b",
+   "go": {
+    "\ufeff\"": "b1\u00a0K\u0085A \u2028\t\ufeff"
+   },
+   "js": {
+    "\"": "b1\u00a0K\u0085A"
+   }
+  },
+  {
+   "content": "A=\"\n#==_=\t\ufeff \u0085'=#\"",
+   "go": {
+    "A": "\""
+   },
+   "js": {
+    "A": ""
+   }
+  },
+  {
+   "content": " b=\u00a0x\"\u2028 1 \u2028#\n\u2028=export   \"\u00e91=\"\"xK\u00a0\ufeff\n=\"'1\t\nxAxexport \\'\r\u0085\\=\u00851 ",
+   "go": {
+    "b": "\u00a0x\"\u2028 1 \u2028#",
+    "xAxexport \\'\r\u0085\\": "\u00851"
+   },
+   "js": {
+    "b": "\u00a0x\"\u2028 1 \u2028#",
+    "xAxexport \\'\r\u0085\\": "\u00851"
+   }
+  },
+  {
+   "content": "\\ \u0085=1\\==\u2028xA\u00a0=\u00a0\n=\\export #\" \"",
+   "go": {
+    "\\": "1\\==\u2028xA\u00a0="
+   },
+   "js": {
+    "\\ \u0085": "1\\==\u2028xA\u00a0="
+   }
+  },
+  {
+   "content": "\u00e9\r\u00a0\ufeff'\\ =\"#",
+   "go": {
+    "\u00e9\r\u00a0\ufeff'\\": "\"#"
+   },
+   "js": {
+    "\u00e9\r\u00a0\ufeff'\\": "\"#"
+   }
+  },
+  {
+   "content": " \\\rA\nK\ufeff= export \u00a01\" \t\n\u0085=#\rb\u200b \u00e9\u0085'\u200b\u00e9\u00e9\\ #\u2028\n1 \r=\"\rexport  =Kb\ufeffA=",
+   "go": {
+    "1": "\"\rexport  =Kb\ufeffA=",
+    "K\ufeff": " export \u00a01\""
+   },
+   "js": {
+    "1": "\"\rexport  =Kb\ufeffA=",
+    "K": " export \u00a01\"",
+    "\u0085": "#\rb\u200b \u00e9\u0085'\u200b\u00e9\u00e9\\ #"
+   }
+  },
+  {
+   "content": "\u200b\u0085A=\u00a0K'\r\\\n=K\u00e9export =K'\"\ufeff=\n\u00e9xK\\ \u0085x=",
+   "go": {
+    "\u00e9xK\\ \u0085x": "",
+    "\u200b\u0085A": "\u00a0K'\r\\"
+   },
+   "js": {
+    "\u200b\u0085A": "\u00a0K'\r\\",
+    "\u00e9xK\\ \u0085x": ""
+   }
+  },
+  {
+   "content": "1#export #'==export export \ufeff'\n=\u00e9\u00e91\rb=\u00e9\rK\n' \u2028\\='\u00e9#\u0085 #xx\rx\n=\u2028\u00a0___Kb",
+   "go": {
+    "' \u2028\\": "'\u00e9#\u0085 #xx\rx",
+    "1#export #'": "=export export \ufeff'"
+   },
+   "js": {
+    "1#export #'": "=export export \ufeff'",
+    "' \u2028\\": "'\u00e9#\u0085 #xx\rx"
+   }
+  },
+  {
+   "content": "=K\\ 1K1'\nK\u00e91\u00a0=  \r\u00a0\n\\\u00e9'#A=\u2028\r=\t  Kb=",
+   "go": {
+    "K\u00e91": "",
+    "\\\u00e9'#A": "\u2028\r=\t  Kb="
+   },
+   "js": {
+    "K\u00e91": "",
+    "\\\u00e9'#A": "\u2028\r=\t  Kb="
+   }
+  },
+  {
+   "content": "\\=A\ufeffKexport \u00a0x''K\t",
+   "go": {
+    "\\": "A\ufeffKexport \u00a0x''K"
+   },
+   "js": {
+    "\\": "A\ufeffKexport \u00a0x''K"
+   }
+  },
+  {
+   "content": "K\u0085\r\u200b\u00a0x\t==1#b1",
+   "go": {
+    "K\u0085\r\u200b\u00a0x": "=1#b1"
+   },
+   "js": {
+    "K\u0085\r\u200b\u00a0x": "=1#b1"
+   }
+  },
+  {
+   "content": "\u00a0\n\u0085\u200b=\\=_Aexport =\u0085\ufeff#\u00a0\"\t\u00e9\n\"=1=b'\"b",
+   "go": {
+    "\"": "1=b'\"b",
+    "\u200b": "\\=_Aexport =\u0085\ufeff#\u00a0\"\t\u00e9"
+   },
+   "js": {
+    "\u0085\u200b": "\\=_Aexport =\u0085\ufeff#\u00a0\"\t\u00e9",
+    "\"": "1=b'\"b"
+   }
+  },
+  {
+   "content": "=\r\u00e9\n\u0085\u00e9 \"\"''_==A1\n_'\"=\u2028 Ax\u2028=",
+   "go": {
+    "_'\"": "\u2028 Ax\u2028=",
+    "\u00e9 \"\"''_": "=A1"
+   },
+   "js": {
+    "\u0085\u00e9 \"\"''_": "=A1",
+    "_'\"": "\u2028 Ax\u2028="
+   }
+  },
+  {
+   "content": "\"\u00a0A=b\u00a0=\n\u00a0=\u0085\ufeff K_\"",
+   "go": {
+    "\"\u00a0A": "b\u00a0="
+   },
+   "js": {
+    "\"\u00a0A": "b\u00a0="
+   }
+  },
+  {
+   "content": "\u00a0= \u2028\\\"b\n==1\u00e9\n\u200b _b\r_#\r\r\r\n\u00a01=''\u200b\"'\"'x\" ",
+   "go": {
+    "1": "''\u200b\"'\"'x\""
+   },
+   "js": {
+    "1": "''\u200b\"'\"'x\""
+   }
+  },
+  {
+   "content": "1\n_b'=b\n1 \r=\ufeff\tK' x export \n\ufeffxb=   _\t#\"",
+   "go": {
+    "1": "\ufeff\tK' x export",
+    "_b'": "b",
+    "\ufeffxb": "   _\t#\""
+   },
+   "js": {
+    "1": "\ufeff\tK' x export",
+    "_b'": "b",
+    "xb": "   _\t#\""
+   }
+  },
+  {
+   "content": "\r\u200bA\u200b \u00e9\u0085_\"=K=\u2028b\u00a0export \u0085b_'#\n'\u0085'\"' export 1\"\u00e9\n \tA= __'_ ",
+   "go": {
+    "A": " __'_",
+    "\u200bA\u200b \u00e9\u0085_\"": "K=\u2028b\u00a0export \u0085b_'#"
+   },
+   "js": {
+    "\u200bA\u200b \u00e9\u0085_\"": "K=\u2028b\u00a0export \u0085b_'#",
+    "A": " __'_"
+   }
+  },
+  {
+   "content": " \rK_b\u00a0_\n=#\u00e9\u00e9export \"\nK\\=\u00a0\"=\ufeff1\u00e9=K\u00a0\n \u200b'x_==\\",
+   "go": {
+    "K\\": "\u00a0\"=\ufeff1\u00e9=K",
+    "\u200b'x_": "=\\"
+   },
+   "js": {
+    "K\\": "\u00a0\"=\ufeff1\u00e9=K",
+    "\u200b'x_": "=\\"
+   }
+  },
+  {
+   "content": "'_\\=x#=\u00a0#\r\n=1=\r##==1K=x\\1 \nxexport \ufeff\"\"\"===\u00e9\\\\\"x\t'x\u200b",
+   "go": {
+    "'_\\": "x#=\u00a0#",
+    "xexport \ufeff\"\"\"": "==\u00e9\\\\\"x\t'x\u200b"
+   },
+   "js": {
+    "'_\\": "x#=\u00a0#",
+    "xexport \ufeff\"\"\"": "==\u00e9\\\\\"x\t'x\u200b"
+   }
+  },
+  {
+   "content": "\"A_ \u2028\u00a0\u2028=\t\"b \u200b1\u00e9\n=\"\\\r\\#='",
+   "go": {
+    "\"A_": "\t\"b \u200b1\u00e9"
+   },
+   "js": {
+    "\"A_": "\t\"b \u200b1\u00e9"
+   }
+  },
+  {
+   "content": " \u0085A=1\u00a0==\\\u0085   \r\"\ufeff",
+   "go": {
+    "A": "1\u00a0==\\\u0085   \r\"\ufeff"
+   },
+   "js": {
+    "\u0085A": "1\u00a0==\\\u0085   \r\""
+   }
+  },
+  {
+   "content": " \t_\u00a0\ufeff=\n= \u2028\\x\t#\n\r=export #\u00851",
+   "go": {
+    "_\u00a0\ufeff": ""
+   },
+   "js": {
+    "_": ""
+   }
+  },
+  {
+   "content": "=\ufeff\u00e9 xexport \u00a0\u00e9_='\\= \u00e9export \\\r",
+   "go": {},
+   "js": {}
+  },
+  {
+   "content": "=\"= \ufeff\"export export =_\r\u200b\u200bb \u2028\n_export \r\u00e9\"_\u200b=xx_\ufeff\r=1",
+   "go": {
+    "_export \r\u00e9\"_\u200b": "xx_\ufeff\r=1"
+   },
+   "js": {
+    "_export \r\u00e9\"_\u200b": "xx_\ufeff\r=1"
+   }
+  },
+  {
+   "content": "x=export export \"\u0085b\u200b\n#=K \ufeff",
+   "go": {
+    "x": "export export \"\u0085b\u200b"
+   },
+   "js": {
+    "x": "export export \"\u0085b\u200b"
+   }
+  },
+  {
+   "content": "JSON=\"=export \r\u00e9 \u00a0export \t\u00a0\u200b_\n\u00851\u00e9\u0085 \u200b\u2028bb\"\nX=\"_\u2028 \\ \u00e9\n\ufeff\u00a0_\u0085=\u200b\t\"\nPEM=\"=\t= \n1\r\ufeffexport \\\"\\\"",
+   "go": {
+    "JSON": "\"=export \r\u00e9 \u00a0export \t\u00a0\u200b_",
+    "PEM": "\"=\t=",
+    "X": "\"_\u2028 \\ \u00e9",
+    "\ufeff\u00a0_": "\u200b\t\""
+   },
+   "js": {
+    "JSON": "\"=export \r\u00e9 \u00a0export \t\u00a0\u200b_",
+    "X": "\"_\u2028 \\ \u00e9",
+    "_\u0085": "\u200b\t\"",
+    "PEM": "\"=\t="
+   }
+  },
+  {
+   "content": "JSON=\"\r \\\"\\\"\"\nAPI_KEY=\"x\t\n= export \t\"",
+   "go": {
+    "API_KEY": "\"x",
+    "JSON": "\r \\\"\\\""
+   },
+   "js": {
+    "JSON": "\r \\\"\\\"",
+    "API_KEY": "\"x"
+   }
+  },
+  {
+   "content": "JSON=\"\u0085x_\\\" export \ufeff \\\"\u200b=#K\\\"\"",
+   "go": {
+    "JSON": "\u0085x_\\\" export \ufeff \\\"\u200b=#K\\\""
+   },
+   "js": {
+    "JSON": "\u0085x_\\\" export \ufeff \\\"\u200b=#K\\\""
+   }
+  },
+  {
+   "content": "PEM=\"\t\\x\\ K \r= \\\"\u0085b=\\\"\"\nJSON=\"\n\ufeffx\\\"111\u200b1\"",
+   "go": {
+    "JSON": "\"",
+    "PEM": "\t\\x\\ K \r= \\\"\u0085b=\\\""
+   },
+   "js": {
+    "PEM": "\t\\x\\ K \r= \\\"\u0085b=\\\"",
+    "JSON": ""
+   }
+  },
+  {
+   "content": "API_KEY=\"1='b\\\"=\t\\\"b1\n_#'x\\\"\u2028'\"\nX=\"\u0085\u2028b#\\\"='#\u0085 \\\"\u0085\u2028\n\u0085x=\\_x=\r=\"",
+   "go": {
+    "API_KEY": "\"1='b\\\"=\t\\\"b1",
+    "X": "\u0085\u2028b#\\\"='#\u0085 \\",
+    "x": "\\_x=\r=\""
+   },
+   "js": {
+    "API_KEY": "\"1='b\\\"=\t\\\"b1",
+    "X": "\"\u0085\u2028b#\\\"='#\u0085 \\\"\u0085",
+    "\u0085x": "\\_x=\r=\""
+   }
+  },
+  {
+   "content": "API_KEY=\" \\\"\r\\\"\"",
+   "go": {
+    "API_KEY": " \\\"\r\\\""
+   },
+   "js": {
+    "API_KEY": " \\\"\r\\\""
+   }
+  },
+  {
+   "content": "JSON=\"\\\"= 1\r#b\u0085\u00a0'K\n '\ufeff=A\"\nAPI_KEY=\"\\\"\u200b\r\u2028\t\"",
+   "go": {
+    "'\ufeff": "A\"",
+    "API_KEY": "\\\"\u200b\r\u2028\t",
+    "JSON": "\"\\\"= 1\r#b\u0085\u00a0'K"
+   },
+   "js": {
+    "JSON": "\"\\\"= 1\r#b\u0085\u00a0'K",
+    "'": "A\"",
+    "API_KEY": "\\\"\u200b\r\u2028\t"
+   }
+  },
+  {
+   "content": "PEM=\"\r \u0085\u00a0\u0085=1\u0085x_\u200bx\ufeff \\\"\\\"\"\nDB_URL=\"\u2028\u2028\r# \\\"\\\t\"\nJSON=\" x1\\\"1\\\\\u00e9\"",
+   "go": {
+    "DB_URL": "\u2028\u2028\r# \\\"\\\t",
+    "JSON": " x1\\\"1\\\\\u00e9",
+    "PEM": "\r \u0085\u00a0\u0085=1\u0085x_\u200bx\ufeff \\\"\\\""
+   },
+   "js": {
+    "PEM": "\r \u0085\u00a0\u0085=1\u0085x_\u200bx\ufeff \\\"\\\"",
+    "DB_URL": "\u2028\u2028\r# \\\"\\\t",
+    "JSON": " x1\\\"1\\\\\u00e9"
+   }
+  },
+  {
+   "content": "DB_URL=\" \ufeff\u00a0\n\r\\\"A=A\\\u00e9\u0085\"\nJSON=\u2028",
+   "go": {
+    "DB_URL": "\" \ufeff",
+    "JSON": "",
+    "\\\"A": "A\\\u00e9\u0085\""
+   },
+   "js": {
+    "DB_URL": "",
+    "\\\"A": "A\\\u00e9\u0085\"",
+    "JSON": ""
+   }
+  },
+  {
+   "content": "X=\"\\\"==\u200b\\\"\t## \\\"x\\K\ufeff\\\"\"\nAPI_KEY=\"x\u200b\t\t\u00a0 \\\"\ufeff\ufeff\r\\\"\\\"\"",
+   "go": {
+    "API_KEY": "x\u200b\t\t\u00a0 \\\"\ufeff\ufeff\r\\\"\\\"",
+    "X": "\\\"==\u200b\\\"\t## \\\"x\\K\ufeff\\\""
+   },
+   "js": {
+    "X": "\\\"==\u200b\\\"\t## \\\"x\\K\ufeff\\\"",
+    "API_KEY": "x\u200b\t\t\u00a0 \\\"\ufeff\ufeff\r\\\"\\\""
+   }
+  },
+  {
+   "content": "API_KEY=\" \u00a0\\\u00e9\ufeff'\ufeff1export \n\\\u200b\\\ufeff\u2028\r Kx\"\nJSON=\"\t1\\\"\u2028\"",
+   "go": {
+    "API_KEY": "\" \u00a0\\\u00e9\ufeff'\ufeff1export",
+    "JSON": "\t1\\\"\u2028"
+   },
+   "js": {
+    "API_KEY": "\" \u00a0\\\u00e9\ufeff'\ufeff1export",
+    "JSON": "\t1\\\"\u2028"
+   }
+  },
+  {
+   "content": "X=\"\u00a0\u0085\\=_x\u2028A'export \r \n\u0085\r\t\r=\"\nDB_URL=\"\u00e9\ufeff#export \"",
+   "go": {
+    "DB_URL": "\u00e9\ufeff#export ",
+    "X": "\"\u00a0\u0085\\=_x\u2028A'export"
+   },
+   "js": {
+    "X": "\"\u00a0\u0085\\=_x\u2028A'export",
+    "\u0085": "",
+    "DB_URL": "\u00e9\ufeff#export "
+   }
+  },
+  {
+   "content": "DB_URL=\"_\u200b \\\"export b_\\\"\"",
+   "go": {
+    "DB_URL": "_\u200b \\\"export b_\\\""
+   },
+   "js": {
+    "DB_URL": "_\u200b \\\"export b_\\\""
+   }
+  },
+  {
+   "content": "API_KEY=\"\u00e9\\\"\r\t\\\"K\u00e91 \\\"export export x\u200b\\\"\"",
+   "go": {
+    "API_KEY": "\u00e9\\\"\r\t\\\"K\u00e91 \\\"export export x\u200b\\\""
+   },
+   "js": {
+    "API_KEY": "\u00e9\\\"\r\t\\\"K\u00e91 \\\"export export x\u200b\\\""
+   }
+  },
+  {
+   "content": "JSON=\"b_\ufeff\u00a0\ufeff\ufeff \\\"=\ufeff#\\\"\"\nAPI_KEY=\" \\\"'\u00a0\\\"\"\nX=\"\\\"\\\"\u200b\\\"\"",
+   "go": {
+    "API_KEY": " \\\"'\u00a0\\\"",
+    "JSON": "b_\ufeff\u00a0\ufeff\ufeff \\\"=\ufeff#\\\"",
+    "X": "\\\"\\\"\u200b\\\""
+   },
+   "js": {
+    "JSON": "b_\ufeff\u00a0\ufeff\ufeff \\\"=\ufeff#\\\"",
+    "API_KEY": " \\\"'\u00a0\\\"",
+    "X": "\\\"\\\"\u200b\\\""
+   }
+  },
+  {
+   "content": "API_KEY=\"\nexport \t# \t=\"",
+   "go": {
+    "API_KEY": "\"",
+    "export \t#": "\""
+   },
+   "js": {
+    "API_KEY": "",
+    "export \t#": ""
+   }
+  },
+  {
+   "content": "API_KEY=\"\ufeff\ufeff#\r\nK\"\nDB_URL=\"_#\\\ufeffexport \u0085A' \u0085 \\\"\\\"\"",
+   "go": {
+    "API_KEY": "\"\ufeff\ufeff#",
+    "DB_URL": "_#\\\ufeffexport \u0085A' \u0085 \\\"\\\""
+   },
+   "js": {
+    "API_KEY": "\"\ufeff\ufeff#",
+    "DB_URL": "_#\\\ufeffexport \u0085A' \u0085 \\\"\\\""
+   }
+  },
+  {
+   "content": "API_KEY=\"\u00a0\r==x\r\\\"\u00e9==export \\ \"\nDB_URL=\"\\\u200b \u00e91\ufeff1K\u200b \"",
+   "go": {
+    "API_KEY": "\u00a0\r==x\r\\\"\u00e9==export \\ ",
+    "DB_URL": "\\\u200b \u00e91\ufeff1K\u200b "
+   },
+   "js": {
+    "API_KEY": "\u00a0\r==x\r\\\"\u00e9==export \\ ",
+    "DB_URL": "\\\u200b \u00e91\ufeff1K\u200b "
+   }
+  },
+  {
+   "content": "DB_URL=\"# \\\"\t=_ \\\"\"\nX=\"\n==1\u00851\"",
+   "go": {
+    "DB_URL": "# \\\"\t=_ \\\"",
+    "X": "\""
+   },
+   "js": {
+    "DB_URL": "# \\\"\t=_ \\\"",
+    "X": ""
+   }
+  },
+  {
+   "content": "JSON=\"1# \\\"\u0085\u00a0\r\\\"\"",
+   "go": {
+    "JSON": "1# \\\"\u0085\u00a0\r\\\""
+   },
+   "js": {
+    "JSON": "1# \\\"\u0085\u00a0\r\\\""
+   }
+  },
+  {
+   "content": "X=\" \u2028K \\\"\u200bexport '=\\\"\"",
+   "go": {
+    "X": " \u2028K \\\"\u200bexport '=\\\""
+   },
+   "js": {
+    "X": " \u2028K \\\"\u200bexport '=\\\""
+   }
+  },
+  {
+   "content": "DB_URL=\"1xbxK\\A_=\r\u00e9b \\\"\r\\\"\"",
+   "go": {
+    "DB_URL": "1xbxK\\A_=\r\u00e9b \\\"\r\\\""
+   },
+   "js": {
+    "DB_URL": "1xbxK\\A_=\r\u00e9b \\\"\r\\\""
+   }
+  },
+  {
+   "content": "X=\"_ \\\u200b \u2028=\u00a0\ufeff \\\"1\\\"\"",
+   "go": {
+    "X": "_ \\\u200b \u2028=\u00a0\ufeff \\\"1\\\""
+   },
+   "js": {
+    "X": "_ \\\u200b \u2028=\u00a0\ufeff \\\"1\\\""
+   }
+  },
+  {
+   "content": "JSON=\"\u00e9\u200b\\\"\\\u2028A'\u00e9K_ \\\"\\\"\\\"\"",
+   "go": {
+    "JSON": "\u00e9\u200b\\\"\\\u2028A'\u00e9K_ \\\"\\\"\\\""
+   },
+   "js": {
+    "JSON": "\u00e9\u200b\\\"\\\u2028A'\u00e9K_ \\\"\\\"\\\""
+   }
+  },
+  {
+   "content": "PEM=\"\u200b=\r  \\\"\t1\\\"\"\nDB_URL=b=\u00e9\u00e9\u00e9\t'=\ufeff\nAPI_KEY==",
+   "go": {
+    "API_KEY": "=",
+    "DB_URL": "b=\u00e9\u00e9\u00e9\t'=\ufeff",
+    "PEM": "\u200b=\r  \\\"\t1\\\""
+   },
+   "js": {
+    "PEM": "\u200b=\r  \\\"\t1\\\"",
+    "DB_URL": "b=\u00e9\u00e9\u00e9\t'=",
+    "API_KEY": "="
+   }
+  },
+  {
+   "content": "PEM=\"'\u00a0\\\" \\\"\u00e9\\\"\"",
+   "go": {
+    "PEM": "'\u00a0\\\" \\\"\u00e9\\\""
+   },
+   "js": {
+    "PEM": "'\u00a0\\\" \\\"\u00e9\\\""
+   }
+  },
+  {
+   "content": "X=\"\\ =export \u00e9\\\"xK \u00a0=\n\\\"\\\"_\"\nJSON=#b",
+   "go": {
+    "JSON": "#b",
+    "X": "\"\\ =export \u00e9\\\"xK \u00a0="
+   },
+   "js": {
+    "X": "\"\\ =export \u00e9\\\"xK \u00a0=",
+    "JSON": "#b"
+   }
+  },
+  {
+   "content": "JSON=\t\\\u2028\u00e9\u2028\ufeff#\\\u200b\nPEM=\"\\b\tb\\\"\\ #\nA\u0085\"\nX=\"\u00e9\\export \\\"\\\"_\"",
+   "go": {
+    "JSON": "\t\\\u2028\u00e9\u2028\ufeff#\\\u200b",
+    "PEM": "\"\\b\tb\\\"\\ #",
+    "X": "\u00e9\\export \\\"\\\"_"
+   },
+   "js": {
+    "JSON": "\t\\\u2028\u00e9\u2028\ufeff#\\\u200b",
+    "PEM": "\"\\b\tb\\\"\\ #",
+    "X": "\u00e9\\export \\\"\\\"_"
+   }
+  },
+  {
+   "content": "JSON=\"1K\rb  \\\"A\\\"\"",
+   "go": {
+    "JSON": "1K\rb  \\\"A\\\""
+   },
+   "js": {
+    "JSON": "1K\rb  \\\"A\\\""
+   }
+  },
+  {
+   "content": "DB_URL=\"\u00a0\u0085#b \\\" \\\"export \u2028'\\\"\"\nX=",
+   "go": {
+    "DB_URL": "\u00a0\u0085#b \\\" \\\"export \u2028'\\\"",
+    "X": ""
+   },
+   "js": {
+    "DB_URL": "\u00a0\u0085#b \\\" \\\"export \u2028'\\\"",
+    "X": ""
+   }
+  },
+  {
+   "content": "API_KEY=\"'K\ufeff\ufeff#\t_x=\\\"\u200b\u200b\\\" \\\"#\\\"\"\nX=\"#\\\"Ax\rx \\\"_bA\\\"\n=\\\\\"=1\r\r\"",
+   "go": {
+    "API_KEY": "'K\ufeff\ufeff#\t_x=\\\"\u200b\u200b\\\" \\\"#\\\"",
+    "X": "#\\\"Ax\rx \\\"_bA\\"
+   },
+   "js": {
+    "API_KEY": "'K\ufeff\ufeff#\t_x=\\\"\u200b\u200b\\\" \\\"#\\\"",
+    "X": "#\\\"Ax\rx \\\"_bA\\"
+   }
+  },
+  {
+   "content": "API_KEY=\"K=\\\"\t1 \n  x\u2028\r'A\"\nPEM=\"\u200b\ufeff\u00e9_\u200bK \\\"\u00a0\\\"\"",
+   "go": {
+    "API_KEY": "\"K=\\\"\t1",
+    "PEM": "\u200b\ufeff\u00e9_\u200bK \\\"\u00a0\\\""
+   },
+   "js": {
+    "API_KEY": "\"K=\\\"\t1",
+    "PEM": "\u200b\ufeff\u00e9_\u200bK \\\"\u00a0\\\""
+   }
+  },
+  {
+   "content": "JSON=\"\u2028\n\\\"\u0085\\\"\"\nDB_URL=\"b\u00e9K'\u00e9_\u2028\u00a0 \u00a0_\u0085\nexport \"\nPEM=\"\ufeff\u0085\\\"\u0085\r\ufeff\\\"\"",
+   "go": {
+    "DB_URL": "\"b\u00e9K'\u00e9_\u2028\u00a0 \u00a0_",
+    "JSON": "\"",
+    "PEM": "\ufeff\u0085\\\"\u0085\r\ufeff\\\""
+   },
+   "js": {
+    "JSON": "",
+    "DB_URL": "\"b\u00e9K'\u00e9_\u2028\u00a0 \u00a0_\u0085",
+    "PEM": "\ufeff\u0085\\\"\u0085\r\ufeff\\\""
+   }
+  },
+  {
+   "content": "DB_URL=\\\\b\nJSON=\"\r==\u0085export # \t\\\"export \t1 \"",
+   "go": {
+    "DB_URL": "\\\\b",
+    "JSON": "\r==\u0085export # \t\\\"export \t1 "
+   },
+   "js": {
+    "DB_URL": "\\\\b",
+    "JSON": "\r==\u0085export # \t\\\"export \t1 "
+   }
+  },
+  {
+   "content": "API_KEY=\"b=\u0085\ufeffx=1\u2028'\n\"\nPEM=\"\ufeff \\\" \u00e9b\\\"\"",
+   "go": {
+    "API_KEY": "\"b=\u0085\ufeffx=1\u2028'",
+    "PEM": "\ufeff \\\" \u00e9b\\\""
+   },
+   "js": {
+    "API_KEY": "\"b=\u0085\ufeffx=1\u2028'",
+    "PEM": "\ufeff \\\" \u00e9b\\\""
+   }
+  },
+  {
+   "content": "JSON=\"\u0085b'\u00e9\u00e9#_\ufeffxK \\\"\\\"x\\\"\"\nAPI_KEY=\"\n=\"\nDB_URL=\"\r \\\" \\\"\"",
+   "go": {
+    "API_KEY": "\"",
+    "DB_URL": "\r \\\" \\\"",
+    "JSON": "\u0085b'\u00e9\u00e9#_\ufeffxK \\\"\\\"x\\\""
+   },
+   "js": {
+    "JSON": "\u0085b'\u00e9\u00e9#_\ufeffxK \\\"\\\"x\\\"",
+    "API_KEY": "",
+    "DB_URL": "\r \\\" \\\""
+   }
+  },
+  {
+   "content": "PEM=\"\u2028 \rK=#1\ufeff\"",
+   "go": {
+    "PEM": "\u2028 \rK=#1\ufeff"
+   },
+   "js": {
+    "PEM": "\u2028 \rK=#1\ufeff"
+   }
+  },
+  {
+   "content": "JSON=\"A1\u00a0=\r 1\r1\u200b\u200b\n\u0085export \\\"\u200b=export \u00a0\"\nDB_URL=\" \u0085\r\u0085K\u00e9\u200bexport x\"\nAPI_KEY=\"export export \n \\\" \"",
+   "go": {
+    "API_KEY": "\"export export",
+    "DB_URL": " \u0085\r\u0085K\u00e9\u200bexport x",
+    "JSON": "\"A1\u00a0=\r 1\r1\u200b\u200b",
+    "export \\\"\u200b": "export \u00a0\""
+   },
+   "js": {
+    "JSON": "\"A1\u00a0=\r 1\r1\u200b\u200b",
+    "\u0085export \\\"\u200b": "export \u00a0\"",
+    "DB_URL": " \u0085\r\u0085K\u00e9\u200bexport x",
+    "API_KEY": "\"export export"
+   }
+  },
+  {
+   "content": "X=\nAPI_KEY=\"_ export  =\\\u00a0\\\"\u00a0A\n\\\\\"\t'\u00a0\"",
+   "go": {
+    "API_KEY": "\"_ export  =\\\u00a0\\\"\u00a0A",
+    "X": ""
+   },
+   "js": {
+    "X": "",
+    "API_KEY": "\"_ export  =\\\u00a0\\\"\u00a0A"
+   }
+  },
+  {
+   "content": "X=\"=\ufeff=\\\"\n\u0085 \\\"\u200b \\\"'\"\nAPI_KEY=\"\u200b\n\u2028\"",
+   "go": {
+    "API_KEY": "\"\u200b",
+    "X": "=\ufeff=\\"
+   },
+   "js": {
+    "X": "=\ufeff=\\",
+    "API_KEY": "\"\u200b"
+   }
+  },
+  {
+   "content": "JSON=\"\u00e9# \\\"\u00e9=\u200b\\\"\"\nDB_URL=\"\\\"\u2028export export b \u2028\t\t1K\n'\u00e9\\\"",
+   "go": {
+    "DB_URL": "\"\\\"\u2028export export b \u2028\t\t1K",
+    "JSON": "\u00e9# \\\"\u00e9=\u200b\\\""
+   },
+   "js": {
+    "JSON": "\u00e9# \\\"\u00e9=\u200b\\\"",
+    "DB_URL": "\"\\\"\u2028export export b \u2028\t\t1K"
+   }
+  },
+  {
+   "content": "API_KEY=\"=\\\"\\\"\u00a0b\"\nX=\"\r\\#export  x\r'\r=\n' export x'\\\"\ufeff'\"",
+   "go": {
+    "API_KEY": "=\\\"\\\"\u00a0b",
+    "X": "\"\r\\#export  x\r'\r="
+   },
+   "js": {
+    "API_KEY": "=\\\"\\\"\u00a0b",
+    "X": "\"\r\\#export  x\r'\r="
+   }
+  },
+  {
+   "content": "JSON=\"export \\\"export  '#\\1\rK\u00a0 \\\"x\u200b\u00e9\\\"\"\nX=\"\rexport #b_\tAexport _b\u2028\u00e9=\"",
+   "go": {
+    "JSON": "export \\\"export  '#\\1\rK\u00a0 \\\"x\u200b\u00e9\\\"",
+    "X": "\rexport #b_\tAexport _b\u2028\u00e9="
+   },
+   "js": {
+    "JSON": "export \\\"export  '#\\1\rK\u00a0 \\\"x\u200b\u00e9\\\"",
+    "X": "\rexport #b_\tAexport _b\u2028\u00e9="
+   }
+  },
+  {
+   "content": "PEM=\"#\\\"\\\"_\u200b_\\\"\\#\n\\\"A\tK\"",
+   "go": {
+    "PEM": "\"#\\\"\\\"_\u200b_\\\"\\#"
+   },
+   "js": {
+    "PEM": "\"#\\\"\\\"_\u200b_\\\"\\#"
+   }
+  },
+  {
+   "content": "API_KEY=\"\t\u0085A \\\"'\u200b\\\"\"",
+   "go": {
+    "API_KEY": "\t\u0085A \\\"'\u200b\\\""
+   },
+   "js": {
+    "API_KEY": "\t\u0085A \\\"'\u200b\\\""
+   }
+  },
+  {
+   "content": "JSON=\"_\ufeff\ufeff\\\"#\u0085\t\ufeff \\\"\ufeff\\\"\"\nX=\" export \\export 1\u0085\\'A\u0085\u00e9 \\\"\u200b\\\"\"",
+   "go": {
+    "JSON": "_\ufeff\ufeff\\\"#\u0085\t\ufeff \\\"\ufeff\\\"",
+    "X": " export \\export 1\u0085\\'A\u0085\u00e9 \\\"\u200b\\\""
+   },
+   "js": {
+    "JSON": "_\ufeff\ufeff\\\"#\u0085\t\ufeff \\\"\ufeff\\\"",
+    "X": " export \\export 1\u0085\\'A\u0085\u00e9 \\\"\u200b\\\""
+   }
+  },
+  {
+   "content": "X=\"\\\"\u200b  \\\"\\\"\"\nJSON=\" \\=\u0085 \\\"Kexport =A#\u00e9\u00a0 \\\"\u200b\u2028=\\\"\"",
+   "go": {
+    "JSON": " \\=\u0085 \\\"Kexport =A#\u00e9\u00a0 \\\"\u200b\u2028=\\\"",
+    "X": "\\\"\u200b  \\\"\\\""
+   },
+   "js": {
+    "X": "\\\"\u200b  \\\"\\\"",
+    "JSON": " \\=\u0085 \\\"Kexport =A#\u00e9\u00a0 \\\"\u200b\u2028=\\\""
+   }
+  },
+  {
+   "content": "DB_URL=\"\r\u2028x#export \u0085Kx\n\"",
+   "go": {
+    "DB_URL": "\"\r\u2028x#export \u0085Kx"
+   },
+   "js": {
+    "DB_URL": "\"\r\u2028x#export \u0085Kx"
+   }
+  },
+  {
+   "content": "API_KEY=\"=x\\\"\u0085#\u2028=K\ufeff\"",
+   "go": {
+    "API_KEY": "=x\\\"\u0085#\u2028=K\ufeff"
+   },
+   "js": {
+    "API_KEY": "=x\\\"\u0085#\u2028=K\ufeff"
+   }
+  },
+  {
+   "content": "API_KEY=\"\u0085_=#\\\"\u200b\\\"\ufeff=x# \\\"\u2028b\\\"\"\nDB_URL=\"\u200b\t\t\u00a0\t\t1\n\ufeff\"",
+   "go": {
+    "API_KEY": "\u0085_=#\\\"\u200b\\\"\ufeff=x# \\\"\u2028b\\\"",
+    "DB_URL": "\"\u200b\t\t\u00a0\t\t1"
+   },
+   "js": {
+    "API_KEY": "\u0085_=#\\\"\u200b\\\"\ufeff=x# \\\"\u2028b\\\"",
+    "DB_URL": "\"\u200b\t\t\u00a0\t\t1"
+   }
+  },
+  {
+   "content": "PEM=\"\r#\u00a0\\\"\\\"\"\nJSON=\" 'K\"",
+   "go": {
+    "JSON": " 'K",
+    "PEM": "\r#\u00a0\\\"\\\""
+   },
+   "js": {
+    "PEM": "\r#\u00a0\\\"\\\"",
+    "JSON": " 'K"
+   }
+  },
+  {
+   "content": "PEM=\"export \t\t\\#\ufeff\t\\\"b\u00a0\u0085K\\\n=\\\u0085\t\\\\\u2028\"",
+   "go": {
+    "PEM": "\"export \t\t\\#\ufeff\t\\\"b\u00a0\u0085K\\"
+   },
+   "js": {
+    "PEM": "\"export \t\t\\#\ufeff\t\\\"b\u00a0\u0085K\\"
+   }
+  },
+  {
+   "content": "DB_URL=\"\u2028 A_\\\"'' \\\"bx#\\\"\"\nJSON=\"\u00e9\ufeff\\\" \\\"\\\"\\\"\"",
+   "go": {
+    "DB_URL": "\u2028 A_\\\"'' \\\"bx#\\\"",
+    "JSON": "\u00e9\ufeff\\\" \\\"\\\"\\\""
+   },
+   "js": {
+    "DB_URL": "\u2028 A_\\\"'' \\\"bx#\\\"",
+    "JSON": "\u00e9\ufeff\\\" \\\"\\\"\\\""
+   }
+  },
+  {
+   "content": "PEM=\nJSON=\"=export =\t\u200b=\u00a0\ufeffb \\\"\u00a0x\\\"\"",
+   "go": {
+    "JSON": "=export =\t\u200b=\u00a0\ufeffb \\\"\u00a0x\\\"",
+    "PEM": ""
+   },
+   "js": {
+    "PEM": "",
+    "JSON": "=export =\t\u200b=\u00a0\ufeffb \\\"\u00a0x\\\""
+   }
+  },
+  {
+   "content": "DB_URL=\"\\\"export \u00a0\t'K 1 \\\"\t\\\"\u2028\\\"\"",
+   "go": {
+    "DB_URL": "\\\"export \u00a0\t'K 1 \\\"\t\\\"\u2028\\\""
+   },
+   "js": {
+    "DB_URL": "\\\"export \u00a0\t'K 1 \\\"\t\\\"\u2028\\\""
+   }
+  },
+  {
+   "content": "DB_URL=\"\ufeffexport x\t\u00a0\u00e9=\t\"",
+   "go": {
+    "DB_URL": "\ufeffexport x\t\u00a0\u00e9=\t"
+   },
+   "js": {
+    "DB_URL": "\ufeffexport x\t\u00a0\u00e9=\t"
+   }
+  },
+  {
+   "content": "DB_URL=\"A\\\"\u00e9'\nK\\\"K __b\\\"\\\"\"",
+   "go": {
+    "DB_URL": "\"A\\\"\u00e9'"
+   },
+   "js": {
+    "DB_URL": "\"A\\\"\u00e9'"
+   }
+  },
+  {
+   "content": "DB_URL=\"K' \\\"K\\\"\ufeff\\\"\"\nJSON=\"\u00e9\u00a0 x_='_A_= \\\"\\\"\"",
+   "go": {
+    "DB_URL": "K' \\\"K\\\"\ufeff\\\"",
+    "JSON": "\u00e9\u00a0 x_='_A_= \\\"\\\""
+   },
+   "js": {
+    "DB_URL": "K' \\\"K\\\"\ufeff\\\"",
+    "JSON": "\u00e9\u00a0 x_='_A_= \\\"\\\""
+   }
+  },
+  {
+   "content": "PEM=\" \ufeffAK\t\"",
+   "go": {
+    "PEM": " \ufeffAK\t"
+   },
+   "js": {
+    "PEM": " \ufeffAK\t"
+   }
+  },
+  {
+   "content": "X=\" \\\"\\\"\"",
+   "go": {
+    "X": " \\\"\\\""
+   },
+   "js": {
+    "X": " \\\"\\\""
+   }
+  }
+ ]
+}
