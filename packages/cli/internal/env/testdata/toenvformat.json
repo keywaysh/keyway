@@ -1,0 +1,278 @@
+{
+  "generatedBy": "backend toEnvFormat (src/utils/legacyEnvFormat.ts)",
+  "cases": [
+    {
+      "values": {
+        "PLAIN": "value-1"
+      },
+      "order": [
+        "PLAIN"
+      ],
+      "content": "PLAIN=value-1"
+    },
+    {
+      "values": {
+        "EMPTY": ""
+      },
+      "order": [
+        "EMPTY"
+      ],
+      "content": "EMPTY="
+    },
+    {
+      "values": {
+        "SPACED": "two words"
+      },
+      "order": [
+        "SPACED"
+      ],
+      "content": "SPACED=\"two words\""
+    },
+    {
+      "values": {
+        "PADDED": "  padded  "
+      },
+      "order": [
+        "PADDED"
+      ],
+      "content": "PADDED=\"  padded  \""
+    },
+    {
+      "values": {
+        "MULTI": "line1\nline2\nline3"
+      },
+      "order": [
+        "MULTI"
+      ],
+      "content": "MULTI=\"line1\nline2\nline3\""
+    },
+    {
+      "values": {
+        "LEADING_NEWLINE": "\nstarts on line two"
+      },
+      "order": [
+        "LEADING_NEWLINE"
+      ],
+      "content": "LEADING_NEWLINE=\"\nstarts on line two\""
+    },
+    {
+      "values": {
+        "TRAILING_NEWLINE": "ends with newline\n"
+      },
+      "order": [
+        "TRAILING_NEWLINE"
+      ],
+      "content": "TRAILING_NEWLINE=\"ends with newline\n\""
+    },
+    {
+      "values": {
+        "QUOTED": "say \"hi\""
+      },
+      "order": [
+        "QUOTED"
+      ],
+      "content": "QUOTED=\"say \\\"hi\\\"\""
+    },
+    {
+      "values": {
+        "ESCAPED": "already \\\"escaped\\\""
+      },
+      "order": [
+        "ESCAPED"
+      ],
+      "content": "ESCAPED=\"already \\\\\"escaped\\\\\"\""
+    },
+    {
+      "values": {
+        "FIRST_LINE_QUOTE": "title: \"Hello\"\nbody: x"
+      },
+      "order": [
+        "FIRST_LINE_QUOTE"
+      ],
+      "content": "FIRST_LINE_QUOTE=\"title: \\\"Hello\\\"\nbody: x\""
+    },
+    {
+      "values": {
+        "TRAIL_BACKSLASH": "ends with \\"
+      },
+      "order": [
+        "TRAIL_BACKSLASH"
+      ],
+      "content": "TRAIL_BACKSLASH=\"ends with \\\""
+    },
+    {
+      "values": {
+        "TRAIL_BACKSLASH_PLAIN": "ends\\"
+      },
+      "order": [
+        "TRAIL_BACKSLASH_PLAIN"
+      ],
+      "content": "TRAIL_BACKSLASH_PLAIN=ends\\"
+    },
+    {
+      "values": {
+        "LITERAL_BACKSLASH_N": "a\\nb c"
+      },
+      "order": [
+        "LITERAL_BACKSLASH_N"
+      ],
+      "content": "LITERAL_BACKSLASH_N=\"a\\nb c\""
+    },
+    {
+      "values": {
+        "HASH": "a # not a comment"
+      },
+      "order": [
+        "HASH"
+      ],
+      "content": "HASH=\"a # not a comment\""
+    },
+    {
+      "values": {
+        "EQUALS": "a=b c=d"
+      },
+      "order": [
+        "EQUALS"
+      ],
+      "content": "EQUALS=\"a=b c=d\""
+    },
+    {
+      "values": {
+        "SINGLE_QUOTES": "'quoted' value"
+      },
+      "order": [
+        "SINGLE_QUOTES"
+      ],
+      "content": "SINGLE_QUOTES=\"'quoted' value\""
+    },
+    {
+      "values": {
+        "LEADING_SINGLE": "'abc123"
+      },
+      "order": [
+        "LEADING_SINGLE"
+      ],
+      "content": "LEADING_SINGLE='abc123"
+    },
+    {
+      "values": {
+        "JSON": "{\"a\": \"b\", \"c\": [1, 2]}"
+      },
+      "order": [
+        "JSON"
+      ],
+      "content": "JSON=\"{\\\"a\\\": \\\"b\\\", \\\"c\\\": [1, 2]}\""
+    },
+    {
+      "values": {
+        "DOTENV_INSIDE": "DB_HOST=localhost\nDB_PASSWORD=\"value-2\""
+      },
+      "order": [
+        "DOTENV_INSIDE"
+      ],
+      "content": "DOTENV_INSIDE=\"DB_HOST=localhost\nDB_PASSWORD=\\\"value-2\\\"\""
+    },
+    {
+      "values": {
+        "TABS": "a\tb"
+      },
+      "order": [
+        "TABS"
+      ],
+      "content": "TABS=a\tb"
+    },
+    {
+      "values": {
+        "CR": "a\r\nb"
+      },
+      "order": [
+        "CR"
+      ],
+      "content": "CR=\"a\r\nb\""
+    },
+    {
+      "values": {
+        "UNICODE": "héllo wörld ✓"
+      },
+      "order": [
+        "UNICODE"
+      ],
+      "content": "UNICODE=\"héllo wörld ✓\""
+    },
+    {
+      "values": {
+        "BASE64": "Zm9vYmFy\nYmF6cXV4\nZm9vYmFy=="
+      },
+      "order": [
+        "BASE64"
+      ],
+      "content": "BASE64=\"Zm9vYmFy\nYmF6cXV4\nZm9vYmFy==\""
+    },
+    {
+      "values": {
+        "PLAIN": "value-1",
+        "EMPTY": "",
+        "SPACED": "two words",
+        "PADDED": "  padded  ",
+        "MULTI": "line1\nline2\nline3",
+        "LEADING_NEWLINE": "\nstarts on line two",
+        "TRAILING_NEWLINE": "ends with newline\n",
+        "QUOTED": "say \"hi\"",
+        "ESCAPED": "already \\\"escaped\\\"",
+        "FIRST_LINE_QUOTE": "title: \"Hello\"\nbody: x",
+        "TRAIL_BACKSLASH": "ends with \\",
+        "TRAIL_BACKSLASH_PLAIN": "ends\\",
+        "LITERAL_BACKSLASH_N": "a\\nb c",
+        "HASH": "a # not a comment",
+        "EQUALS": "a=b c=d",
+        "SINGLE_QUOTES": "'quoted' value",
+        "LEADING_SINGLE": "'abc123",
+        "JSON": "{\"a\": \"b\", \"c\": [1, 2]}",
+        "DOTENV_INSIDE": "DB_HOST=localhost\nDB_PASSWORD=\"value-2\"",
+        "TABS": "a\tb",
+        "CR": "a\r\nb",
+        "UNICODE": "héllo wörld ✓",
+        "BASE64": "Zm9vYmFy\nYmF6cXV4\nZm9vYmFy=="
+      },
+      "order": [
+        "PLAIN",
+        "EMPTY",
+        "SPACED",
+        "PADDED",
+        "MULTI",
+        "LEADING_NEWLINE",
+        "TRAILING_NEWLINE",
+        "QUOTED",
+        "ESCAPED",
+        "FIRST_LINE_QUOTE",
+        "TRAIL_BACKSLASH",
+        "TRAIL_BACKSLASH_PLAIN",
+        "LITERAL_BACKSLASH_N",
+        "HASH",
+        "EQUALS",
+        "SINGLE_QUOTES",
+        "LEADING_SINGLE",
+        "JSON",
+        "DOTENV_INSIDE",
+        "TABS",
+        "CR",
+        "UNICODE",
+        "BASE64"
+      ],
+      "content": "PLAIN=value-1\nEMPTY=\nSPACED=\"two words\"\nPADDED=\"  padded  \"\nMULTI=\"line1\nline2\nline3\"\nLEADING_NEWLINE=\"\nstarts on line two\"\nTRAILING_NEWLINE=\"ends with newline\n\"\nQUOTED=\"say \\\"hi\\\"\"\nESCAPED=\"already \\\\\"escaped\\\\\"\"\nFIRST_LINE_QUOTE=\"title: \\\"Hello\\\"\nbody: x\"\nTRAIL_BACKSLASH=\"ends with \\\"\nTRAIL_BACKSLASH_PLAIN=ends\\\nLITERAL_BACKSLASH_N=\"a\\nb c\"\nHASH=\"a # not a comment\"\nEQUALS=\"a=b c=d\"\nSINGLE_QUOTES=\"'quoted' value\"\nLEADING_SINGLE='abc123\nJSON=\"{\\\"a\\\": \\\"b\\\", \\\"c\\\": [1, 2]}\"\nDOTENV_INSIDE=\"DB_HOST=localhost\nDB_PASSWORD=\\\"value-2\\\"\"\nTABS=a\tb\nCR=\"a\r\nb\"\nUNICODE=\"héllo wörld ✓\"\nBASE64=\"Zm9vYmFy\nYmF6cXV4\nZm9vYmFy==\""
+    },
+    {
+      "values": {
+        "A": "a b\\",
+        "B": "x \"y\"",
+        "C": "\nc"
+      },
+      "order": [
+        "A",
+        "B",
+        "C"
+      ],
+      "content": "A=\"a b\\\"\nB=\"x \\\"y\\\"\"\nC=\"\nc\""
+    }
+  ]
+}

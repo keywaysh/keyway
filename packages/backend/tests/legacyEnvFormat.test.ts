@@ -1,6 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { toEnvFormat, parseLegacyEnv, legacyEchoes } from "../src/utils/legacyEnvFormat";
 import released from "./fixtures/legacy-env-parse.json";
+// The CLI (since 0.6.1) reads this format back: its tests parse these recorded outputs.
+import cliFixture from "../../cli/internal/env/testdata/toenvformat.json";
 
 // Multi-line value whose third line contains "=", like base64 padding.
 const MULTI = "first line\nsecond line\nZm9vYmFy==\nlast line";
@@ -118,5 +120,15 @@ describe("legacyEchoes", () => {
   it("returns the Go echo first and the JavaScript echo second", () => {
     // Unquoted value, so the BOM ends the line: Go keeps it, JavaScript trims it.
     expect(legacyEchoes({ K: "ab\uFEFF" })).toEqual([{ K: "ab\uFEFF" }, { K: "ab" }]);
+  });
+});
+
+describe("toEnvFormat, as the CLI reads it back", () => {
+  it("still writes the outputs recorded for the CLI's parser tests", () => {
+    expect(cliFixture.cases.length).toBeGreaterThan(20);
+    for (const { values, order, content } of cliFixture.cases) {
+      expect(Object.keys(values)).toEqual(order);
+      expect(toEnvFormat(values as Record<string, string>)).toBe(content);
+    }
   });
 });

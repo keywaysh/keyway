@@ -2,10 +2,10 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/keywaysh/cli/internal/api"
-	"github.com/keywaysh/cli/internal/env"
 	"github.com/spf13/cobra"
 )
 
@@ -107,19 +107,22 @@ func runRunWithDeps(opts RunOptions, deps *Dependencies) error {
 
 	deps.UI.Step(fmt.Sprintf("Environment: %s", deps.UI.Value(envName)))
 
-	// 5. Fetch Secrets
-	var vaultContent string
+	// 5. Fetch Secrets: exact values, or the parsed .env text from older servers
+	var secrets map[string]string
 	err = deps.UI.Spin("Fetching secrets...", func() error {
 		resp, err := client.PullSecrets(ctx, repo, envName)
 		if err != nil {
 			return err
 		}
-		vaultContent = resp.Content
-		return nil
+		secrets, _, err = secretsOf(resp)
+		return err
 	})
 
 	if err != nil {
-		if apiErr, ok := err.(*api.APIError); ok {
+		var readErr *vaultReadError
+		if errors.As(err, &readErr) {
+			showVaultReadError(deps, err)
+		} else if apiErr, ok := err.(*api.APIError); ok {
 			deps.UI.Error(apiErr.Error())
 		} else {
 			deps.UI.Error(err.Error())
@@ -127,8 +130,6 @@ func runRunWithDeps(opts RunOptions, deps *Dependencies) error {
 		return err
 	}
 
-	// 6. Parse Secrets
-	secrets := env.Parse(vaultContent)
 	deps.UI.Success(fmt.Sprintf("Injected %d secrets", len(secrets)))
 
 	// 7. Execute Command

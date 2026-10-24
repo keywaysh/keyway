@@ -2,12 +2,14 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
 
 	"github.com/fatih/color"
 	"github.com/keywaysh/cli/internal/analytics"
+	"github.com/keywaysh/cli/internal/api"
 	envpkg "github.com/keywaysh/cli/internal/env"
 	"github.com/keywaysh/cli/internal/ui"
 	"github.com/spf13/cobra"
@@ -95,16 +97,34 @@ func runDiff(cmd *cobra.Command, args []string) error {
 func runDiffWithDeps(opts DiffOptions, deps *Dependencies) error {
 	deps.UI.Intro("diff")
 
+	result, err := diffResultWithDeps(opts, deps)
+	if err != nil {
+		return err
+	}
+
+	if opts.JSONOutput {
+		return printDiffJSON(result)
+	}
+
+	// Display results
+	printDiffResults(result, result.Env1, result.Env2, opts.ShowValues, opts.KeysOnly)
+
+	deps.UI.Outro("")
+	return nil
+}
+
+// diffResultWithDeps compares two environments of the current repository.
+func diffResultWithDeps(opts DiffOptions, deps *Dependencies) (*DiffResult, error) {
 	repo, err := deps.Git.DetectRepo()
 	if err != nil {
 		deps.UI.Error("Not in a git repository with GitHub remote")
-		return err
+		return nil, err
 	}
 	deps.UI.Step(fmt.Sprintf("Repository: %s", deps.UI.Value(repo)))
 
 	token, err := deps.Auth.EnsureLogin()
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	client := deps.APIFactory.NewClient(token)
@@ -117,7 +137,7 @@ func runDiffWithDeps(opts DiffOptions, deps *Dependencies) error {
 	if env1 == "" || env2 == "" {
 		if !deps.UI.IsInteractive() {
 			deps.UI.Error("Two environment arguments required in non-interactive mode")
-			return fmt.Errorf("missing arguments")
+			return nil, fmt.Errorf("missing arguments")
 		}
 
 		// Fetch available environments
@@ -129,20 +149,20 @@ func runDiffWithDeps(opts DiffOptions, deps *Dependencies) error {
 		})
 		if err != nil {
 			deps.UI.Error(fmt.Sprintf("Failed to fetch environments: %v", err))
-			return err
+			return nil, err
 		}
 
 		if len(environments) < 2 {
 			deps.UI.Error("At least 2 environments are needed to compare")
 			deps.UI.Message(deps.UI.Dim("Push secrets to more environments first with: keyway push -e <env>"))
-			return fmt.Errorf("not enough environments")
+			return nil, fmt.Errorf("not enough environments")
 		}
 
 		// First environment selection
 		if env1 == "" {
 			env1, err = deps.UI.Select("Select first environment:", environments)
 			if err != nil {
-				return err
+				return nil, err
 			}
 		} else {
 			env1 = normalizeEnvName(env1)
@@ -158,12 +178,12 @@ func runDiffWithDeps(opts DiffOptions, deps *Dependencies) error {
 
 		if len(remaining) == 0 {
 			deps.UI.Error("No other environments to compare with")
-			return fmt.Errorf("no environments")
+			return nil, fmt.Errorf("no environments")
 		}
 
 		env2, err = deps.UI.Select("Select second environment:", remaining)
 		if err != nil {
-			return err
+			return nil, err
 		}
 	} else {
 		env1 = normalizeEnvName(env1)
@@ -174,7 +194,7 @@ func runDiffWithDeps(opts DiffOptions, deps *Dependencies) error {
 
 	if env1 == env2 {
 		deps.UI.Error("Cannot compare an environment with itself")
-		return fmt.Errorf("same environment")
+		return nil, fmt.Errorf("same environment")
 	}
 
 	// Pull secrets from both environments
@@ -182,31 +202,27 @@ func runDiffWithDeps(opts DiffOptions, deps *Dependencies) error {
 	var pullErr1, pullErr2 error
 
 	err = deps.UI.Spin(fmt.Sprintf("Fetching %s and %s...", env1, env2), func() error {
-		resp1, err := client.PullSecrets(ctx, repo, env1)
-		if err != nil {
-			pullErr1 = err
-		} else {
-			secrets1 = envpkg.Parse(resp1.Content)
+		secrets1, pullErr1 = diffSide(client, repo, env1)
+		secrets2, pullErr2 = diffSide(client, repo, env2)
+		// Content an older server sends that cannot be read safely is an error, not an
+		// empty environment.
+		for _, pullErr := range []error{pullErr1, pullErr2} {
+			var readErr *vaultReadError
+			if errors.As(pullErr, &readErr) {
+				return pullErr
+			}
 		}
-
-		resp2, err := client.PullSecrets(ctx, repo, env2)
-		if err != nil {
-			pullErr2 = err
-		} else {
-			secrets2 = envpkg.Parse(resp2.Content)
-		}
-
 		return nil
 	})
 
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	// Handle pull errors
 	if pullErr1 != nil && pullErr2 != nil {
 		deps.UI.Error(fmt.Sprintf("Failed to fetch both environments: %s, %s", env1, env2))
-		return fmt.Errorf("failed to fetch environments")
+		return nil, fmt.Errorf("failed to fetch environments")
 	}
 	if pullErr1 != nil {
 		deps.UI.Warn(fmt.Sprintf("Environment '%s' is empty or doesn't exist", env1))
@@ -230,15 +246,20 @@ func runDiffWithDeps(opts DiffOptions, deps *Dependencies) error {
 		"total_env2":        result.Stats.TotalEnv2,
 	})
 
-	if opts.JSONOutput {
-		return printDiffJSON(result)
+	return result, nil
+}
+
+// diffSide reads one environment for diff. An empty environment is an error here: diff warns
+// about it.
+func diffSide(client api.APIClient, repo, envName string) (map[string]string, error) {
+	vault, err := readVault(client, repo, envName)
+	if err != nil {
+		return nil, err
 	}
-
-	// Display results
-	printDiffResults(result, env1, env2, opts.ShowValues, opts.KeysOnly)
-
-	deps.UI.Outro("")
-	return nil
+	if vault.empty {
+		return nil, fmt.Errorf("environment %s has no secrets", envName)
+	}
+	return vault.secrets, nil
 }
 
 func normalizeEnvName(name string) string {

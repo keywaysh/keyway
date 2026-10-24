@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -124,7 +125,11 @@ func runSetLocal(opts SetOptions, deps *Dependencies) error {
 	// Read existing local file
 	var localSecrets map[string]string
 	if content, err := deps.FS.ReadFile(envFile); err == nil {
-		localSecrets = env.Parse(string(content))
+		localSecrets, err = env.Parse(string(content))
+		if err != nil {
+			deps.UI.Error(fmt.Sprintf("Cannot read %s safely: %v", envFile, err))
+			return err
+		}
 	} else {
 		localSecrets = make(map[string]string)
 	}
@@ -206,18 +211,11 @@ func runSetRemote(opts SetOptions, deps *Dependencies) error {
 	deps.UI.Step(fmt.Sprintf("Environment: %s", deps.UI.Value(envName)))
 
 	// Fetch current vault state
-	var vaultSecrets map[string]string
+	var vault *vaultState
 	err = deps.UI.Spin("Fetching current secrets...", func() error {
-		resp, err := client.PullSecrets(ctx, repo, envName)
-		if err != nil {
-			if apiErr, ok := err.(*api.APIError); ok && apiErr.StatusCode == 404 {
-				vaultSecrets = make(map[string]string)
-				return nil
-			}
-			return err
-		}
-		vaultSecrets = env.Parse(resp.Content)
-		return nil
+		var readErr error
+		vault, readErr = readVault(client, repo, envName)
+		return readErr
 	})
 
 	if err != nil {
@@ -228,27 +226,25 @@ func runSetRemote(opts SetOptions, deps *Dependencies) error {
 			}
 			client = deps.APIFactory.NewClient(newToken)
 			err = deps.UI.Spin("Fetching current secrets...", func() error {
-				resp, err := client.PullSecrets(ctx, repo, envName)
-				if err != nil {
-					if apiErr, ok := err.(*api.APIError); ok && apiErr.StatusCode == 404 {
-						vaultSecrets = make(map[string]string)
-						return nil
-					}
-					return err
-				}
-				vaultSecrets = env.Parse(resp.Content)
-				return nil
+				var readErr error
+				vault, readErr = readVault(client, repo, envName)
+				return readErr
 			})
 		}
 		if err != nil {
-			deps.UI.Error(err.Error())
+			var readErr *vaultReadError
+			if errors.As(err, &readErr) {
+				showVaultReadError(deps, err)
+			} else {
+				deps.UI.Error(err.Error())
+			}
 			return err
 		}
 	}
 
 	// Check if key exists in vault
 	existsInVault := false
-	if existingValue, ok := vaultSecrets[opts.Key]; ok {
+	if existingValue, ok := vault.secrets[opts.Key]; ok {
 		existsInVault = true
 		if !opts.Yes {
 			deps.UI.Warn(fmt.Sprintf("%s already exists in vault (%s)", opts.Key, envName))
@@ -275,11 +271,18 @@ func runSetRemote(opts SetOptions, deps *Dependencies) error {
 		"isUpdate":     existsInVault,
 	})
 
-	// Merge and push
-	vaultSecrets[opts.Key] = opts.Value
+	// A current server merges the one secret. An older one ignores modes and replaces, so it
+	// gets every secret back, as read above.
+	payload, mode := map[string]string{opts.Key: opts.Value}, api.PushMerge
+	if !vault.exact && !vault.empty {
+		payload, mode = vault.secrets, api.PushReplace
+		payload[opts.Key] = opts.Value
+	}
 
+	var resp *api.PushSecretsResponse
 	err = deps.UI.Spin("Pushing to vault...", func() error {
-		_, pushErr := client.PushSecrets(ctx, repo, envName, vaultSecrets, api.PushReplace)
+		var pushErr error
+		resp, pushErr = client.PushSecrets(ctx, repo, envName, payload, mode)
 		return pushErr
 	})
 
@@ -291,7 +294,8 @@ func runSetRemote(opts SetOptions, deps *Dependencies) error {
 			}
 			client = deps.APIFactory.NewClient(newToken)
 			err = deps.UI.Spin("Pushing to vault...", func() error {
-				_, pushErr := client.PushSecrets(ctx, repo, envName, vaultSecrets, api.PushReplace)
+				var pushErr error
+				resp, pushErr = client.PushSecrets(ctx, repo, envName, payload, mode)
 				return pushErr
 			})
 		}
@@ -317,6 +321,9 @@ func runSetRemote(opts SetOptions, deps *Dependencies) error {
 	} else {
 		deps.UI.Success(fmt.Sprintf("Added %s to vault (%s)", opts.Key, envName))
 	}
+	if resp != nil && resp.Message != "" && resp.Message != genericPushMessage {
+		deps.UI.Info(resp.Message)
+	}
 
 	// Show tip for using the secret
 	deps.UI.Message("")
@@ -332,6 +339,9 @@ func runSetRemote(opts SetOptions, deps *Dependencies) error {
 	return nil
 }
 
+// genericPushMessage is the server's message when it has nothing more to say.
+const genericPushMessage = "Secrets pushed successfully"
+
 // formatEnvContent formats a map as env file content (sorted for deterministic output)
 func formatEnvContent(secrets map[string]string) string {
 	keys := make([]string, 0, len(secrets))
@@ -342,7 +352,7 @@ func formatEnvContent(secrets map[string]string) string {
 
 	var lines []string
 	for _, k := range keys {
-		lines = append(lines, fmt.Sprintf("%s=%s", k, secrets[k]))
+		lines = append(lines, env.FormatLine(k, secrets[k]))
 	}
 	return strings.Join(lines, "\n") + "\n"
 }

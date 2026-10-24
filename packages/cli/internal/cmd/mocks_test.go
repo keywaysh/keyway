@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	"github.com/keywaysh/cli/internal/api"
 )
@@ -103,7 +104,7 @@ func (m *MockUIProvider) Spin(message string, fn func() error) error {
 	}
 	return fn()
 }
-func (m *MockUIProvider) Value(v interface{}) string   { return "" }
+func (m *MockUIProvider) Value(v interface{}) string   { return fmt.Sprint(v) }
 func (m *MockUIProvider) File(path string) string      { return path }
 func (m *MockUIProvider) Link(url string) string       { return url }
 func (m *MockUIProvider) Command(cmd string) string    { return cmd }
@@ -152,6 +153,7 @@ type MockAPIClient struct {
 	VaultEnvs                          []string
 	VaultEnvsError                     error
 	PullResponse                       *api.PullSecretsResponse
+	PullResponses                      map[string]*api.PullSecretsResponse // by environment, over PullResponse
 	PullError                          error
 	PushResponse                       *api.PushSecretsResponse
 	PushError                          error
@@ -204,6 +206,9 @@ func (m *MockAPIClient) PushSecrets(ctx context.Context, repo, env string, secre
 	return m.PushResponse, m.PushError
 }
 func (m *MockAPIClient) PullSecrets(ctx context.Context, repo, env string) (*api.PullSecretsResponse, error) {
+	if resp, ok := m.PullResponses[env]; ok {
+		return resp, nil
+	}
 	return m.PullResponse, m.PullError
 }
 func (m *MockAPIClient) GetProviders(ctx context.Context) ([]api.Provider, error) {

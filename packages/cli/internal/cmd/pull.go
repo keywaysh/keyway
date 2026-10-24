@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"sort"
+	"strings"
 
 	"github.com/keywaysh/cli/internal/analytics"
 	"github.com/keywaysh/cli/internal/api"
@@ -119,13 +121,13 @@ func runPullWithDeps(opts PullOptions, deps *Dependencies) error {
 		"environment":  envName,
 	})
 
-	var vaultContent string
+	var pulled *api.PullSecretsResponse
 	err = deps.UI.Spin("Downloading secrets...", func() error {
 		resp, err := client.PullSecrets(ctx, repo, envName)
 		if err != nil {
 			return err
 		}
-		vaultContent = resp.Content
+		pulled = resp
 		return nil
 	})
 
@@ -143,7 +145,7 @@ func runPullWithDeps(opts PullOptions, deps *Dependencies) error {
 				if pullErr != nil {
 					return pullErr
 				}
-				vaultContent = resp.Content
+				pulled = resp
 				return nil
 			})
 		}
@@ -172,7 +174,7 @@ func runPullWithDeps(opts PullOptions, deps *Dependencies) error {
 		deps.UI.Message("")
 	}
 
-	vaultSecrets := env.Parse(vaultContent)
+	vaultContent := pulled.Content
 	envFilePath := filepath.Join(".", opts.File)
 
 	// Read existing local file if it exists
@@ -180,9 +182,27 @@ func runPullWithDeps(opts PullOptions, deps *Dependencies) error {
 	localExists := false
 	if data, err := deps.FS.ReadFile(envFilePath); err == nil {
 		localExists = true
-		localSecrets = env.Parse(string(data))
-	} else {
+		// --force replaces the file: reading it only serves the preview.
+		localSecrets, err = env.Parse(string(data))
+		if err != nil && !opts.Force {
+			deps.UI.Error(fmt.Sprintf("Cannot read %s safely to merge into it: %v", opts.File, err))
+			deps.UI.Message(deps.UI.Dim("Fix that line, or use --force to replace the file."))
+			return err
+		}
+	}
+	if localSecrets == nil {
 		localSecrets = make(map[string]string)
+	}
+
+	// Exact values from current servers; older ones only send .env text
+	vaultSecrets, exact, err := secretsOf(pulled)
+	if err != nil {
+		if localExists && !opts.Force {
+			showVaultReadError(deps, err)
+			deps.UI.Message(deps.UI.Dim("Use --force to replace the file with the vault's content."))
+			return err
+		}
+		vaultSecrets = nil // writing the content as is needs no reading
 	}
 
 	// Calculate diff
@@ -255,9 +275,19 @@ func runPullWithDeps(opts PullOptions, deps *Dependencies) error {
 		return err
 	}
 
-	lines := env.CountLines(finalContent)
+	count := env.CountLines(finalContent)
+	if vaultSecrets != nil {
+		count = len(vaultSecrets)
+		if !opts.Force {
+			count += len(diff.LocalOnly)
+		}
+	}
 	deps.UI.Success(fmt.Sprintf("Secrets downloaded to %s", deps.UI.File(opts.File)))
-	deps.UI.Message(fmt.Sprintf("Variables: %s", deps.UI.Value(lines)))
+	deps.UI.Message(fmt.Sprintf("Variables: %s", deps.UI.Value(count)))
+
+	if exact {
+		warnAboutAlteredValues(deps, opts.File, finalContent, vaultSecrets)
+	}
 
 	if !opts.Force && len(diff.LocalOnly) > 0 {
 		deps.UI.Message(fmt.Sprintf("Kept %s local-only variables", deps.UI.Value(len(diff.LocalOnly))))
@@ -266,4 +296,25 @@ func runPullWithDeps(opts PullOptions, deps *Dependencies) error {
 	deps.UI.Outro("Secrets synced!")
 
 	return nil
+}
+
+// warnAboutAlteredValues names the vault values that the written file cannot hold exactly.
+// keyway push leaves them alone, and keyway run injects the exact values.
+func warnAboutAlteredValues(deps *Dependencies, file, content string, exact map[string]string) {
+	written, err := env.Parse(content)
+	if err != nil {
+		deps.UI.Warn(fmt.Sprintf("%s cannot be read back safely (%v). Use keyway run to get the exact values.", file, err))
+		return
+	}
+	var altered []string
+	for key, value := range exact {
+		if written[key] != value {
+			altered = append(altered, key)
+		}
+	}
+	if len(altered) == 0 {
+		return
+	}
+	sort.Strings(altered)
+	deps.UI.Warn(fmt.Sprintf("%s cannot hold the exact value of %s. Use keyway run to get the exact values.", file, strings.Join(altered, ", ")))
 }

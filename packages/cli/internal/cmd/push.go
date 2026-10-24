@@ -2,7 +2,9 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/keywaysh/cli/internal/analytics"
@@ -135,7 +137,12 @@ func runPushWithDeps(opts PushOptions, deps *Dependencies) error {
 		return fmt.Errorf("file is empty")
 	}
 
-	secrets := env.Parse(string(content))
+	secrets, err := env.Parse(string(content))
+	if err != nil {
+		deps.UI.Error(fmt.Sprintf("Cannot read %s safely: %v", file, err))
+		deps.UI.Message(deps.UI.Dim("Fix that line, or set the secret with keyway set or the dashboard."))
+		return err
+	}
 	if len(secrets) == 0 {
 		deps.UI.Error("No valid environment variables found in file")
 		return fmt.Errorf("no variables found")
@@ -201,19 +208,11 @@ func runPushWithDeps(opts PushOptions, deps *Dependencies) error {
 	deps.UI.Step(fmt.Sprintf("Environment: %s", deps.UI.Value(envName)))
 
 	// Fetch current vault state to show preview
-	var vaultSecrets map[string]string
+	var vault *vaultState
 	err = deps.UI.Spin("Fetching current vault state...", func() error {
-		resp, err := client.PullSecrets(ctx, repo, envName)
-		if err != nil {
-			// Vault might not exist yet, that's ok
-			if apiErr, ok := err.(*api.APIError); ok && apiErr.StatusCode == 404 {
-				vaultSecrets = make(map[string]string)
-				return nil
-			}
-			return err
-		}
-		vaultSecrets = env.Parse(resp.Content)
-		return nil
+		var readErr error
+		vault, readErr = readVault(client, repo, envName)
+		return readErr
 	})
 
 	if err != nil {
@@ -226,20 +225,16 @@ func runPushWithDeps(opts PushOptions, deps *Dependencies) error {
 			// Retry with new token
 			client = deps.APIFactory.NewClient(newToken)
 			err = deps.UI.Spin("Fetching current vault state...", func() error {
-				resp, err := client.PullSecrets(ctx, repo, envName)
-				if err != nil {
-					if apiErr, ok := err.(*api.APIError); ok && apiErr.StatusCode == 404 {
-						vaultSecrets = make(map[string]string)
-						return nil
-					}
-					return err
-				}
-				vaultSecrets = env.Parse(resp.Content)
-				return nil
+				var readErr error
+				vault, readErr = readVault(client, repo, envName)
+				return readErr
 			})
 		}
 		if err != nil {
-			if apiErr, ok := err.(*api.APIError); ok {
+			var readErr *vaultReadError
+			if errors.As(err, &readErr) {
+				showVaultReadError(deps, err)
+			} else if apiErr, ok := err.(*api.APIError); ok {
 				deps.UI.Error(apiErr.Error())
 			} else {
 				deps.UI.Error(err.Error())
@@ -247,22 +242,42 @@ func runPushWithDeps(opts PushOptions, deps *Dependencies) error {
 			return err
 		}
 	}
+	vaultSecrets := vault.secrets
+
+	// A value the .env format cannot carry reads back altered from the file pull wrote: keep
+	// the stored value rather than push the altered one.
+	var kept []string
+	if vault.exact {
+		secrets, kept = keepUnalteredValues(secrets, vaultSecrets)
+	}
 
 	// Calculate and show diff
 	diff := env.CalculatePushDiff(secrets, vaultSecrets)
 
-	// When --prune is NOT set, merge vault secrets into local (additive mode)
-	// This preserves vault-only secrets instead of deleting them
+	// A current server leaves secrets missing from the file alone (merge), or trashes them
+	// with --prune (replace). An older one always replaces, so without --prune it gets the
+	// vault-only secrets back.
 	secretsToSend := secrets
-	if !opts.Prune && len(diff.Removed) > 0 {
-		// Merge: start with vault secrets, overlay local secrets
-		secretsToSend = make(map[string]string)
-		for k, v := range vaultSecrets {
-			secretsToSend[k] = v
+	mode := api.PushMerge
+	if opts.Prune {
+		mode = api.PushReplace
+	}
+	if !vault.exact && !vault.empty {
+		mode = api.PushReplace
+		if !opts.Prune && len(diff.Removed) > 0 {
+			secretsToSend = make(map[string]string)
+			for k, v := range vaultSecrets {
+				secretsToSend[k] = v
+			}
+			for k, v := range secrets {
+				secretsToSend[k] = v
+			}
 		}
-		for k, v := range secrets {
-			secretsToSend[k] = v
-		}
+	}
+
+	if len(kept) > 0 {
+		deps.UI.Warn(fmt.Sprintf("Kept the vault value of %s: %s cannot hold it exactly.", strings.Join(kept, ", "), file))
+		deps.UI.Message(deps.UI.Dim("Use keyway set to change it."))
 	}
 
 	if diff.HasChanges() {
@@ -319,7 +334,7 @@ func runPushWithDeps(opts PushOptions, deps *Dependencies) error {
 	var resp *api.PushSecretsResponse
 	err = deps.UI.Spin("Uploading secrets...", func() error {
 		var err error
-		resp, err = client.PushSecrets(ctx, repo, envName, secretsToSend, api.PushReplace)
+		resp, err = client.PushSecrets(ctx, repo, envName, secretsToSend, mode)
 		return err
 	})
 
@@ -334,7 +349,7 @@ func runPushWithDeps(opts PushOptions, deps *Dependencies) error {
 			client = deps.APIFactory.NewClient(newToken)
 			err = deps.UI.Spin("Uploading secrets...", func() error {
 				var pushErr error
-				resp, pushErr = client.PushSecrets(ctx, repo, envName, secretsToSend, api.PushReplace)
+				resp, pushErr = client.PushSecrets(ctx, repo, envName, secretsToSend, mode)
 				return pushErr
 			})
 		}
@@ -380,4 +395,24 @@ func runPushWithDeps(opts PushOptions, deps *Dependencies) error {
 	deps.UI.Outro(fmt.Sprintf("Dashboard: %s", deps.UI.Link(dashboardURL)))
 
 	return nil
+}
+
+// keepUnalteredValues replaces, in local, the values that are only what the .env format made
+// of the vault's value (e.g. 'x' read as x), and returns their keys.
+func keepUnalteredValues(local, vault map[string]string) (map[string]string, []string) {
+	var kept []string
+	result := make(map[string]string, len(local))
+	for key, value := range local {
+		result[key] = value
+		stored, inVault := vault[key]
+		if !inVault || stored == value {
+			continue
+		}
+		if readBack, ok := env.ReadBack(key, stored); ok && readBack == value {
+			result[key] = stored
+			kept = append(kept, key)
+		}
+	}
+	sort.Strings(kept)
+	return result, kept
 }
