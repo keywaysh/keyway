@@ -132,7 +132,8 @@ func TestRunSetWithDeps_EmptyEnvironmentSendsOnlyTheKey(t *testing.T) {
 }
 
 func TestRunSetWithDeps_OlderServerGetsEveryValueReadExactly(t *testing.T) {
-	// An older server ignores modes and replaces: send every secret, read without loss.
+	// An older server may ignore modes and replace: send every secret, read without loss, and
+	// still ask for a merge so that checkMerged can tell.
 	deps, _, _, _, _, _, apiMock := NewTestDepsWithEnv()
 	apiMock.PullResponse = &api.PullSecretsResponse{Content: "MULTI=\"line1\nline2\"\nGREETING=\"say \\\"hi\\\"\""}
 	apiMock.PushResponse = &api.PushSecretsResponse{Message: "Secrets pushed successfully"}
@@ -145,8 +146,8 @@ func TestRunSetWithDeps_OlderServerGetsEveryValueReadExactly(t *testing.T) {
 	if !reflect.DeepEqual(apiMock.PushedSecrets, want) {
 		t.Errorf("pushed %q, want %q", apiMock.PushedSecrets, want)
 	}
-	if apiMock.PushedMode != api.PushReplace {
-		t.Errorf("mode %q, want replace", apiMock.PushedMode)
+	if apiMock.PushedMode != api.PushMerge {
+		t.Errorf("mode %q, want merge", apiMock.PushedMode)
 	}
 }
 

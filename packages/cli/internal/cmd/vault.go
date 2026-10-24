@@ -119,10 +119,11 @@ func showVaultReadError(deps *Dependencies, err error) {
 	deps.UI.Message(deps.UI.Dim("This Keyway server predates exact values. Update it, or use the dashboard for this environment."))
 }
 
-// payloadFor returns what to push for secrets, and how. A current server merges them, or with
-// prune replaces the environment with them. An older one ignores modes and always replaces,
-// so without prune it gets the whole environment back: the vault's secrets, overridden by
-// these.
+// payloadFor returns what to push for secrets, and how: merged into the environment, or with
+// prune replacing it. A server without exact values may also predate modes and always
+// replace, so without prune it gets the whole environment back (the vault's secrets,
+// overridden by these), still asked to merge: one that knows modes keeps a secret created
+// since the pull, and one that does not reports the trashed ones to checkMerged.
 func payloadFor(vault *vaultState, secrets map[string]string, prune bool) (map[string]string, api.PushMode) {
 	if prune {
 		return secrets, api.PushReplace
@@ -137,7 +138,7 @@ func payloadFor(vault *vaultState, secrets map[string]string, prune bool) (map[s
 	for key, value := range secrets {
 		payload[key] = value
 	}
-	return payload, api.PushReplace
+	return payload, api.PushMerge
 }
 
 // checkMerged reports, as an error, a merge the server did not do. A server that predates
