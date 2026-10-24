@@ -6,6 +6,7 @@ import {
   resolvePushMode,
   describeRejections,
   describeKept,
+  isUsableNewKey,
 } from "../src/services/pushPlan.service";
 
 // Multi-line value whose third line contains "=", like base64 padding.
@@ -514,5 +515,21 @@ describe("isReleasedCli", () => {
     [undefined, false],
   ])("%s → %s", (userAgent, expected) => {
     expect(isReleasedCli(userAgent)).toBe(expected);
+  });
+});
+
+describe("isUsableNewKey", () => {
+  it("accepts keys a .env line can hold", () => {
+    for (const key of ["API_KEY", "lower_key", "a.b-c", "WITH#INSIDE", "INNER SPACE", "éè"]) {
+      expect(isUsableNewKey(key), key).toBe(true);
+    }
+  });
+
+  it("refuses keys a .env line cannot hold", () => {
+    const refused = ["", "A=B", "#COMMENT", " PADDED", "PADDED ", "\uFEFFBOM", "K\nL", "C\rR"];
+    refused.push("TAB\t", "NUL\u0000", "ESC\u001b", "C1\u0085", "LS\u2028", "PS\u2029");
+    for (const key of refused) {
+      expect(isUsableNewKey(key), JSON.stringify(key)).toBe(false);
+    }
   });
 });
