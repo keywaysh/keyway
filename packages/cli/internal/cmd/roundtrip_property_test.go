@@ -104,7 +104,7 @@ var plainKeys = []string{"A", "B", "K", "C_1", "lower", "_X", "Q", "x y", "PADDE
 // a value (B= and =x as B and ==x), which nothing tells apart: only current servers get them.
 func legacyKeysFor(kind serverKind) []string {
 	if kind.current {
-		return []string{" PADDED", "PADDED ", "#H", "A=B", "B=", "K\nL"}
+		return []string{" PADDED", "PADDED ", "#H", "A=B", "B=", "K\nL", `K="`, "K='"}
 	}
 	return []string{" PADDED", "PADDED ", "#H", "K\nL"}
 }
@@ -282,6 +282,45 @@ func TestProperty_PullEditPushChangesOnlyThatKey(t *testing.T) {
 		}
 		value := editedValues[rng.Intn(len(editedValues))]
 		fsMock.Files[".env"] = append(fsMock.Files[".env"], env.FormatLine(key, value)+"\n"...)
+		fileView := asFile(env.FormatLine(key, vault[key]))
+		if err := runPushWithDeps(pushOpts(rng.Intn(2) == 0), deps); err != nil {
+			continue
+		}
+		read, _ := env.ReadBack(key, value)
+		mustChange := isPlain(vault) && read != vault[key] && fileView[key] != read
+		if !changedOnly(vault, server.vault, key, read) || mustChange && server.vault[key] != read {
+			t.Fatalf("%s: vault %q, %q=%q became %q\nfile %q", kind.name, vault, key, value, server.vault, fsMock.Files[".env"])
+		}
+	}
+}
+
+// pull, then rewrite one secret's line in place with a new value, push: only that key changes,
+// to the value the file reads, unless that is only what the file makes of the stored value.
+func TestProperty_PullRewriteALinePushChangesOnlyThatKey(t *testing.T) {
+	rng := rand.New(rand.NewSource(7))
+	for i := 0; i < 6000; i++ {
+		kind := serverKinds[rng.Intn(len(serverKinds))]
+		vault := randomVault(rng, legacyKeysFor(kind))
+		var keys []string
+		for _, key := range sortedKeys(vault) {
+			if slices.Contains(plainKeys, key) {
+				keys = append(keys, key)
+			}
+		}
+		if len(keys) == 0 {
+			continue
+		}
+		key := keys[rng.Intn(len(keys))]
+		deps, fsMock, server := newFakeRun(vault, kind, rng)
+		if err := pullFile(deps, fsMock); err != nil {
+			continue
+		}
+		content, line := "\n"+string(fsMock.Files[".env"]), "\n"+env.FormatLine(key, vault[key])+"\n"
+		if strings.Count(content, line) != 1 {
+			continue
+		}
+		value := editedValues[rng.Intn(len(editedValues))]
+		fsMock.Files[".env"] = []byte(strings.Replace(content, line, "\n"+env.FormatLine(key, value)+"\n", 1)[1:])
 		fileView := asFile(env.FormatLine(key, vault[key]))
 		if err := runPushWithDeps(pushOpts(rng.Intn(2) == 0), deps); err != nil {
 			continue
