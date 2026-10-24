@@ -5,11 +5,15 @@ on:
     branches: [main]
     paths:
       - "packages/backend/**"
+      # outputs of the server's .env format, recorded for the CLI's parser tests
+      - "packages/cli/internal/env/testdata/toenvformat.json"
       - ".github/workflows/ci-backend.yml"
   pull_request:
     branches: [main]
     paths:
       - "packages/backend/**"
+      # outputs of the server's .env format, recorded for the CLI's parser tests
+      - "packages/cli/internal/env/testdata/toenvformat.json"
       - ".github/workflows/ci-backend.yml"
 
 defaults:
