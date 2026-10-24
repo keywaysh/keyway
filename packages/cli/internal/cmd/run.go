@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
+	"strings"
 
 	"github.com/keywaysh/cli/internal/api"
 	"github.com/spf13/cobra"
@@ -128,6 +130,19 @@ func runRunWithDeps(opts RunOptions, deps *Dependencies) error {
 			deps.UI.Error(err.Error())
 		}
 		return err
+	}
+
+	// An environment variable cannot hold NUL, nor have "=" in its name
+	var skipped []string
+	for key, value := range secrets {
+		if key == "" || strings.ContainsAny(key, "=\x00") || strings.Contains(value, "\x00") {
+			skipped = append(skipped, key)
+			delete(secrets, key)
+		}
+	}
+	if len(skipped) > 0 {
+		sort.Strings(skipped)
+		deps.UI.Warn(fmt.Sprintf("Not injected: %s (a variable cannot have \"=\" in its name or NUL in its value)", keyList(skipped)))
 	}
 
 	deps.UI.Success(fmt.Sprintf("Injected %d secrets", len(secrets)))

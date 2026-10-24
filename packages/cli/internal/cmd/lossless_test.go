@@ -1,7 +1,10 @@
 package cmd
 
 import (
+	"errors"
+	"maps"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -19,16 +22,7 @@ func currentServer(secrets map[string]string) *api.PullSecretsResponse {
 }
 
 func sortedKeys(m map[string]string) []string {
-	keys := make([]string, 0, len(m))
-	for k := range m {
-		keys = append(keys, k)
-	}
-	for i := 1; i < len(keys); i++ {
-		for j := i; j > 0 && keys[j] < keys[j-1]; j-- {
-			keys[j], keys[j-1] = keys[j-1], keys[j]
-		}
-	}
-	return keys
+	return slices.Sorted(maps.Keys(m))
 }
 
 func joined(calls []string) string { return strings.Join(calls, "\n") }
@@ -45,7 +39,7 @@ func TestReadVault_UsesExactValuesWhenTheServerSendsThem(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !state.exact || state.empty || !reflect.DeepEqual(state.secrets, exact) {
+	if !state.current || state.empty || !reflect.DeepEqual(state.secrets, exact) {
 		t.Errorf("got %+v, want the exact values", state)
 	}
 }
@@ -60,8 +54,21 @@ func TestReadVault_ParsesContentFromAnOlderServer(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	want := map[string]string{"MULTI": "line1\nline2", "GREETING": `say "hi"`}
-	if state.exact || !reflect.DeepEqual(state.secrets, want) {
+	if state.current || !reflect.DeepEqual(state.secrets, want) {
 		t.Errorf("got %+v, want %q read from the content", state, want)
+	}
+}
+
+func TestReadVault_ReadsAnOlderServersTextExactly(t *testing.T) {
+	// A file would read 'x' as x and drop the \r; the server's own text keeps them.
+	_, _, _, _, _, _, apiMock := NewTestDepsWithEnv()
+	apiMock.PullResponse = &api.PullSecretsResponse{Content: "W='x'\nCR=a\r\nA=1"}
+
+	state, err := readVault(apiMock, "owner/repo", "development")
+
+	want := map[string]string{"W": "'x'", "CR": "a\r", "A": "1"}
+	if err != nil || !reflect.DeepEqual(state.secrets, want) {
+		t.Errorf("got %q (%v), want %q", state.secrets, err, want)
 	}
 }
 
@@ -96,7 +103,7 @@ func setOpts(key, value string) SetOptions {
 func TestRunSetWithDeps_SendsOnlyTheKeyInMergeMode(t *testing.T) {
 	deps, _, _, _, _, _, apiMock := NewTestDepsWithEnv()
 	apiMock.PullResponse = currentServer(map[string]string{"MULTI": "line1\nline2", "OTHER": "x"})
-	apiMock.PushResponse = &api.PushSecretsResponse{Message: "Secrets pushed successfully", Mode: "merge"}
+	apiMock.PushResponse = &api.PushSecretsResponse{Message: "Secrets pushed successfully"}
 
 	if err := runSetWithDeps(setOpts("NEW_KEY", "value-1"), deps); err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -219,7 +226,7 @@ func TestRunPushWithDeps_SendsOnlyTheLocalFileInMergeMode(t *testing.T) {
 	fsMock.Files[".env"] = []byte("A=1\nMULTI=\"line1\nline2\"\n")
 	envMock.Candidates = []EnvCandidate{{File: ".env", Env: "development"}}
 	apiMock.PullResponse = currentServer(map[string]string{"A": "0", "VAULT_ONLY": "line1\nline2"})
-	apiMock.PushResponse = &api.PushSecretsResponse{Message: "Secrets pushed successfully", Mode: "merge"}
+	apiMock.PushResponse = &api.PushSecretsResponse{Message: "Secrets pushed successfully"}
 
 	if err := runPushWithDeps(pushOpts(false), deps); err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -239,7 +246,7 @@ func TestRunPushWithDeps_PruneReplaces(t *testing.T) {
 	fsMock.Files[".env"] = []byte("A=1\n")
 	envMock.Candidates = []EnvCandidate{{File: ".env", Env: "development"}}
 	apiMock.PullResponse = currentServer(map[string]string{"A": "0", "VAULT_ONLY": "x"})
-	apiMock.PushResponse = &api.PushSecretsResponse{Message: "Secrets pushed successfully", Mode: "replace"}
+	apiMock.PushResponse = &api.PushSecretsResponse{Message: "Secrets pushed successfully"}
 
 	if err := runPushWithDeps(pushOpts(true), deps); err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -444,5 +451,252 @@ func TestRunPullWithDeps_EndsTheFileWithANewline(t *testing.T) {
 		if err != nil || got["CERT"] != "line one\nline two" || got["A"] != "1" {
 			t.Errorf("force=%v: appended line read as %q (%v)", force, got, err)
 		}
+	}
+}
+
+func TestRunSetWithDeps_OlderServerGetsValuesAFileWouldAlterUnchanged(t *testing.T) {
+	deps, _, _, _, _, _, apiMock := NewTestDepsWithEnv()
+	apiMock.PullResponse = &api.PullSecretsResponse{Content: "W='x'\nCR=a\r\nA=1"}
+	apiMock.PushResponse = &api.PushSecretsResponse{Message: "Secrets pushed successfully"}
+
+	if err := runSetWithDeps(setOpts("NEW_KEY", "value-1"), deps); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	want := map[string]string{"W": "'x'", "CR": "a\r", "A": "1", "NEW_KEY": "value-1"}
+	if !reflect.DeepEqual(apiMock.PushedSecrets, want) {
+		t.Errorf("pushed %q, want %q", apiMock.PushedSecrets, want)
+	}
+}
+
+// A server rolled back between the pull and the push replaces instead of merging.
+func TestRunSetWithDeps_ReportsAMergeTheServerDidNotDo(t *testing.T) {
+	deps, _, _, uiMock, _, _, apiMock := NewTestDepsWithEnv()
+	apiMock.PullResponse = currentServer(map[string]string{"A": "1", "B": "2", "C": "3"})
+	apiMock.PushResponse = &api.PushSecretsResponse{
+		Message: "Secrets pushed successfully",
+		Stats: &struct {
+			Created int `json:"created"`
+			Updated int `json:"updated"`
+			Deleted int `json:"deleted"`
+		}{Created: 1, Deleted: 3},
+	}
+
+	err := runSetWithDeps(setOpts("NEW_KEY", "value-1"), deps)
+
+	if err == nil {
+		t.Fatal("expected an error")
+	}
+	if !strings.Contains(joined(uiMock.ErrorCalls), "3 secret(s) moved to the trash") {
+		t.Errorf("expected the trashed count, got %q", uiMock.ErrorCalls)
+	}
+	if !strings.Contains(joined(uiMock.MessageCalls), "/vaults/owner/repo") {
+		t.Errorf("expected a link to the vault, got %q", uiMock.MessageCalls)
+	}
+	if len(uiMock.SuccessCalls) != 0 {
+		t.Errorf("did not expect a success message, got %q", uiMock.SuccessCalls)
+	}
+}
+
+func TestRunPushWithDeps_ReportsAMergeTheServerDidNotDo(t *testing.T) {
+	deps, _, _, uiMock, fsMock, envMock, apiMock := NewTestDepsWithEnv()
+	fsMock.Files[".env"] = []byte("A=1\n")
+	envMock.Candidates = []EnvCandidate{{File: ".env", Env: "development"}}
+	apiMock.PullResponse = currentServer(map[string]string{"A": "0", "B": "2"})
+	apiMock.PushResponse = &api.PushSecretsResponse{
+		Message: "Secrets pushed successfully",
+		Stats: &struct {
+			Created int `json:"created"`
+			Updated int `json:"updated"`
+			Deleted int `json:"deleted"`
+		}{Updated: 1, Deleted: 1},
+	}
+
+	if err := runPushWithDeps(pushOpts(false), deps); err == nil {
+		t.Fatal("expected an error")
+	}
+	if !strings.Contains(joined(uiMock.ErrorCalls), "1 secret(s) moved to the trash") {
+		t.Errorf("expected the trashed count, got %q", uiMock.ErrorCalls)
+	}
+}
+
+func TestRunPushWithDeps_PruneMayTrash(t *testing.T) {
+	deps, _, _, uiMock, fsMock, envMock, apiMock := NewTestDepsWithEnv()
+	fsMock.Files[".env"] = []byte("A=1\n")
+	envMock.Candidates = []EnvCandidate{{File: ".env", Env: "development"}}
+	apiMock.PullResponse = currentServer(map[string]string{"A": "0", "B": "2"})
+	apiMock.PushResponse = &api.PushSecretsResponse{
+		Message: "Secrets pushed successfully",
+		Stats: &struct {
+			Created int `json:"created"`
+			Updated int `json:"updated"`
+			Deleted int `json:"deleted"`
+		}{Updated: 1, Deleted: 1},
+	}
+
+	if err := runPushWithDeps(pushOpts(true), deps); err != nil {
+		t.Fatalf("unexpected error: %v (%q)", err, uiMock.ErrorCalls)
+	}
+}
+
+// The audit's case: a stored key holding a newline makes the pulled file read A wrongly and
+// invent Q. Pushing that file back changes neither.
+func TestRunPushWithDeps_KeepsWhatTheFileMisreads(t *testing.T) {
+	deps, _, _, uiMock, fsMock, envMock, apiMock := NewTestDepsWithEnv()
+	vault := map[string]string{"A": "p\"\nQ='\nz", "K\nL": "w'"}
+	pulled := &api.PullSecretsResponse{
+		Content: env.FormatLine("A", vault["A"]) + "\n" + env.FormatLine("K\nL", vault["K\nL"]),
+		Secrets: vault,
+	}
+	fsMock.Files[".env"] = []byte(pulled.Content + "\n")
+	envMock.Candidates = []EnvCandidate{{File: ".env", Env: "development"}}
+	apiMock.PullResponse = pulled
+	apiMock.PushResponse = &api.PushSecretsResponse{Message: "Secrets pushed successfully"}
+
+	if err := runPushWithDeps(pushOpts(false), deps); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !reflect.DeepEqual(apiMock.PushedSecrets, map[string]string{"A": vault["A"]}) {
+		t.Errorf("pushed %q, want A unchanged and nothing else", apiMock.PushedSecrets)
+	}
+	if !strings.Contains(joined(uiMock.WarnCalls), "Did not push Q") {
+		t.Errorf("expected Q to be named, got %q", uiMock.WarnCalls)
+	}
+}
+
+func TestRunPullWithDeps_ShowsNoChangeAfterAPull(t *testing.T) {
+	// The file holds W='x', which reads as x: that is what pull writes, not a change.
+	deps, _, _, uiMock, fsMock, _, apiMock := NewTestDepsWithEnv()
+	pulled := currentServer(map[string]string{"W": "'x'", "A": "1"})
+	fsMock.Files[".env"] = []byte(pulled.Content + "\n")
+	apiMock.PullResponse = pulled
+
+	if err := runPullWithDeps(pullOpts(), deps); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(uiMock.DiffChangedCalls) != 0 || len(uiMock.DiffAddedCalls) != 0 {
+		t.Errorf("expected no change, got changed %q added %q", uiMock.DiffChangedCalls, uiMock.DiffAddedCalls)
+	}
+}
+
+func TestRunPullWithDeps_SaysPushWouldRefuseAnUnreadableFile(t *testing.T) {
+	deps, _, _, uiMock, _, _, apiMock := NewTestDepsWithEnv()
+	apiMock.PullResponse = &api.PullSecretsResponse{
+		Content: "A=\"never closed",
+		Secrets: map[string]string{"A": "x"},
+	}
+
+	if err := runPullWithDeps(pullOpts(), deps); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !strings.Contains(joined(uiMock.WarnCalls), "keyway push would refuse it") {
+		t.Errorf("expected the warning to mention push, got %q", uiMock.WarnCalls)
+	}
+}
+
+func TestRunPullWithDeps_NamesKeysSafely(t *testing.T) {
+	deps, _, _, uiMock, _, _, apiMock := NewTestDepsWithEnv()
+	apiMock.PullResponse = currentServer(map[string]string{"W\x1b[2J": "'x'"})
+
+	if err := runPullWithDeps(pullOpts(), deps); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	warns := joined(uiMock.WarnCalls)
+	if strings.Contains(warns, "\x1b") || !strings.Contains(warns, `"W\x1b[2J"`) {
+		t.Errorf("expected the key escaped, got %q", warns)
+	}
+}
+
+func TestRunPullWithDeps_EndsAMergedFileWithANewline(t *testing.T) {
+	deps, _, _, _, fsMock, _, apiMock := NewTestDepsWithEnv()
+	fsMock.Files[".env"] = []byte("LOCAL=only here")
+	apiMock.PullResponse = currentServer(map[string]string{"A": "1"})
+
+	if err := runPullWithDeps(pullOpts(), deps); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	got, err := env.Parse(string(fsMock.Written[".env"]) + "NEW=appended\n")
+	want := map[string]string{"A": "1", "LOCAL": "only here", "NEW": "appended"}
+	if err != nil || !reflect.DeepEqual(got, want) {
+		t.Errorf("file with an appended line reads %q (%v), want %q", got, err, want)
+	}
+}
+
+func TestRunDiffWithDeps_ExplainsAnOlderServersUnreadableText(t *testing.T) {
+	deps, _, _, uiMock, _, _, apiMock := NewTestDepsWithEnv()
+	apiMock.PullResponses = map[string]*api.PullSecretsResponse{
+		"development": {Content: "A=\"never closed\nB=2"},
+		"production":  currentServer(map[string]string{"A": "1"}),
+	}
+
+	if _, err := diffResultWithDeps(DiffOptions{Env1: "development", Env2: "production"}, deps); err == nil {
+		t.Fatal("expected an error")
+	}
+	if !strings.Contains(joined(uiMock.ErrorCalls), "cannot read the vault's secrets safely") {
+		t.Errorf("expected the error to be shown, got %q", uiMock.ErrorCalls)
+	}
+}
+
+func TestRunRunWithDeps_SkipsWhatCannotBeAnEnvironmentVariable(t *testing.T) {
+	deps, _, _, uiMock, cmdRunner, apiMock := NewTestDepsWithRunner()
+	apiMock.PullResponse = currentServer(map[string]string{"A=B": "x", "NUL": "a\x00b", "OK": "1"})
+
+	opts := RunOptions{EnvName: "development", EnvFlagSet: true, Command: "env"}
+	if err := runRunWithDeps(opts, deps); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !reflect.DeepEqual(cmdRunner.LastSecrets, map[string]string{"OK": "1"}) {
+		t.Errorf("injected %q, want only OK", cmdRunner.LastSecrets)
+	}
+	if !strings.Contains(joined(uiMock.WarnCalls), "A=B, NUL") {
+		t.Errorf("expected the skipped keys to be named, got %q", uiMock.WarnCalls)
+	}
+}
+
+func TestSpinWithRelogin_RetriesWithTheNewToken(t *testing.T) {
+	deps, _, _, _, _, _, apiMock := NewTestDepsWithEnv()
+	apiMock.PullErrorFirst = &api.APIError{StatusCode: 401}
+	apiMock.PullResponse = currentServer(map[string]string{"A": "1"})
+	defer func(saved func(error, *Dependencies) (string, error)) { relogin = saved }(relogin)
+	relogin = func(err error, _ *Dependencies) (string, error) { return "new-token", nil }
+
+	client := deps.APIFactory.NewClient("old-token")
+	var vault *vaultState
+	explained, err := spinWithRelogin(deps, &client, "Fetching...", func(c api.APIClient) error {
+		var readErr error
+		vault, readErr = readVault(c, "owner/repo", "development")
+		return readErr
+	})
+
+	if err != nil || explained || vault.secrets["A"] != "1" {
+		t.Fatalf("got %v (explained %v), %+v", err, explained, vault)
+	}
+	factory := deps.APIFactory.(*MockAPIFactory)
+	if !reflect.DeepEqual(factory.Tokens, []string{"old-token", "new-token"}) {
+		t.Errorf("clients created with %q, want old-token then new-token", factory.Tokens)
+	}
+}
+
+func TestSpinWithRelogin_ReportsAFailedReloginAsExplained(t *testing.T) {
+	deps, _, _, _, _, _, apiMock := NewTestDepsWithEnv()
+	apiMock.PullErrorFirst = &api.APIError{StatusCode: 401}
+	defer func(saved func(error, *Dependencies) (string, error)) { relogin = saved }(relogin)
+	cancelled := errors.New("login cancelled")
+	relogin = func(err error, _ *Dependencies) (string, error) { return "", cancelled }
+
+	client := deps.APIFactory.NewClient("old-token")
+	explained, err := spinWithRelogin(deps, &client, "Fetching...", func(c api.APIClient) error {
+		_, readErr := readVault(c, "owner/repo", "development")
+		return readErr
+	})
+
+	if !explained || !errors.Is(err, cancelled) {
+		t.Errorf("got %v (explained %v), want the re-login error, explained", err, explained)
 	}
 }

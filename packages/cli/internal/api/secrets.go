@@ -19,9 +19,7 @@ const (
 type PushSecretsResponse struct {
 	Success bool   `json:"success"`
 	Message string `json:"message"`
-	// Mode the server applied; empty from servers that predate modes (they always replace).
-	Mode  string `json:"mode,omitempty"`
-	Stats *struct {
+	Stats   *struct {
 		Created int `json:"created"`
 		Updated int `json:"updated"`
 		Deleted int `json:"deleted"`

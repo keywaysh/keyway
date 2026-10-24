@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"sort"
 	"strings"
 
 	"github.com/keywaysh/cli/internal/analytics"
@@ -209,75 +208,38 @@ func runPushWithDeps(opts PushOptions, deps *Dependencies) error {
 
 	// Fetch current vault state to show preview
 	var vault *vaultState
-	err = deps.UI.Spin("Fetching current vault state...", func() error {
+	explained, err := spinWithRelogin(deps, &client, "Fetching current vault state...", func(c api.APIClient) error {
 		var readErr error
-		vault, readErr = readVault(client, repo, envName)
+		vault, readErr = readVault(c, repo, envName)
 		return readErr
 	})
-
 	if err != nil {
-		// Handle auth errors (expired token)
-		if isAuthError(err) {
-			newToken, authErr := handleAuthError(err, deps)
-			if authErr != nil {
-				return authErr
-			}
-			// Retry with new token
-			client = deps.APIFactory.NewClient(newToken)
-			err = deps.UI.Spin("Fetching current vault state...", func() error {
-				var readErr error
-				vault, readErr = readVault(client, repo, envName)
-				return readErr
-			})
+		var readErr *vaultReadError
+		switch {
+		case explained:
+		case errors.As(err, &readErr):
+			showVaultReadError(deps, err)
+		default:
+			deps.UI.Error(err.Error())
 		}
-		if err != nil {
-			var readErr *vaultReadError
-			if errors.As(err, &readErr) {
-				showVaultReadError(deps, err)
-			} else if apiErr, ok := err.(*api.APIError); ok {
-				deps.UI.Error(apiErr.Error())
-			} else {
-				deps.UI.Error(err.Error())
-			}
-			return err
-		}
+		return err
 	}
 	vaultSecrets := vault.secrets
 
-	// A value the .env format cannot carry reads back altered from the file pull wrote: keep
-	// the stored value rather than push the altered one.
-	var kept []string
-	if vault.exact {
-		secrets, kept = keepUnalteredValues(secrets, vaultSecrets)
-	}
+	// What is only an artifact of how the file reads the vault's values is not pushed
+	var kept, dropped []string
+	secrets, kept, dropped = keepUnaltered(secrets, vault)
 
 	// Calculate and show diff
 	diff := env.CalculatePushDiff(secrets, vaultSecrets)
-
-	// A current server leaves secrets missing from the file alone (merge), or trashes them
-	// with --prune (replace). An older one always replaces, so without --prune it gets the
-	// vault-only secrets back.
-	secretsToSend := secrets
-	mode := api.PushMerge
-	if opts.Prune {
-		mode = api.PushReplace
-	}
-	if !vault.exact && !vault.empty {
-		mode = api.PushReplace
-		if !opts.Prune && len(diff.Removed) > 0 {
-			secretsToSend = make(map[string]string)
-			for k, v := range vaultSecrets {
-				secretsToSend[k] = v
-			}
-			for k, v := range secrets {
-				secretsToSend[k] = v
-			}
-		}
-	}
+	secretsToSend, mode := payloadFor(vault, secrets, opts.Prune)
 
 	if len(kept) > 0 {
-		deps.UI.Warn(fmt.Sprintf("Kept the vault value of %s: %s cannot hold it exactly.", strings.Join(kept, ", "), file))
+		deps.UI.Warn(fmt.Sprintf("Kept the vault value of %s: %s cannot hold it exactly.", keyList(kept), file))
 		deps.UI.Message(deps.UI.Dim("Use keyway set to change it."))
+	}
+	if len(dropped) > 0 {
+		deps.UI.Warn(fmt.Sprintf("Did not push %s: %s only reads it out of another value.", keyList(dropped), file))
 	}
 
 	if diff.HasChanges() {
@@ -332,46 +294,35 @@ func runPushWithDeps(opts PushOptions, deps *Dependencies) error {
 	})
 
 	var resp *api.PushSecretsResponse
-	err = deps.UI.Spin("Uploading secrets...", func() error {
-		var err error
-		resp, err = client.PushSecrets(ctx, repo, envName, secretsToSend, mode)
-		return err
+	explained, err = spinWithRelogin(deps, &client, "Uploading secrets...", func(c api.APIClient) error {
+		var pushErr error
+		resp, pushErr = c.PushSecrets(ctx, repo, envName, secretsToSend, mode)
+		return pushErr
 	})
-
 	if err != nil {
-		// Handle auth errors (expired token)
-		if isAuthError(err) {
-			newToken, authErr := handleAuthError(err, deps)
-			if authErr != nil {
-				return authErr
-			}
-			// Retry with new token
-			client = deps.APIFactory.NewClient(newToken)
-			err = deps.UI.Spin("Uploading secrets...", func() error {
-				var pushErr error
-				resp, pushErr = client.PushSecrets(ctx, repo, envName, secretsToSend, mode)
-				return pushErr
-			})
-		}
-		if err != nil {
-			analytics.Track(analytics.EventError, map[string]interface{}{
-				"command": "push",
-				"error":   err.Error(),
-			})
-			if apiErr, ok := err.(*api.APIError); ok {
-				deps.UI.Error(apiErr.Error())
-				if apiErr.UpgradeURL != "" {
-					analytics.Track(analytics.EventUpgradePrompt, map[string]interface{}{
-						"reason":  "push_error",
-						"command": "push",
-					})
-					deps.UI.Message(fmt.Sprintf("Upgrade: %s", deps.UI.Link(apiErr.UpgradeURL)))
-				}
-			} else {
-				deps.UI.Error(err.Error())
-			}
+		if explained {
 			return err
 		}
+		analytics.Track(analytics.EventError, map[string]interface{}{
+			"command": "push",
+			"error":   err.Error(),
+		})
+		if apiErr, ok := err.(*api.APIError); ok {
+			deps.UI.Error(apiErr.Error())
+			if apiErr.UpgradeURL != "" {
+				analytics.Track(analytics.EventUpgradePrompt, map[string]interface{}{
+					"reason":  "push_error",
+					"command": "push",
+				})
+				deps.UI.Message(fmt.Sprintf("Upgrade: %s", deps.UI.Link(apiErr.UpgradeURL)))
+			}
+		} else {
+			deps.UI.Error(err.Error())
+		}
+		return err
+	}
+	if err := checkMerged(deps, mode, resp, repo); err != nil {
+		return err
 	}
 
 	deps.UI.Success(resp.Message)
@@ -395,24 +346,4 @@ func runPushWithDeps(opts PushOptions, deps *Dependencies) error {
 	deps.UI.Outro(fmt.Sprintf("Dashboard: %s", deps.UI.Link(dashboardURL)))
 
 	return nil
-}
-
-// keepUnalteredValues replaces, in local, the values that are only what the .env format made
-// of the vault's value (e.g. 'x' read as x), and returns their keys.
-func keepUnalteredValues(local, vault map[string]string) (map[string]string, []string) {
-	var kept []string
-	result := make(map[string]string, len(local))
-	for key, value := range local {
-		result[key] = value
-		stored, inVault := vault[key]
-		if !inVault || stored == value {
-			continue
-		}
-		if readBack, ok := env.ReadBack(key, stored); ok && readBack == value {
-			result[key] = stored
-			kept = append(kept, key)
-		}
-	}
-	sort.Strings(kept)
-	return result, kept
 }

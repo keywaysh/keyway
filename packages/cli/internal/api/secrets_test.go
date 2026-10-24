@@ -321,7 +321,7 @@ func TestClient_PushSecrets_SpecialCharacters(t *testing.T) {
 	}
 }
 
-func TestClient_PushSecrets_SendsModeAndReadsAppliedMode(t *testing.T) {
+func TestClient_PushSecrets_SendsMode(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var body map[string]interface{}
 		json.NewDecoder(r.Body).Decode(&body)
@@ -337,12 +337,8 @@ func TestClient_PushSecrets_SendsModeAndReadsAppliedMode(t *testing.T) {
 	client := NewClient("token")
 	client.baseURL = server.URL
 
-	resp, err := client.PushSecrets(context.Background(), "owner/repo", "dev", map[string]string{"A": "1"}, PushMerge)
-	if err != nil {
+	if _, err := client.PushSecrets(context.Background(), "owner/repo", "dev", map[string]string{"A": "1"}, PushMerge); err != nil {
 		t.Fatalf("unexpected error: %v", err)
-	}
-	if resp.Mode != "merge" {
-		t.Errorf("expected applied mode 'merge', got %q", resp.Mode)
 	}
 }
 

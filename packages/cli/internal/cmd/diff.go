@@ -216,6 +216,7 @@ func diffResultWithDeps(opts DiffOptions, deps *Dependencies) (*DiffResult, erro
 	})
 
 	if err != nil {
+		showVaultReadError(deps, err)
 		return nil, err
 	}
 
@@ -365,9 +366,9 @@ func printDiffResults(result *DiffResult, env1, env2 string, showValues, keysOnl
 		ui.Message(fmt.Sprintf("Only in %s (%d):", ui.Bold(env1), len(result.OnlyInEnv1)))
 		for _, key := range result.OnlyInEnv1 {
 			if keysOnly {
-				fmt.Printf("  %s\n", key)
+				fmt.Printf("  %s\n", ui.SafeKey(key))
 			} else {
-				fmt.Printf("  %s %s\n", ui.Value("-"), key)
+				fmt.Printf("  %s %s\n", ui.Value("-"), ui.SafeKey(key))
 			}
 		}
 	}
@@ -378,9 +379,9 @@ func printDiffResults(result *DiffResult, env1, env2 string, showValues, keysOnl
 		ui.Message(fmt.Sprintf("Only in %s (%d):", ui.Bold(env2), len(result.OnlyInEnv2)))
 		for _, key := range result.OnlyInEnv2 {
 			if keysOnly {
-				fmt.Printf("  %s\n", key)
+				fmt.Printf("  %s\n", ui.SafeKey(key))
 			} else {
-				fmt.Printf("  %s %s\n", ui.Value("+"), key)
+				fmt.Printf("  %s %s\n", ui.Value("+"), ui.SafeKey(key))
 			}
 		}
 	}
@@ -391,13 +392,13 @@ func printDiffResults(result *DiffResult, env1, env2 string, showValues, keysOnl
 		ui.Message(fmt.Sprintf("Different values (%d):", len(result.Different)))
 		for _, entry := range result.Different {
 			if keysOnly {
-				fmt.Printf("  %s\n", entry.Key)
+				fmt.Printf("  %s\n", ui.SafeKey(entry.Key))
 			} else if showValues {
-				fmt.Printf("  %s %s\n", yellow.Sprint("~"), entry.Key)
+				fmt.Printf("  %s %s\n", yellow.Sprint("~"), ui.SafeKey(entry.Key))
 				fmt.Printf("    %s: %s\n", env1, maskValue(entry.Value1))
 				fmt.Printf("    %s: %s\n", env2, maskValue(entry.Value2))
 			} else {
-				fmt.Printf("  %s %s %s\n", yellow.Sprint("~"), entry.Key, ui.Dim(fmt.Sprintf("%s → %s", entry.Preview1, entry.Preview2)))
+				fmt.Printf("  %s %s %s\n", yellow.Sprint("~"), ui.SafeKey(entry.Key), ui.Dim(fmt.Sprintf("%s → %s", entry.Preview1, entry.Preview2)))
 			}
 		}
 	}

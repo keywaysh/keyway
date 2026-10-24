@@ -122,48 +122,28 @@ func runPullWithDeps(opts PullOptions, deps *Dependencies) error {
 	})
 
 	var pulled *api.PullSecretsResponse
-	err = deps.UI.Spin("Downloading secrets...", func() error {
-		resp, err := client.PullSecrets(ctx, repo, envName)
-		if err != nil {
-			return err
-		}
-		pulled = resp
-		return nil
+	explained, err := spinWithRelogin(deps, &client, "Downloading secrets...", func(c api.APIClient) error {
+		var pullErr error
+		pulled, pullErr = c.PullSecrets(ctx, repo, envName)
+		return pullErr
 	})
-
 	if err != nil {
-		// Handle auth errors (expired token)
-		if isAuthError(err) {
-			newToken, authErr := handleAuthError(err, deps)
-			if authErr != nil {
-				return authErr
-			}
-			// Retry with new token
-			client = deps.APIFactory.NewClient(newToken)
-			err = deps.UI.Spin("Downloading secrets...", func() error {
-				resp, pullErr := client.PullSecrets(ctx, repo, envName)
-				if pullErr != nil {
-					return pullErr
-				}
-				pulled = resp
-				return nil
-			})
-		}
-		if err != nil {
-			analytics.Track(analytics.EventError, map[string]interface{}{
-				"command": "pull",
-				"error":   err.Error(),
-			})
-			if apiErr, ok := err.(*api.APIError); ok {
-				deps.UI.Error(apiErr.Error())
-				if apiErr.UpgradeURL != "" {
-					deps.UI.Message(fmt.Sprintf("Upgrade: %s", deps.UI.Link(apiErr.UpgradeURL)))
-				}
-			} else {
-				deps.UI.Error(err.Error())
-			}
+		if explained {
 			return err
 		}
+		analytics.Track(analytics.EventError, map[string]interface{}{
+			"command": "pull",
+			"error":   err.Error(),
+		})
+		if apiErr, ok := err.(*api.APIError); ok {
+			deps.UI.Error(apiErr.Error())
+			if apiErr.UpgradeURL != "" {
+				deps.UI.Message(fmt.Sprintf("Upgrade: %s", deps.UI.Link(apiErr.UpgradeURL)))
+			}
+		} else {
+			deps.UI.Error(err.Error())
+		}
+		return err
 	}
 
 	// Tip about keyway run (Zero-Trust)
@@ -194,19 +174,21 @@ func runPullWithDeps(opts PullOptions, deps *Dependencies) error {
 		localSecrets = make(map[string]string)
 	}
 
-	// Exact values from current servers; older ones only send .env text
-	vaultSecrets, exact, err := secretsOf(pulled)
-	if err != nil {
-		if localExists && !opts.Force {
-			showVaultReadError(deps, err)
-			deps.UI.Message(deps.UI.Dim("Use --force to replace the file with the vault's content."))
-			return err
-		}
-		vaultSecrets = nil // writing the content as is needs no reading
+	// The vault's values, and what the file will read them as: compare the local file with the
+	// latter, so that a value the file cannot hold exactly does not show as changed.
+	vaultSecrets, _, err := secretsOf(pulled)
+	if err != nil && localExists && !opts.Force {
+		showVaultReadError(deps, err)
+		deps.UI.Message(deps.UI.Dim("Use --force to replace the file with the vault's content."))
+		return err
+	}
+	asRead := asFile(vaultContent)
+	if asRead == nil {
+		asRead = vaultSecrets
 	}
 
 	// Calculate diff
-	diff := env.CalculatePullDiff(localSecrets, vaultSecrets)
+	diff := env.CalculatePullDiff(localSecrets, asRead)
 
 	// Show diff if there are changes and file exists
 	if localExists && diff.HasChanges() {
@@ -270,7 +252,7 @@ func runPullWithDeps(opts PullOptions, deps *Dependencies) error {
 		}
 	} else {
 		// Merge mode: start with vault secrets, add local-only secrets
-		finalContent = env.Merge(vaultContent, localSecrets, vaultSecrets)
+		finalContent = env.Merge(vaultContent, localSecrets, asRead)
 	}
 
 	// Write file with restricted permissions
@@ -280,17 +262,15 @@ func runPullWithDeps(opts PullOptions, deps *Dependencies) error {
 	}
 
 	count := env.CountLines(finalContent)
-	if vaultSecrets != nil {
-		count = len(vaultSecrets)
-		if !opts.Force {
-			count += len(diff.LocalOnly)
-		}
+	written, readErr := env.Parse(finalContent)
+	if readErr == nil {
+		count = len(written)
 	}
 	deps.UI.Success(fmt.Sprintf("Secrets downloaded to %s", deps.UI.File(opts.File)))
 	deps.UI.Message(fmt.Sprintf("Variables: %s", deps.UI.Value(count)))
 
-	if exact {
-		warnAboutAlteredValues(deps, opts.File, finalContent, vaultSecrets)
+	if vaultSecrets != nil {
+		warnAboutAlteredValues(deps, opts.File, written, readErr, vaultSecrets)
 	}
 
 	if !opts.Force && len(diff.LocalOnly) > 0 {
@@ -302,17 +282,17 @@ func runPullWithDeps(opts PullOptions, deps *Dependencies) error {
 	return nil
 }
 
-// warnAboutAlteredValues names the vault values that the written file cannot hold exactly.
-// keyway push leaves them alone, and keyway run injects the exact values.
-func warnAboutAlteredValues(deps *Dependencies, file, content string, exact map[string]string) {
-	written, err := env.Parse(content)
-	if err != nil {
-		deps.UI.Warn(fmt.Sprintf("%s cannot be read back safely (%v). Use keyway run to get the exact values.", file, err))
+// warnAboutAlteredValues names the vault values that the written file, read back as written
+// (readErr if it cannot be), does not hold exactly. keyway push leaves them alone, and keyway
+// run injects the exact values.
+func warnAboutAlteredValues(deps *Dependencies, file string, written map[string]string, readErr error, exact map[string]string) {
+	if readErr != nil {
+		deps.UI.Warn(fmt.Sprintf("%s cannot be read back safely (%v), so keyway push would refuse it. Use keyway run to get the exact values.", file, readErr))
 		return
 	}
 	var altered []string
 	for key, value := range exact {
-		if written[key] != value {
+		if got, ok := written[key]; !ok || got != value {
 			altered = append(altered, key)
 		}
 	}
@@ -320,5 +300,5 @@ func warnAboutAlteredValues(deps *Dependencies, file, content string, exact map[
 		return
 	}
 	sort.Strings(altered)
-	deps.UI.Warn(fmt.Sprintf("%s cannot hold the exact value of %s. Use keyway run to get the exact values.", file, strings.Join(altered, ", ")))
+	deps.UI.Warn(fmt.Sprintf("%s cannot hold the exact value of %s. Use keyway run to get the exact values.", file, keyList(altered)))
 }

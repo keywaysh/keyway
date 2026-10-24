@@ -3,6 +3,8 @@ package ui
 import (
 	"fmt"
 	"os"
+	"strconv"
+	"unicode"
 
 	"github.com/charmbracelet/huh"
 	"github.com/charmbracelet/huh/spinner"
@@ -160,21 +162,32 @@ func IsInteractive() bool {
 }
 
 // DiffAdded displays a variable that will be added
+// SafeKey returns a secret's key as is when every character prints plainly, else quoted with
+// escapes: a key cannot then move the cursor or send sequences to the terminal.
+func SafeKey(key string) string {
+	for _, r := range key {
+		if !unicode.IsPrint(r) {
+			return strconv.Quote(key)
+		}
+	}
+	return key
+}
+
 func DiffAdded(key string) {
-	green.Printf("  + %s\n", key)
+	green.Printf("  + %s\n", SafeKey(key))
 }
 
 // DiffChanged displays a variable that will be updated
 func DiffChanged(key string) {
-	yellow.Printf("  ~ %s\n", key)
+	yellow.Printf("  ~ %s\n", SafeKey(key))
 }
 
 // DiffRemoved displays a variable that will be removed
 func DiffRemoved(key string) {
-	red.Printf("  - %s\n", key)
+	red.Printf("  - %s\n", SafeKey(key))
 }
 
 // DiffKept displays a variable that will be kept (local only)
 func DiffKept(key string) {
-	dim.Printf("  • %s\n", key)
+	dim.Printf("  • %s\n", SafeKey(key))
 }

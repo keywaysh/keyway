@@ -212,34 +212,21 @@ func runSetRemote(opts SetOptions, deps *Dependencies) error {
 
 	// Fetch current vault state
 	var vault *vaultState
-	err = deps.UI.Spin("Fetching current secrets...", func() error {
+	explained, err := spinWithRelogin(deps, &client, "Fetching current secrets...", func(c api.APIClient) error {
 		var readErr error
-		vault, readErr = readVault(client, repo, envName)
+		vault, readErr = readVault(c, repo, envName)
 		return readErr
 	})
-
 	if err != nil {
-		if isAuthError(err) {
-			newToken, authErr := handleAuthError(err, deps)
-			if authErr != nil {
-				return authErr
-			}
-			client = deps.APIFactory.NewClient(newToken)
-			err = deps.UI.Spin("Fetching current secrets...", func() error {
-				var readErr error
-				vault, readErr = readVault(client, repo, envName)
-				return readErr
-			})
+		var readErr *vaultReadError
+		switch {
+		case explained:
+		case errors.As(err, &readErr):
+			showVaultReadError(deps, err)
+		default:
+			deps.UI.Error(err.Error())
 		}
-		if err != nil {
-			var readErr *vaultReadError
-			if errors.As(err, &readErr) {
-				showVaultReadError(deps, err)
-			} else {
-				deps.UI.Error(err.Error())
-			}
-			return err
-		}
+		return err
 	}
 
 	// Check if key exists in vault
@@ -271,49 +258,35 @@ func runSetRemote(opts SetOptions, deps *Dependencies) error {
 		"isUpdate":     existsInVault,
 	})
 
-	// A current server merges the one secret. An older one ignores modes and replaces, so it
-	// gets every secret back, as read above.
-	payload, mode := map[string]string{opts.Key: opts.Value}, api.PushMerge
-	if !vault.exact && !vault.empty {
-		payload, mode = vault.secrets, api.PushReplace
-		payload[opts.Key] = opts.Value
-	}
+	// A current server merges the one secret; an older one gets every secret back
+	payload, mode := payloadFor(vault, map[string]string{opts.Key: opts.Value}, false)
 
 	var resp *api.PushSecretsResponse
-	err = deps.UI.Spin("Pushing to vault...", func() error {
+	explained, err = spinWithRelogin(deps, &client, "Pushing to vault...", func(c api.APIClient) error {
 		var pushErr error
-		resp, pushErr = client.PushSecrets(ctx, repo, envName, payload, mode)
+		resp, pushErr = c.PushSecrets(ctx, repo, envName, payload, mode)
 		return pushErr
 	})
-
 	if err != nil {
-		if isAuthError(err) {
-			newToken, authErr := handleAuthError(err, deps)
-			if authErr != nil {
-				return authErr
-			}
-			client = deps.APIFactory.NewClient(newToken)
-			err = deps.UI.Spin("Pushing to vault...", func() error {
-				var pushErr error
-				resp, pushErr = client.PushSecrets(ctx, repo, envName, payload, mode)
-				return pushErr
-			})
-		}
-		if err != nil {
-			analytics.Track(analytics.EventError, map[string]interface{}{
-				"command": "set",
-				"error":   err.Error(),
-			})
-			if apiErr, ok := err.(*api.APIError); ok {
-				deps.UI.Error(apiErr.Error())
-				if apiErr.UpgradeURL != "" {
-					deps.UI.Message(fmt.Sprintf("Upgrade: %s", deps.UI.Link(apiErr.UpgradeURL)))
-				}
-			} else {
-				deps.UI.Error(err.Error())
-			}
+		if explained {
 			return err
 		}
+		analytics.Track(analytics.EventError, map[string]interface{}{
+			"command": "set",
+			"error":   err.Error(),
+		})
+		if apiErr, ok := err.(*api.APIError); ok {
+			deps.UI.Error(apiErr.Error())
+			if apiErr.UpgradeURL != "" {
+				deps.UI.Message(fmt.Sprintf("Upgrade: %s", deps.UI.Link(apiErr.UpgradeURL)))
+			}
+		} else {
+			deps.UI.Error(err.Error())
+		}
+		return err
+	}
+	if err := checkMerged(deps, mode, resp, repo); err != nil {
+		return err
 	}
 
 	if existsInVault {

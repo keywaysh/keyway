@@ -75,7 +75,7 @@ keyway pull -e staging               # Pull staging
 keyway pull -e staging -f .env.stg   # Compare environments
 ```
 
-A `.env` file cannot hold every value exactly (for example one wrapped in single quotes, like `'x'`). Pull names such secrets, `keyway push` leaves their stored value alone, and `keyway run` always injects the exact values.
+A `.env` file cannot hold every value exactly (for example one wrapped in single quotes, like `'x'`). Pull names such secrets; `keyway push` leaves their stored value alone and does not create keys the file only reads out of another value; `keyway run` always injects the exact values.
 
 ---
 

@@ -154,6 +154,7 @@ type MockAPIClient struct {
 	VaultEnvsError                     error
 	PullResponse                       *api.PullSecretsResponse
 	PullResponses                      map[string]*api.PullSecretsResponse // by environment, over PullResponse
+	PullErrorFirst                     error                               // returned by the first PullSecrets call only
 	PullError                          error
 	PushResponse                       *api.PushSecretsResponse
 	PushError                          error
@@ -206,6 +207,11 @@ func (m *MockAPIClient) PushSecrets(ctx context.Context, repo, env string, secre
 	return m.PushResponse, m.PushError
 }
 func (m *MockAPIClient) PullSecrets(ctx context.Context, repo, env string) (*api.PullSecretsResponse, error) {
+	if m.PullErrorFirst != nil {
+		err := m.PullErrorFirst
+		m.PullErrorFirst = nil
+		return nil, err
+	}
 	if resp, ok := m.PullResponses[env]; ok {
 		return resp, nil
 	}
@@ -248,9 +254,11 @@ func (m *MockAPIClient) StartOrganizationTrial(ctx context.Context, orgLogin str
 // MockAPIFactory creates mock API clients
 type MockAPIFactory struct {
 	Client api.APIClient
+	Tokens []string // tokens clients were created with
 }
 
 func (m *MockAPIFactory) NewClient(token string) api.APIClient {
+	m.Tokens = append(m.Tokens, token)
 	return m.Client
 }
 
