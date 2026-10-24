@@ -22,7 +22,7 @@ describe('usersApi', () => {
             email: 'test@example.com',
             avatarUrl: 'https://avatar.png',
             createdAt: '2025-01-01T00:00:00Z',
-            plan: 'pro',
+            plan: 'team',
           },
           meta: { requestId: 'req-1' },
         }),
@@ -39,7 +39,7 @@ describe('usersApi', () => {
       expect(result.name).toBe('testuser')
       expect(result.email).toBe('test@example.com')
       expect(result.github_username).toBe('testuser')
-      expect(result.plan).toBe('pro')
+      expect(result.plan).toBe('team')
     })
 
     it('should handle missing optional fields', async () => {
@@ -75,7 +75,7 @@ describe('usersApi', () => {
         status: 200,
         json: () => Promise.resolve({
           data: {
-            plan: 'pro',
+            plan: 'team',
             limits: {
               maxPublicRepos: 'unlimited',
               maxPrivateRepos: 50,
@@ -99,7 +99,7 @@ describe('usersApi', () => {
         expect.stringContaining('/v1/users/me/usage'),
         expect.any(Object)
       )
-      expect(result.plan).toBe('pro')
+      expect(result.plan).toBe('team')
       expect(result.usage.public).toBe(3)
       expect(result.limits.maxPrivateRepos).toBe(50)
     })
