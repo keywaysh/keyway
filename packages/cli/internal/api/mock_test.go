@@ -88,7 +88,7 @@ func TestMockClient_SecretsMethods(t *testing.T) {
 
 	// Test PushSecrets
 	secrets := map[string]string{"API_KEY": "secret123"}
-	pushResp, err := mock.PushSecrets(ctx, "owner/repo", "production", secrets)
+	pushResp, err := mock.PushSecrets(ctx, "owner/repo", "production", secrets, PushReplace)
 	if err != nil {
 		t.Errorf("PushSecrets() error = %v", err)
 	}

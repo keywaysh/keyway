@@ -51,7 +51,7 @@ func TestClient_PushSecrets_Success(t *testing.T) {
 		"DB_PASSWORD": "dbpass",
 	}
 
-	resp, err := client.PushSecrets(context.Background(), "owner/repo", "production", secrets)
+	resp, err := client.PushSecrets(context.Background(), "owner/repo", "production", secrets, PushReplace)
 
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -95,7 +95,7 @@ func TestClient_PushSecrets_EmptySecrets(t *testing.T) {
 	client := NewClient("token")
 	client.baseURL = server.URL
 
-	resp, err := client.PushSecrets(context.Background(), "owner/repo", "production", map[string]string{})
+	resp, err := client.PushSecrets(context.Background(), "owner/repo", "production", map[string]string{}, PushReplace)
 
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -120,7 +120,7 @@ func TestClient_PushSecrets_Unauthorized(t *testing.T) {
 	client := NewClient("bad-token")
 	client.baseURL = server.URL
 
-	_, err := client.PushSecrets(context.Background(), "owner/repo", "production", map[string]string{"KEY": "value"})
+	_, err := client.PushSecrets(context.Background(), "owner/repo", "production", map[string]string{"KEY": "value"}, PushReplace)
 
 	if err == nil {
 		t.Fatal("expected error for unauthorized request")
@@ -148,7 +148,7 @@ func TestClient_PushSecrets_Forbidden(t *testing.T) {
 	client := NewClient("token")
 	client.baseURL = server.URL
 
-	_, err := client.PushSecrets(context.Background(), "owner/repo", "production", map[string]string{"KEY": "value"})
+	_, err := client.PushSecrets(context.Background(), "owner/repo", "production", map[string]string{"KEY": "value"}, PushReplace)
 
 	if err == nil {
 		t.Fatal("expected error for forbidden request")
@@ -314,9 +314,79 @@ func TestClient_PushSecrets_SpecialCharacters(t *testing.T) {
 		"MULTILINE": "line1\nline2\nline3",
 	}
 
-	_, err := client.PushSecrets(context.Background(), "owner/repo", "production", secrets)
+	_, err := client.PushSecrets(context.Background(), "owner/repo", "production", secrets, PushReplace)
 
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestClient_PushSecrets_SendsMode(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]interface{}
+		json.NewDecoder(r.Body).Decode(&body)
+		if body["mode"] != "merge" {
+			t.Errorf("expected mode 'merge', got %v", body["mode"])
+		}
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"data": map[string]interface{}{"success": true, "message": "ok", "mode": "merge"},
+		})
+	}))
+	defer server.Close()
+
+	client := NewClient("token")
+	client.baseURL = server.URL
+
+	if _, err := client.PushSecrets(context.Background(), "owner/repo", "dev", map[string]string{"A": "1"}, PushMerge); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestClient_PullSecrets_ReturnsExactValues(t *testing.T) {
+	exact := map[string]string{"MULTI": "line1\nline2", "QUOTED": `say "hi"`, "TRAIL": `ends with \`}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"data": map[string]interface{}{"content": "ignored", "secrets": exact},
+		})
+	}))
+	defer server.Close()
+
+	client := NewClient("token")
+	client.baseURL = server.URL
+
+	resp, err := client.PullSecrets(context.Background(), "owner/repo", "dev")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(resp.Secrets) != len(exact) {
+		t.Fatalf("expected %d secrets, got %v", len(exact), resp.Secrets)
+	}
+	for k, v := range exact {
+		if resp.Secrets[k] != v {
+			t.Errorf("%s = %q, want %q", k, resp.Secrets[k], v)
+		}
+	}
+}
+
+func TestClient_PullSecrets_OlderServerSendsNoValues(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"data": map[string]interface{}{"content": "A=1"},
+		})
+	}))
+	defer server.Close()
+
+	client := NewClient("token")
+	client.baseURL = server.URL
+
+	resp, err := client.PullSecrets(context.Background(), "owner/repo", "dev")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.Secrets != nil {
+		t.Errorf("expected no exact values from an older server, got %v", resp.Secrets)
+	}
+	if resp.Content != "A=1" {
+		t.Errorf("expected content 'A=1', got %q", resp.Content)
 	}
 }

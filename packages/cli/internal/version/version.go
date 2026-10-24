@@ -98,7 +98,9 @@ func GetUpdateCommand(method InstallMethod) string {
 	case InstallMethodNPM:
 		return "npm update -g @keywaysh/cli"
 	case InstallMethodHomebrew:
-		return "brew upgrade keyway"
+		// Homebrew refetches taps at most once a day: without brew update, a tap fetched just
+		// before the release keeps the old version.
+		return "brew update && brew upgrade keyway"
 	default:
 		return "curl -fsSL https://keyway.sh/install.sh | sh"
 	}

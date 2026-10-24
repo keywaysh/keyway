@@ -340,3 +340,24 @@ func TestAPIError_WithTrialInfo(t *testing.T) {
 		t.Errorf("expected 14 days, got %d", err.TrialInfo.DaysAvailable)
 	}
 }
+
+func TestNewClient_UserAgentCarriesTheVersion(t *testing.T) {
+	var got string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = r.Header.Get("User-Agent")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	SetVersion("0.6.1")
+	defer SetVersion("dev")
+
+	client := NewClient("token")
+	client.baseURL = server.URL
+	if err := client.do(context.Background(), "GET", "/test", nil, nil); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != "keyway-cli/0.6.1" {
+		t.Errorf("expected User-Agent 'keyway-cli/0.6.1', got %q", got)
+	}
+}

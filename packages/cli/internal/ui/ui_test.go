@@ -227,3 +227,37 @@ func TestFormattingFunctions_EmptyInput(t *testing.T) {
 		})
 	}
 }
+
+func TestSafeKey(t *testing.T) {
+	tests := map[string]string{
+		"API_KEY":          "API_KEY",
+		"lower_key.v2":     "lower_key.v2",
+		"K\nL":             `"K\nL"`,
+		"\x1b[31mRED":      `"\x1b[31mRED"`,
+		"bidi\u202eevil":   `"bidi\u202eevil"`,
+		"nbsp\u00a0inside": `"nbsp\u00a0inside"`,
+		"":                 `""`,
+		" PADDED":          `" PADDED"`,
+	}
+	for key, want := range tests {
+		if got := SafeKey(key); got != want {
+			t.Errorf("SafeKey(%q) = %s, want %s", key, got, want)
+		}
+	}
+}
+
+func TestSafeText(t *testing.T) {
+	tests := map[string]string{
+		"plain text, é": "plain text, é",
+		"two\nlines":    `two\nlines`,
+		"cr\r":          `cr\r`,
+		"\x1b[2J":       `\x1b[2J`,
+		"bidi\u202e":    `bidi\u202e`,
+		"\u2028":        `\u2028`,
+	}
+	for text, want := range tests {
+		if got := SafeText(text); got != want {
+			t.Errorf("SafeText(%q) = %s, want %s", text, got, want)
+		}
+	}
+}

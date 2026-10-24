@@ -2,10 +2,12 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"sort"
+	"strings"
 
 	"github.com/keywaysh/cli/internal/api"
-	"github.com/keywaysh/cli/internal/env"
 	"github.com/spf13/cobra"
 )
 
@@ -107,19 +109,22 @@ func runRunWithDeps(opts RunOptions, deps *Dependencies) error {
 
 	deps.UI.Step(fmt.Sprintf("Environment: %s", deps.UI.Value(envName)))
 
-	// 5. Fetch Secrets
-	var vaultContent string
+	// 5. Fetch Secrets: exact values, or the older servers' .env text read exactly
+	var secrets map[string]string
 	err = deps.UI.Spin("Fetching secrets...", func() error {
 		resp, err := client.PullSecrets(ctx, repo, envName)
 		if err != nil {
 			return err
 		}
-		vaultContent = resp.Content
-		return nil
+		secrets, _, err = secretsOf(resp)
+		return err
 	})
 
 	if err != nil {
-		if apiErr, ok := err.(*api.APIError); ok {
+		var readErr *vaultReadError
+		if errors.As(err, &readErr) {
+			showVaultReadError(deps, err)
+		} else if apiErr, ok := err.(*api.APIError); ok {
 			deps.UI.Error(apiErr.Error())
 		} else {
 			deps.UI.Error(err.Error())
@@ -127,8 +132,19 @@ func runRunWithDeps(opts RunOptions, deps *Dependencies) error {
 		return err
 	}
 
-	// 6. Parse Secrets
-	secrets := env.Parse(vaultContent)
+	// 6. Skip what cannot be an environment variable: NUL, or "=" in the name
+	var skipped []string
+	for key, value := range secrets {
+		if key == "" || strings.ContainsAny(key, "=\x00") || strings.Contains(value, "\x00") {
+			skipped = append(skipped, key)
+			delete(secrets, key)
+		}
+	}
+	if len(skipped) > 0 {
+		sort.Strings(skipped)
+		deps.UI.Warn(fmt.Sprintf("Not injected: %s (a variable cannot have \"=\" in its name or NUL in its value)", keyList(skipped)))
+	}
+
 	deps.UI.Success(fmt.Sprintf("Injected %d secrets", len(secrets)))
 
 	// 7. Execute Command

@@ -51,6 +51,10 @@ keyway push --prune                      # Remove secrets not in local file
 Push is additive — existing secrets not in your local file are preserved. Use `--prune` to remove them.
 :::
 
+Quoted values may span several lines, as `keyway pull` writes them; inside double quotes, `\"` is a quote. A file the CLI could only read by guessing (a quote that never closes, or quoted text that reads two ways) stops the push and names the line.
+
+`--prune` keeps the secrets whose keys no `.env` file can name (created before the server refused them, like ` PADDED` or `#HASHED`). If the vault holds a key that would let its value read as lines of their own (one with a line break, or a multi-line value under a key with `=` or a leading `#`), push refuses the file: rename that secret in the dashboard, or use `keyway set`.
+
 ---
 
 ### keyway pull
@@ -72,6 +76,10 @@ keyway pull                          # Pull development to .env
 keyway pull -e staging               # Pull staging
 keyway pull -e staging -f .env.stg   # Compare environments
 ```
+
+A `.env` file cannot hold every value exactly (for example one wrapped in single quotes, like `'x'`). Pull names such secrets; `keyway push` leaves their stored value alone and does not create keys the file only reads out of another value; `keyway run` always injects the exact values.
+
+Pull writes secrets in key order. When the file exists, pull keeps its local-only variables exactly, and stops instead if they would change how the vault's values read.
 
 ---
 

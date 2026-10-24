@@ -3,6 +3,9 @@ package ui
 import (
 	"fmt"
 	"os"
+	"strconv"
+	"strings"
+	"unicode"
 
 	"github.com/charmbracelet/huh"
 	"github.com/charmbracelet/huh/spinner"
@@ -159,22 +162,52 @@ func IsInteractive() bool {
 	return (fi.Mode() & os.ModeCharDevice) != 0
 }
 
+// SafeKey returns a secret's key as is when every character prints plainly, else quoted with
+// escapes: a key cannot then move the cursor or send sequences to the terminal. Empty keys and
+// keys with surrounding spaces are quoted too, so that they show.
+func SafeKey(key string) string {
+	if key == "" || strings.TrimSpace(key) != key {
+		return strconv.Quote(key)
+	}
+	for _, r := range key {
+		if !unicode.IsPrint(r) {
+			return strconv.Quote(key)
+		}
+	}
+	return key
+}
+
+// SafeText returns s with each character that does not print plainly escaped (\n, \x1b), so
+// that a part of a secret's value cannot break a line or send sequences to the terminal.
+func SafeText(s string) string {
+	var b strings.Builder
+	for _, r := range s {
+		if unicode.IsPrint(r) {
+			b.WriteRune(r)
+		} else {
+			quoted := strconv.QuoteRune(r)
+			b.WriteString(quoted[1 : len(quoted)-1])
+		}
+	}
+	return b.String()
+}
+
 // DiffAdded displays a variable that will be added
 func DiffAdded(key string) {
-	green.Printf("  + %s\n", key)
+	green.Printf("  + %s\n", SafeKey(key))
 }
 
 // DiffChanged displays a variable that will be updated
 func DiffChanged(key string) {
-	yellow.Printf("  ~ %s\n", key)
+	yellow.Printf("  ~ %s\n", SafeKey(key))
 }
 
 // DiffRemoved displays a variable that will be removed
 func DiffRemoved(key string) {
-	red.Printf("  - %s\n", key)
+	red.Printf("  - %s\n", SafeKey(key))
 }
 
 // DiffKept displays a variable that will be kept (local only)
 func DiffKept(key string) {
-	dim.Printf("  • %s\n", key)
+	dim.Printf("  • %s\n", SafeKey(key))
 }

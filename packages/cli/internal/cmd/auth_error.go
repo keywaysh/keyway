@@ -44,3 +44,23 @@ func isAuthError(err error) bool {
 	apiErr, ok := err.(*api.APIError)
 	return ok && apiErr.StatusCode == 401
 }
+
+// spinWithRelogin runs call under a spinner. When the token has expired, it asks to sign in
+// again (deps.Relogin) and retries once with a client for the new token. It returns the client
+// to use from then on; explained reports an error the sign-in already showed to the user.
+func spinWithRelogin(deps *Dependencies, client api.APIClient, title string, call func(api.APIClient) error) (api.APIClient, bool, error) {
+	err := deps.UI.Spin(title, func() error { return call(client) })
+	if err == nil || !isAuthError(err) {
+		return client, false, err
+	}
+	relogin := deps.Relogin
+	if relogin == nil {
+		relogin = handleAuthError
+	}
+	token, err := relogin(err, deps)
+	if err != nil {
+		return client, true, err
+	}
+	client = deps.APIFactory.NewClient(token)
+	return client, false, deps.UI.Spin(title, func() error { return call(client) })
+}

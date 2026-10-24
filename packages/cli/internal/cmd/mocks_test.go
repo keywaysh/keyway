@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	"github.com/keywaysh/cli/internal/api"
 )
@@ -103,7 +104,7 @@ func (m *MockUIProvider) Spin(message string, fn func() error) error {
 	}
 	return fn()
 }
-func (m *MockUIProvider) Value(v interface{}) string   { return "" }
+func (m *MockUIProvider) Value(v interface{}) string   { return fmt.Sprint(v) }
 func (m *MockUIProvider) File(path string) string      { return path }
 func (m *MockUIProvider) Link(url string) string       { return url }
 func (m *MockUIProvider) Command(cmd string) string    { return cmd }
@@ -152,10 +153,14 @@ type MockAPIClient struct {
 	VaultEnvs                          []string
 	VaultEnvsError                     error
 	PullResponse                       *api.PullSecretsResponse
+	PullResponses                      map[string]*api.PullSecretsResponse // by environment, over PullResponse
+	PullErrorFirst                     error                               // returned by the first PullSecrets call only
 	PullError                          error
 	PushResponse                       *api.PushSecretsResponse
 	PushError                          error
 	PushedSecrets                      map[string]string // Captures secrets sent in PushSecrets call
+	PushedMode                         api.PushMode      // Captures the mode sent in PushSecrets call
+	PushCalls                          int               // Number of PushSecrets calls
 	InitResponse                       *api.InitVaultResponse
 	InitError                          error
 	VaultExists                        bool
@@ -195,11 +200,21 @@ func (m *MockAPIClient) GetVaultDetails(ctx context.Context, repoFullName string
 func (m *MockAPIClient) GetVaultEnvironments(ctx context.Context, repoFullName string) ([]string, error) {
 	return m.VaultEnvs, m.VaultEnvsError
 }
-func (m *MockAPIClient) PushSecrets(ctx context.Context, repo, env string, secrets map[string]string) (*api.PushSecretsResponse, error) {
+func (m *MockAPIClient) PushSecrets(ctx context.Context, repo, env string, secrets map[string]string, mode api.PushMode) (*api.PushSecretsResponse, error) {
+	m.PushCalls++
 	m.PushedSecrets = secrets
+	m.PushedMode = mode
 	return m.PushResponse, m.PushError
 }
 func (m *MockAPIClient) PullSecrets(ctx context.Context, repo, env string) (*api.PullSecretsResponse, error) {
+	if m.PullErrorFirst != nil {
+		err := m.PullErrorFirst
+		m.PullErrorFirst = nil
+		return nil, err
+	}
+	if resp, ok := m.PullResponses[env]; ok {
+		return resp, nil
+	}
 	return m.PullResponse, m.PullError
 }
 func (m *MockAPIClient) GetProviders(ctx context.Context) ([]api.Provider, error) {
@@ -239,9 +254,11 @@ func (m *MockAPIClient) StartOrganizationTrial(ctx context.Context, orgLogin str
 // MockAPIFactory creates mock API clients
 type MockAPIFactory struct {
 	Client api.APIClient
+	Tokens []string // tokens clients were created with
 }
 
 func (m *MockAPIFactory) NewClient(token string) api.APIClient {
+	m.Tokens = append(m.Tokens, token)
 	return m.Client
 }
 
@@ -398,6 +415,7 @@ func NewTestDeps() (*Dependencies, *MockGitClient, *MockAuthProvider, *MockUIPro
 		Stat:       stat,
 		AuthStore:  authStore,
 		HTTP:       httpClient,
+		Relogin:    noRelogin,
 	}
 
 	return deps, git, auth, ui, fs, apiClient
@@ -436,6 +454,7 @@ func NewTestDepsWithEnv() (*Dependencies, *MockGitClient, *MockAuthProvider, *Mo
 		Stat:       stat,
 		AuthStore:  authStore,
 		HTTP:       httpClient,
+		Relogin:    noRelogin,
 	}
 
 	return deps, git, auth, ui, fs, envHelper, apiClient
@@ -474,6 +493,7 @@ func NewTestDepsWithRunner() (*Dependencies, *MockGitClient, *MockAuthProvider, 
 		Stat:       stat,
 		AuthStore:  authStore,
 		HTTP:       httpClient,
+		Relogin:    noRelogin,
 	}
 
 	return deps, git, auth, ui, cmdRunner, apiClient
@@ -522,7 +542,13 @@ func NewTestDepsForDoctor() (*Dependencies, *MockGitClient, *MockUIProvider, *Mo
 		Stat:       stat,
 		AuthStore:  authStore,
 		HTTP:       httpClient,
+		Relogin:    noRelogin,
 	}
 
 	return deps, git, ui, stat, authStore, httpClient, apiClient
+}
+
+// noRelogin stands for a sign-in the user declines, without touching stored credentials.
+func noRelogin(err error, _ *Dependencies) (string, error) {
+	return "", err
 }

@@ -62,6 +62,17 @@ function isOlderClient(userAgent: string | undefined, client: string, fixed: num
   return false;
 }
 
+/**
+ * Whether a push may create a secret with this key. The .env text pull sends puts one
+ * KEY=value per line, so the key needs a character and no "=", line break or other control
+ * character, nor a leading "#" or surrounding spaces. Existing keys keep working.
+ */
+export function isUsableNewKey(key: string): boolean {
+  return (
+    key !== "" && key.trim() === key && !key.startsWith("#") && !/[=\p{Cc}\u2028\u2029]/u.test(key)
+  );
+}
+
 /** CLI up to 0.6.0 (all of which send "keyway-cli/dev"). 0.6.1 is the first fixed version. */
 export function isReleasedCli(userAgent: string | undefined): boolean {
   return isOlderClient(userAgent, "keyway-cli", [0, 6, 1]);
@@ -256,6 +267,18 @@ function displayKey(key: string): string {
 // "n keys not shown" instead of the name: the CLI and the server logs print these messages.
 function countNotShown(count: number, label: string): string {
   return `${count} key${count === 1 ? "" : "s"} not shown (${label})`;
+}
+
+/**
+ * Error message for a push that would create keys `isUsableNewKey` refuses. It counts them
+ * without naming them: like the keys `describeRejections` counts, they can be text from inside
+ * stored values (a client that sends a value's lines as keys), and the server logs the message.
+ */
+export function describeUnusableKeys(keys: string[]): string {
+  return (
+    `Cannot create ${keys.length} secret(s): a key needs at least one character, ` +
+    `and no "=", line break, control character, leading "#" or surrounding spaces.`
+  );
 }
 
 /** Error message for a push refused because of `rejected`; the released CLI prints it. */

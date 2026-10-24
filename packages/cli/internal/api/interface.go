@@ -22,7 +22,7 @@ type APIClient interface {
 	StartOrganizationTrial(ctx context.Context, orgLogin string) (*StartTrialResponse, error)
 
 	// Secrets methods
-	PushSecrets(ctx context.Context, repo, env string, secrets map[string]string) (*PushSecretsResponse, error)
+	PushSecrets(ctx context.Context, repo, env string, secrets map[string]string, mode PushMode) (*PushSecretsResponse, error)
 	PullSecrets(ctx context.Context, repo, env string) (*PullSecretsResponse, error)
 
 	// Provider methods

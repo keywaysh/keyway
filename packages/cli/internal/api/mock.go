@@ -21,7 +21,7 @@ type MockClient struct {
 	GetVaultEnvironmentsFn func(ctx context.Context, repoFullName string) ([]string, error)
 
 	// Secrets mocks
-	PushSecretsFn func(ctx context.Context, repo, env string, secrets map[string]string) (*PushSecretsResponse, error)
+	PushSecretsFn func(ctx context.Context, repo, env string, secrets map[string]string, mode PushMode) (*PushSecretsResponse, error)
 	PullSecretsFn func(ctx context.Context, repo, env string) (*PullSecretsResponse, error)
 
 	// Provider mocks
@@ -156,10 +156,10 @@ func (m *MockClient) GetVaultEnvironments(ctx context.Context, repoFullName stri
 }
 
 // Secrets methods
-func (m *MockClient) PushSecrets(ctx context.Context, repo, env string, secrets map[string]string) (*PushSecretsResponse, error) {
+func (m *MockClient) PushSecrets(ctx context.Context, repo, env string, secrets map[string]string, mode PushMode) (*PushSecretsResponse, error) {
 	m.track("PushSecrets")
 	if m.PushSecretsFn != nil {
-		return m.PushSecretsFn(ctx, repo, env, secrets)
+		return m.PushSecretsFn(ctx, repo, env, secrets, mode)
 	}
 	return &PushSecretsResponse{
 		Success: true,

@@ -135,7 +135,12 @@ func runPushWithDeps(opts PushOptions, deps *Dependencies) error {
 		return fmt.Errorf("file is empty")
 	}
 
-	secrets := env.Parse(string(content))
+	secrets, err := env.Parse(string(content))
+	if err != nil {
+		deps.UI.Error(fmt.Sprintf("Cannot read %s safely: %v", file, err))
+		deps.UI.Message(deps.UI.Dim("Fix that line, or set the secret with keyway set or the dashboard."))
+		return err
+	}
 	if len(secrets) == 0 {
 		deps.UI.Error("No valid environment variables found in file")
 		return fmt.Errorf("no variables found")
@@ -201,68 +206,56 @@ func runPushWithDeps(opts PushOptions, deps *Dependencies) error {
 	deps.UI.Step(fmt.Sprintf("Environment: %s", deps.UI.Value(envName)))
 
 	// Fetch current vault state to show preview
-	var vaultSecrets map[string]string
-	err = deps.UI.Spin("Fetching current vault state...", func() error {
-		resp, err := client.PullSecrets(ctx, repo, envName)
-		if err != nil {
-			// Vault might not exist yet, that's ok
-			if apiErr, ok := err.(*api.APIError); ok && apiErr.StatusCode == 404 {
-				vaultSecrets = make(map[string]string)
-				return nil
-			}
-			return err
-		}
-		vaultSecrets = env.Parse(resp.Content)
-		return nil
-	})
-
+	client, vault, err := fetchVault(deps, client, repo, envName, "Fetching current vault state...")
 	if err != nil {
-		// Handle auth errors (expired token)
-		if isAuthError(err) {
-			newToken, authErr := handleAuthError(err, deps)
-			if authErr != nil {
-				return authErr
+		return err
+	}
+	vaultSecrets := vault.secrets
+	if keys := lineBreakers(vaultSecrets); len(keys) > 0 {
+		deps.UI.Error(fmt.Sprintf("Cannot push %s safely: in a .env file, the value of %s reads as lines of its own, which changes how the rest reads.", file, keyList(keys)))
+		deps.UI.Message(deps.UI.Dim("Rename that secret in the dashboard, or change secrets with keyway set."))
+		return fmt.Errorf("the vault holds keys a .env file cannot hold")
+	}
+	if keys := swallowedLines(string(content), secrets, vault); len(keys) > 0 {
+		deps.UI.Error(fmt.Sprintf("Cannot push %s safely: it holds the line of %s, but reads it as part of another value.", file, keyList(keys)))
+		deps.UI.Message(deps.UI.Dim("Look for a quote above that line that does not close where you meant."))
+		return fmt.Errorf("lines of the vault's secrets read as part of another value")
+	}
+
+	// What is only an artifact of how the file reads the vault's values is not pushed
+	read := keepUnaltered(secrets, vault)
+	if len(read.unknown) > 0 {
+		deps.UI.Error(fmt.Sprintf("Cannot push %s: the vault's secrets do not read back from a .env file, so nothing tells a new key from one read out of their values.", keyList(read.unknown)))
+		deps.UI.Message(deps.UI.Dim("Create new secrets with keyway set or the dashboard."))
+		return fmt.Errorf("cannot tell new secrets from the vault's values")
+	}
+	secrets = read.secrets
+
+	// No file can name these keys, so leaving them out of it does not mean removing them
+	unnamed := unnameable(vault)
+	var nameless []string
+	if opts.Prune {
+		for _, key := range unnamed {
+			if _, inFile := secrets[key]; !inFile {
+				secrets[key] = vaultSecrets[key]
+				nameless = append(nameless, key)
 			}
-			// Retry with new token
-			client = deps.APIFactory.NewClient(newToken)
-			err = deps.UI.Spin("Fetching current vault state...", func() error {
-				resp, err := client.PullSecrets(ctx, repo, envName)
-				if err != nil {
-					if apiErr, ok := err.(*api.APIError); ok && apiErr.StatusCode == 404 {
-						vaultSecrets = make(map[string]string)
-						return nil
-					}
-					return err
-				}
-				vaultSecrets = env.Parse(resp.Content)
-				return nil
-			})
-		}
-		if err != nil {
-			if apiErr, ok := err.(*api.APIError); ok {
-				deps.UI.Error(apiErr.Error())
-			} else {
-				deps.UI.Error(err.Error())
-			}
-			return err
 		}
 	}
 
 	// Calculate and show diff
 	diff := env.CalculatePushDiff(secrets, vaultSecrets)
+	secretsToSend, mode := payloadFor(vault, secrets, opts.Prune)
 
-	// When --prune is NOT set, merge vault secrets into local (additive mode)
-	// This preserves vault-only secrets instead of deleting them
-	secretsToSend := secrets
-	if !opts.Prune && len(diff.Removed) > 0 {
-		// Merge: start with vault secrets, overlay local secrets
-		secretsToSend = make(map[string]string)
-		for k, v := range vaultSecrets {
-			secretsToSend[k] = v
-		}
-		for k, v := range secrets {
-			secretsToSend[k] = v
-		}
+	if len(read.kept) > 0 {
+		deps.UI.Warn(fmt.Sprintf("Kept the vault value of %s: %s cannot hold it exactly.", keyList(read.kept), file))
+		deps.UI.Message(deps.UI.Dim("Use keyway set to change it."))
+	}
+	if len(read.dropped) > 0 {
+		deps.UI.Warn(fmt.Sprintf("Did not create %s: %s only reads it out of how another secret is written.", keyList(read.dropped), file))
+	}
+	if len(nameless) > 0 {
+		deps.UI.Warn(fmt.Sprintf("Kept %s: a .env file cannot name it, so --prune leaves it alone.", keyList(nameless)))
 	}
 
 	if diff.HasChanges() {
@@ -287,10 +280,11 @@ func runPushWithDeps(opts PushOptions, deps *Dependencies) error {
 			}
 		}
 
-		// Warn about vault-only secrets when --prune is NOT set
-		if !opts.Prune && len(diff.Removed) > 0 {
+		// Warn about vault-only secrets when --prune is NOT set, except those no file can name
+		// (--prune keeps them)
+		if missing := without(diff.Removed, unnamed); !opts.Prune && len(missing) > 0 {
 			deps.UI.Message("")
-			deps.UI.Warn(fmt.Sprintf("%d secret(s) in vault not in local file: %s", len(diff.Removed), strings.Join(diff.Removed, ", ")))
+			deps.UI.Warn(fmt.Sprintf("%d secret(s) in vault not in local file: %s", len(missing), keyList(missing)))
 			deps.UI.Message(deps.UI.Dim("Use --prune to remove them, or keyway pull to fetch them"))
 		}
 		deps.UI.Message("")
@@ -317,46 +311,35 @@ func runPushWithDeps(opts PushOptions, deps *Dependencies) error {
 	})
 
 	var resp *api.PushSecretsResponse
-	err = deps.UI.Spin("Uploading secrets...", func() error {
-		var err error
-		resp, err = client.PushSecrets(ctx, repo, envName, secretsToSend)
-		return err
+	_, explained, err := spinWithRelogin(deps, client, "Uploading secrets...", func(c api.APIClient) error {
+		var pushErr error
+		resp, pushErr = c.PushSecrets(ctx, repo, envName, secretsToSend, mode)
+		return pushErr
 	})
-
 	if err != nil {
-		// Handle auth errors (expired token)
-		if isAuthError(err) {
-			newToken, authErr := handleAuthError(err, deps)
-			if authErr != nil {
-				return authErr
-			}
-			// Retry with new token
-			client = deps.APIFactory.NewClient(newToken)
-			err = deps.UI.Spin("Uploading secrets...", func() error {
-				var pushErr error
-				resp, pushErr = client.PushSecrets(ctx, repo, envName, secretsToSend)
-				return pushErr
-			})
-		}
-		if err != nil {
-			analytics.Track(analytics.EventError, map[string]interface{}{
-				"command": "push",
-				"error":   err.Error(),
-			})
-			if apiErr, ok := err.(*api.APIError); ok {
-				deps.UI.Error(apiErr.Error())
-				if apiErr.UpgradeURL != "" {
-					analytics.Track(analytics.EventUpgradePrompt, map[string]interface{}{
-						"reason":  "push_error",
-						"command": "push",
-					})
-					deps.UI.Message(fmt.Sprintf("Upgrade: %s", deps.UI.Link(apiErr.UpgradeURL)))
-				}
-			} else {
-				deps.UI.Error(err.Error())
-			}
+		if explained {
 			return err
 		}
+		analytics.Track(analytics.EventError, map[string]interface{}{
+			"command": "push",
+			"error":   err.Error(),
+		})
+		if apiErr, ok := err.(*api.APIError); ok {
+			deps.UI.Error(apiErr.Error())
+			if apiErr.UpgradeURL != "" {
+				analytics.Track(analytics.EventUpgradePrompt, map[string]interface{}{
+					"reason":  "push_error",
+					"command": "push",
+				})
+				deps.UI.Message(fmt.Sprintf("Upgrade: %s", deps.UI.Link(apiErr.UpgradeURL)))
+			}
+		} else {
+			deps.UI.Error(err.Error())
+		}
+		return err
+	}
+	if err := checkMerged(deps, mode, resp, repo); err != nil {
+		return err
 	}
 
 	deps.UI.Success(resp.Message)

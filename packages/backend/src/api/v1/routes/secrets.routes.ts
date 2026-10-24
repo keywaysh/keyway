@@ -6,7 +6,7 @@ import {
   requireApiKeyScope,
 } from "../../../middleware/auth";
 import { db, vaults, users, secrets, type DbExecutor } from "../../../db";
-import { eq, and, isNull, sql } from "drizzle-orm";
+import { eq, and, isNull, sql, asc } from "drizzle-orm";
 import { getEncryptionService } from "../../../utils/encryption";
 import { CryptoServiceError } from "../../../utils/remoteEncryption";
 import { toEnvFormat } from "../../../utils/legacyEnvFormat";
@@ -43,6 +43,8 @@ import {
   resolvePushMode,
   describeRejections,
   describeKept,
+  isUsableNewKey,
+  describeUnusableKeys,
   UNDECRYPTABLE,
   type PushPlan,
 } from "../../../services/pushPlan.service";
@@ -360,6 +362,11 @@ export async function secretsRoutes(fastify: FastifyInstance) {
           );
         }
 
+        const unusable = candidate.create.filter((key) => !isUsableNewKey(key));
+        if (unusable.length > 0) {
+          throw new BadRequestError(describeUnusableKeys(unusable));
+        }
+
         const toWrite = [...candidate.update, ...candidate.create];
         const encryptedValues = await inBatches(toWrite, (key) =>
           encryptionService.encrypt(body.secrets[key])
@@ -573,13 +580,15 @@ export async function secretsRoutes(fastify: FastifyInstance) {
         throw new NotFoundError("Vault not found");
       }
 
-      // Fetch secrets with optional pagination (active only, excludes trash)
+      // Fetch secrets with optional pagination (active only, excludes trash), by key so that
+      // pages and pulls always list them the same way
       const queryOptions: any = {
         where: and(
           eq(secrets.vaultId, vault.id),
           eq(secrets.environment, environment),
           isNull(secrets.deletedAt)
         ),
+        orderBy: asc(secrets.key),
       };
 
       if (query.limit !== undefined) {
@@ -607,9 +616,9 @@ export async function secretsRoutes(fastify: FastifyInstance) {
         );
       }
 
-      // Decrypt and build content
+      // Decrypt and build content. No prototype, so any key (even "__proto__") is a plain entry.
       const encryptionService = await getEncryptionService();
-      const secretsMap: Record<string, string> = {};
+      const secretsMap: Record<string, string> = Object.create(null);
       for (const secret of envSecrets) {
         secretsMap[secret.key] = await encryptionService.decrypt({
           encryptedContent: secret.encryptedValue,
@@ -694,7 +703,8 @@ export async function secretsRoutes(fastify: FastifyInstance) {
         );
       }
 
-      return sendData(reply, { content }, { requestId: request.id });
+      // `content` is .env text, which cannot represent every value; `secrets` is exact.
+      return sendData(reply, { content, secrets: secretsMap }, { requestId: request.id });
     }
   );
 

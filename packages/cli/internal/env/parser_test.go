@@ -4,12 +4,21 @@ import (
 	"testing"
 )
 
+func mustParse(t *testing.T, content string) map[string]string {
+	t.Helper()
+	result, err := Parse(content)
+	if err != nil {
+		t.Fatalf("Parse(%q) error: %v", content, err)
+	}
+	return result
+}
+
 func TestParse_SimpleKeyValue(t *testing.T) {
 	content := `API_KEY=secret123
 DB_HOST=localhost
 DB_PORT=5432`
 
-	result := Parse(content)
+	result := mustParse(t, content)
 
 	if len(result) != 3 {
 		t.Errorf("expected 3 entries, got %d", len(result))
@@ -31,7 +40,7 @@ API_KEY=secret123
 # Another comment
 DB_HOST=localhost`
 
-	result := Parse(content)
+	result := mustParse(t, content)
 
 	if len(result) != 2 {
 		t.Errorf("expected 2 entries (comments ignored), got %d", len(result))
@@ -48,7 +57,7 @@ DB_HOST=localhost
 
 `
 
-	result := Parse(content)
+	result := mustParse(t, content)
 
 	if len(result) != 2 {
 		t.Errorf("expected 2 entries (empty lines ignored), got %d", len(result))
@@ -60,7 +69,7 @@ func TestParse_WithQuotedValues(t *testing.T) {
 DOUBLE_QUOTED="hello world"
 UNQUOTED=hello world`
 
-	result := Parse(content)
+	result := mustParse(t, content)
 
 	if result["SINGLE_QUOTED"] != "hello world" {
 		t.Errorf("SINGLE_QUOTED = %q, want 'hello world'", result["SINGLE_QUOTED"])
@@ -77,7 +86,7 @@ func TestParse_WithEqualsInValue(t *testing.T) {
 	content := `DATABASE_URL=postgres://user:pass@host:5432/db?ssl=true
 FORMULA=a=b+c`
 
-	result := Parse(content)
+	result := mustParse(t, content)
 
 	if result["DATABASE_URL"] != "postgres://user:pass@host:5432/db?ssl=true" {
 		t.Errorf("DATABASE_URL = %q, want full URL", result["DATABASE_URL"])
@@ -91,7 +100,7 @@ func TestParse_EmptyValue(t *testing.T) {
 	content := `EMPTY_KEY=
 ANOTHER_EMPTY=`
 
-	result := Parse(content)
+	result := mustParse(t, content)
 
 	if val, ok := result["EMPTY_KEY"]; !ok || val != "" {
 		t.Errorf("EMPTY_KEY should exist with empty value, got %q, exists=%v", val, ok)
@@ -103,7 +112,7 @@ func TestParse_NoEqualsSign(t *testing.T) {
 INVALID_LINE_WITHOUT_EQUALS
 ANOTHER_VALID=test`
 
-	result := Parse(content)
+	result := mustParse(t, content)
 
 	if len(result) != 2 {
 		t.Errorf("expected 2 entries (invalid line ignored), got %d", len(result))
@@ -117,7 +126,7 @@ func TestParse_WhitespaceHandling(t *testing.T) {
 	content := `  KEY_WITH_SPACES  =  value with spaces
 	TABBED_KEY	=	tabbed value`
 
-	result := Parse(content)
+	result := mustParse(t, content)
 
 	// Keys should be trimmed, but leading whitespace in values is preserved
 	// Note: lines are trimmed, so trailing whitespace is removed from values
@@ -130,7 +139,7 @@ func TestParse_WhitespaceHandling(t *testing.T) {
 }
 
 func TestParse_Empty(t *testing.T) {
-	result := Parse("")
+	result := mustParse(t, "")
 
 	if len(result) != 0 {
 		t.Errorf("expected empty map for empty content, got %d entries", len(result))
@@ -142,7 +151,7 @@ func TestParse_OnlyComments(t *testing.T) {
 # Comment 2
 # Comment 3`
 
-	result := Parse(content)
+	result := mustParse(t, content)
 
 	if len(result) != 0 {
 		t.Errorf("expected empty map for only comments, got %d entries", len(result))
@@ -154,7 +163,7 @@ func TestParse_SpecialCharacters(t *testing.T) {
 JSON={"key": "value"}
 URL=https://example.com?foo=bar&baz=qux`
 
-	result := Parse(content)
+	result := mustParse(t, content)
 
 	if result["SPECIAL"] != "!@#$%^&*()" {
 		t.Errorf("SPECIAL = %q", result["SPECIAL"])
