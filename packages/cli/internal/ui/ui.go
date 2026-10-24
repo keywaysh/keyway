@@ -177,6 +177,21 @@ func SafeKey(key string) string {
 	return key
 }
 
+// SafeText returns s with each character that does not print plainly escaped (\n, \x1b), so
+// that a part of a secret's value cannot break a line or send sequences to the terminal.
+func SafeText(s string) string {
+	var b strings.Builder
+	for _, r := range s {
+		if unicode.IsPrint(r) {
+			b.WriteRune(r)
+		} else {
+			quoted := strconv.QuoteRune(r)
+			b.WriteString(quoted[1 : len(quoted)-1])
+		}
+	}
+	return b.String()
+}
+
 // DiffAdded displays a variable that will be added
 func DiffAdded(key string) {
 	green.Printf("  + %s\n", SafeKey(key))

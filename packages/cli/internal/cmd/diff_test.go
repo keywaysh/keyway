@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/keywaysh/cli/internal/api"
@@ -50,6 +51,9 @@ func TestPreviewValue(t *testing.T) {
 		{"abc", "**bc (3 chars)"},
 		{"secret123", "**23 (9 chars)"},
 		{"sk_live_abc123xyz", "**yz (17 chars)"},
+		{"clé", "**lé (3 chars)"},
+		{"line one\n", `**e\n (9 chars)`},
+		{"x\x1b[", `**\x1b[ (3 chars)`},
 	}
 
 	for _, tt := range tests {
@@ -82,7 +86,10 @@ func TestMaskValue(t *testing.T) {
 		{"abcde", "ab*de"},
 		{"abcdef", "ab**ef"},
 		{"secret123", "se*****23"},
-		{"verylongsecretvalue", "ve***************ue"},
+		{"verylongsecretvalue", "ve************ue"},
+		{"ééééé", "éé*éé"},
+		{"ab\ncd\nef", "ab****ef"},
+		{"\n\nxyz\r\n", `\n\n***\r\n`},
 	}
 
 	for _, tt := range tests {
@@ -92,6 +99,13 @@ func TestMaskValue(t *testing.T) {
 				t.Errorf("maskValue(%q) = %q, want %q", tt.input, result, tt.expected)
 			}
 		})
+	}
+}
+
+func TestMaskValue_ShowsAtMostTwelveAsterisks(t *testing.T) {
+	// A 4 kB key would otherwise print 4 kB of asterisks, and tell its length.
+	if got := maskValue(strings.Repeat("x", 4096)); got != "xx************xx" {
+		t.Errorf("maskValue = %q", got)
 	}
 }
 
@@ -810,5 +824,22 @@ func TestRunDiffWithDeps_InteractiveSecondSelectError(t *testing.T) {
 	// Assert
 	if err == nil {
 		t.Fatal("expected error, got nil")
+	}
+}
+
+func TestRunDiffWithDeps_ExplainsOnlyAnOlderServersUnreadableText(t *testing.T) {
+	deps, _, _, uiMock, _, _ := NewTestDepsWithRunner()
+	uiMock.SpinError = errors.New("spinner failed")
+
+	err := runDiffWithDeps(DiffOptions{Env1: "development", Env2: "production"}, deps)
+
+	if err == nil {
+		t.Fatal("expected an error")
+	}
+	if all := joined(uiMock.ErrorCalls) + joined(uiMock.MessageCalls); strings.Contains(all, "predates") {
+		t.Errorf("blames an older server for %v: %q", err, all)
+	}
+	if !strings.Contains(joined(uiMock.ErrorCalls), "spinner failed") {
+		t.Errorf("does not show the error: %q", uiMock.ErrorCalls)
 	}
 }

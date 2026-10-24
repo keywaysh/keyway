@@ -245,3 +245,19 @@ func TestSafeKey(t *testing.T) {
 		}
 	}
 }
+
+func TestSafeText(t *testing.T) {
+	tests := map[string]string{
+		"plain text, é": "plain text, é",
+		"two\nlines":    `two\nlines`,
+		"cr\r":          `cr\r`,
+		"\x1b[2J":       `\x1b[2J`,
+		"bidi\u202e":    `bidi\u202e`,
+		"\u2028":        `\u2028`,
+	}
+	for text, want := range tests {
+		if got := SafeText(text); got != want {
+			t.Errorf("SafeText(%q) = %s, want %s", text, got, want)
+		}
+	}
+}

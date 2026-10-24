@@ -216,7 +216,12 @@ func diffResultWithDeps(opts DiffOptions, deps *Dependencies) (*DiffResult, erro
 	})
 
 	if err != nil {
-		showVaultReadError(deps, err)
+		var readErr *vaultReadError
+		if errors.As(err, &readErr) {
+			showVaultReadError(deps, err)
+		} else {
+			deps.UI.Error(err.Error())
+		}
 		return nil, err
 	}
 
@@ -335,21 +340,22 @@ func compareSecrets(env1, env2 string, secrets1, secrets2 map[string]string, inc
 // Shows last 2 chars + length to help identify changes without exposing sensitive data
 // Last chars are more distinctive than first chars (which are often common prefixes like sk_, gh_, etc.)
 func previewValue(value string) string {
-	length := len(value)
-	if length == 0 {
+	chars := []rune(value)
+	if len(chars) == 0 {
 		return "(empty)"
 	}
-	if length <= 2 {
-		return fmt.Sprintf("**%s (%d chars)", value, length)
-	}
-	return fmt.Sprintf("**%s (%d chars)", value[length-2:], length)
+	last := chars[max(len(chars)-2, 0):]
+	return fmt.Sprintf("**%s (%d chars)", ui.SafeText(string(last)), len(chars))
 }
 
+// maskValue shows a value's first and last two characters around at most 12 asterisks.
 func maskValue(value string) string {
-	if len(value) <= 4 {
+	chars := []rune(value)
+	if len(chars) <= 4 {
 		return "****"
 	}
-	return value[:2] + strings.Repeat("*", len(value)-4) + value[len(value)-2:]
+	hidden := min(len(chars)-4, 12)
+	return ui.SafeText(string(chars[:2])) + strings.Repeat("*", hidden) + ui.SafeText(string(chars[len(chars)-2:]))
 }
 
 func printDiffResults(result *DiffResult, env1, env2 string, showValues, keysOnly bool) {
