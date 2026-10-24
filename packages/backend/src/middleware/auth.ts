@@ -80,6 +80,8 @@ declare module "fastify" {
     };
     /** User's role for the current repository (set by requireEnvironmentAccess) */
     repoRole?: "read" | "triage" | "write" | "maintain" | "admin";
+    /** Repository and environment requireEnvironmentAccess checked */
+    checkedEnvironment?: { repoFullName: string; environment: string };
   }
 }
 
@@ -466,6 +468,7 @@ export function requireEnvironmentAccess(permissionType: PermissionType) {
         `Your role (${userRole}) does not have permission to ${action} the "${environment}" environment`
       );
     }
+    request.checkedEnvironment = { repoFullName, environment };
   };
 }
 

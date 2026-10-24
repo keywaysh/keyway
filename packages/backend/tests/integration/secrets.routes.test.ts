@@ -608,6 +608,66 @@ describe('Secrets Routes', () => {
   });
 
   // ==========================================================================
+  // Request target: the route must write where the middleware checked access
+  // ==========================================================================
+
+  describe('POST /v1/secrets/push request target', () => {
+    async function push(url: string, payload: Record<string, unknown>) {
+      return app.inject({
+        method: 'POST',
+        url,
+        headers: { authorization: 'Bearer valid-token' },
+        payload: { secrets: { KEY: 'value' }, ...payload },
+      });
+    }
+
+    async function expectNothingWritten() {
+      const { db } = await import('../../src/db');
+      expect(db.insert).not.toHaveBeenCalled();
+      expect(db.update).not.toHaveBeenCalled();
+      expect(mockTrashSecretsByIds).not.toHaveBeenCalled();
+    }
+
+    it('accepts the same repository and environment in the URL and the body', async () => {
+      await setupAuthenticatedVault();
+      const response = await push(
+        '/v1/secrets/push?repo=testuser/test-repo&environment=development',
+        { repoFullName: 'testuser/test-repo', environment: 'development' }
+      );
+      expect(response.statusCode).toBe(200);
+    });
+
+    it('rejects a body naming another repository than the URL', async () => {
+      await setupAuthenticatedVault();
+      const response = await push(
+        '/v1/secrets/push?repo=someone/other-repo&environment=development',
+        { repoFullName: 'testuser/test-repo', environment: 'development' }
+      );
+      expect(response.statusCode).toBe(400);
+      await expectNothingWritten();
+    });
+
+    it('rejects a body naming another environment than the URL', async () => {
+      await setupAuthenticatedVault();
+      const response = await push('/v1/secrets/push?environment=development', {
+        repoFullName: 'testuser/test-repo',
+        environment: 'production',
+      });
+      expect(response.statusCode).toBe(400);
+      await expectNothingWritten();
+    });
+
+    it('rejects a body that leaves out the environment the URL names', async () => {
+      await setupAuthenticatedVault({ environments: ['development', 'default'] });
+      const response = await push('/v1/secrets/push?environment=development', {
+        repoFullName: 'testuser/test-repo',
+      });
+      expect(response.statusCode).toBe(400);
+      await expectNothingWritten();
+    });
+  });
+
+  // ==========================================================================
   // API Key Scope Validation
   // ==========================================================================
 
