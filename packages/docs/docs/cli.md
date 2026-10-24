@@ -51,6 +51,8 @@ keyway push --prune                      # Remove secrets not in local file
 Push is additive — existing secrets not in your local file are preserved. Use `--prune` to remove them.
 :::
 
+Quoted values may span several lines, as `keyway pull` writes them; inside double quotes, `\"` is a quote. A line the CLI could only read by guessing, such as a quote that never closes, stops the push and names the line.
+
 ---
 
 ### keyway pull
@@ -72,6 +74,8 @@ keyway pull                          # Pull development to .env
 keyway pull -e staging               # Pull staging
 keyway pull -e staging -f .env.stg   # Compare environments
 ```
+
+A `.env` file cannot hold every value exactly (for example one wrapped in single quotes, like `'x'`). Pull names such secrets, `keyway push` leaves their stored value alone, and `keyway run` always injects the exact values.
 
 ---
 

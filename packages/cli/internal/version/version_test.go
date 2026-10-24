@@ -104,7 +104,7 @@ func TestGetUpdateCommand(t *testing.T) {
 		expected string
 	}{
 		{InstallMethodNPM, "npm update -g @keywaysh/cli"},
-		{InstallMethodHomebrew, "brew upgrade keyway"},
+		{InstallMethodHomebrew, "brew update && brew upgrade keyway"},
 		{InstallMethodBinary, "curl -fsSL https://keyway.sh/install.sh | sh"},
 	}
 

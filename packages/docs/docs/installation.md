@@ -64,8 +64,8 @@ keyway --version
 ## Updating
 
 ```bash
-# Homebrew
-brew upgrade keyway
+# Homebrew (brew update first: it refetches the tap with the new version)
+brew update && brew upgrade keyway
 
 # npm
 npm update -g @keywaysh/cli
