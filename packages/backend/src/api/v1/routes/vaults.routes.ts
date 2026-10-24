@@ -944,6 +944,10 @@ export async function vaultsRoutes(fastify: FastifyInstance) {
         throw new NotFoundError("Secret not found");
       }
 
+      // Version history tells whether a push changed a value: readers of the environment only
+      const user = await getOrThrowUser(vcsUser);
+      await requireEnvironmentPermission(vault.id, secret.environment, user.id, role, "read");
+
       const versions = await getSecretVersions(params.secretId, vault.id);
 
       return sendData(reply, { versions }, { requestId: request.id });

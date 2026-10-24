@@ -18,6 +18,8 @@ const control = vi.hoisted(() => ({
   insideTransaction: undefined as undefined | (() => Promise<void>),
   // Decrypt calls throw this instead of decrypting.
   decryptError: undefined as undefined | Error,
+  // Encrypt calls throw this instead of encrypting.
+  encryptError: undefined as undefined | Error,
 }));
 
 vi.mock("../../src/utils/encryption", async () => {
@@ -26,6 +28,9 @@ vi.mock("../../src/utils/encryption", async () => {
     getEncryptionService: vi.fn().mockResolvedValue({
       encrypt: async (plaintext: string) => {
         await control.beforeEncrypt?.(plaintext);
+        if (control.encryptError) {
+          throw control.encryptError;
+        }
         if (plaintext === control.failOn) {
           throw new Error("crypto service failure");
         }
@@ -104,7 +109,13 @@ vi.mock("../../src/utils/github", async (original) => ({
 }));
 
 import { db } from "../../src/db";
-import { apiKeys, secrets, secretVersions, vaultEnvironments } from "../../src/db/schema";
+import {
+  apiKeys,
+  permissionOverrides,
+  secrets,
+  secretVersions,
+  vaultEnvironments,
+} from "../../src/db/schema";
 import { DEFAULT_ENVIRONMENTS } from "../../src/types";
 import { inferEnvironmentType } from "../../src/utils/permissions";
 import { ApiError } from "../../src/lib";
@@ -238,6 +249,14 @@ async function setup(stored: Record<string, string>, trashed: Record<string, str
     });
     return res.statusCode;
   };
+  const listVersions = async (secretId: string) => {
+    const res = await app.inject({
+      method: "GET",
+      url: `/v1/vaults/${vault.repoFullName}/secrets/${secretId}/versions`,
+      headers: { authorization: "Bearer test" },
+    });
+    return res.statusCode;
+  };
   const deleteEnvironment = async (name: string) => {
     const res = await app.inject({
       method: "DELETE",
@@ -294,13 +313,28 @@ async function setup(stored: Record<string, string>, trashed: Record<string, str
       })
       .where(eq(secrets.key, key));
   };
+  // Simulates another writer (e.g. the dashboard) creating a secret directly.
+  const create = async (key: string, value: string) => {
+    const encrypted = await encryption.encrypt(value);
+    await db.insert(secrets).values({
+      vaultId: vault.id,
+      environment: "development",
+      key,
+      encryptedValue: encrypted.encryptedContent,
+      iv: encrypted.iv,
+      authTag: encrypted.authTag,
+      encryptionVersion: encrypted.version ?? 1,
+    });
+  };
   return {
     user,
     vault,
     push,
+    create,
     pull,
     renameEnvironment,
     deleteEnvironment,
+    listVersions,
     rows,
     active,
     versions,
@@ -315,6 +349,7 @@ beforeEach(async () => {
   control.failOn = undefined;
   control.insideTransaction = undefined;
   control.decryptError = undefined;
+  control.encryptError = undefined;
   vi.mocked(getUserRoleWithApp).mockResolvedValue("admin");
 });
 
@@ -331,6 +366,8 @@ describe("POST /v1/secrets/push (real handler, real DB)", () => {
     expect(await active()).toEqual({ A: "2", B: "b" });
     expect(await versions()).toEqual(["1"]);
     expect((await rows()).find((row) => row.key === "A")!.lastModifiedById).toBe(user.id);
+    const [a] = await db.select().from(secrets).where(eq(secrets.key, "A"));
+    expect(Math.abs(a.updatedAt.getTime() - Date.now())).toBeLessThan(60_000);
   });
 
   it("writes nothing for unchanged values", async () => {
@@ -352,7 +389,8 @@ describe("POST /v1/secrets/push (real handler, real DB)", () => {
     expect(await versions()).toEqual([]);
     expect(body.data.stats).toMatchObject({ created: 1, updated: 0, protected: 2, ignored: 1 });
     expect(body.data.message).toContain("Kept the stored values of MULTI, QUOTED");
-    expect(body.data.message).toContain("Did not create Zm9vYmFy");
+    expect(body.data.message).toContain("Did not create 1 key found inside multi-line values");
+    expect(body.data.message).not.toContain("Zm9vYmFy");
   });
 
   it("leaves the other secrets in place when MCP 1.0.0 sets one secret", async () => {
@@ -690,5 +728,90 @@ describe("POST /v1/secrets/push (real handler, real DB)", () => {
     );
     expect(status).toBe(400);
     expect((await rows()).filter((row) => row.environment === "default")).toEqual([]);
+  });
+  it("keeps over-long keys, which may be text from inside stored values, out of a 400", async () => {
+    const { push, rows } = await setup({ A: "1" });
+    const before = await rows();
+    const longKey = "Zm9vYmFy".repeat(40);
+    const { status, body } = await push({ A: "1", [longKey]: "x" }, { userAgent: RELEASED_CLI });
+    expect(status).toBe(400);
+    expect(JSON.stringify(body)).not.toContain("Zm9vYmFyZm9vYmFy");
+    expect(body.detail).toBe("Invalid request data");
+    expect(body.errors).toEqual([
+      { field: "secrets", code: "invalid", message: "Secret key must not exceed 256 characters" },
+    ]);
+    expect(await rows()).toEqual(before);
+  });
+  it("shows version history only to callers who may read the environment", async () => {
+    const { user, vault, push, rows, listVersions } = await setup({ A: "1" });
+    expect((await push({ A: "2" })).status).toBe(200);
+    const id = (await rows()).find((row) => row.key === "A")!.id;
+    expect(await listVersions(id)).toBe(200);
+    // The same user, allowed to write development but not to read it.
+    await db.insert(permissionOverrides).values({
+      vaultId: vault.id,
+      environment: "development",
+      targetType: "user",
+      targetUserId: user.id,
+      canRead: false,
+      canWrite: true,
+    });
+    expect(await listVersions(id)).toBe(403);
+  });
+  it("answers 503 when the crypto service is unavailable while encrypting", async () => {
+    // Nothing stored, so nothing to decrypt: the outage shows up at encryption.
+    const { push, rows } = await setup({});
+    control.encryptError = new CryptoServiceError(
+      "unavailable",
+      "encrypt",
+      "test",
+      undefined,
+      true
+    );
+    const { status } = await push({ A: "1" });
+    expect(status).toBe(503);
+    control.encryptError = undefined;
+    expect(await rows()).toEqual([]);
+  });
+  it("re-plans when another writer creates a pushed key while the push holds its locks", async () => {
+    const { push, create, active, versions } = await setup({ A: "1" });
+    let created = false;
+    control.insideTransaction = async () => {
+      if (!created) {
+        created = true;
+        await create("NEW", "dashboard");
+      }
+    };
+    const { status, body } = await push({ A: "1", NEW: "pushed" });
+    expect(status, JSON.stringify(body)).toBe(200);
+    expect(await active()).toEqual({ A: "1", NEW: "pushed" });
+    expect(await versions()).toEqual(["dashboard"]);
+  });
+  it("runs pushes to an empty environment one at a time", async () => {
+    // No row to lock: only the vault lock makes the second push wait.
+    const { push, active } = await setup({});
+    const paused = gate();
+    let first = true;
+    control.insideTransaction = async () => {
+      if (first) {
+        first = false;
+        paused.reached();
+        await paused.opened;
+      }
+    };
+    const pushing = push({ A: "1" }, { mode: "merge" });
+    const second = (async () => {
+      await paused.isReached;
+      return push({ B: "2" }, { mode: "merge" });
+    })();
+    try {
+      await paused.isReached;
+      expect(await within(second, 500)).toBe("pending");
+    } finally {
+      paused.open();
+    }
+    expect((await pushing).status).toBe(200);
+    expect((await second).status).toBe(200);
+    expect(await active()).toEqual({ A: "1", B: "2" });
   });
 });

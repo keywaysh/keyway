@@ -136,7 +136,7 @@ describe("planPush", () => {
     expect(stale).toBe('say \\"hi\\"');
     for (const current of [{ GREETING: 'say "bye"' }, {}]) {
       expect(planPush(current, { GREETING: stale }, { userAgent: RELEASED_CLI }).rejected).toEqual([
-        { key: "GREETING", reason: "escaped-quote" },
+        { key: "GREETING", reason: "escaped-quote", stored: "GREETING" in current },
       ]);
     }
   });
@@ -147,7 +147,7 @@ describe("planPush", () => {
     expect(sent).toBe('title: \\"Hello\\');
     expect(
       planPush({ NOTE: "other" }, { NOTE: sent }, { userAgent: RELEASED_CLI }).rejected
-    ).toEqual([{ key: "NOTE", reason: "escaped-quote" }]);
+    ).toEqual([{ key: "NOTE", reason: "escaped-quote", stored: true }]);
   });
 
   it("rejects new keys a released CLI parsed out of a stale multi-line value", () => {
@@ -158,6 +158,20 @@ describe("planPush", () => {
       protected: ["DOC"],
       rejected: [{ key: "b2xkIGRhdGE", reason: "invalid-key" }],
       create: [],
+    });
+  });
+
+  it("accepts quoted values that a released parser did not cut or escape", () => {
+    // From the command line or a hand-written .env: a quote after the first character is not
+    // escaped, so the value is not the CLI's copy of a stored one.
+    const sent = {
+      EMAIL_FROM: '"Acme" <noreply@example.com>',
+      FIREBASE_CONFIG: '{"a":"{\\"b\\":1}"}',
+    };
+    expect(planPush({ EMAIL_FROM: "old" }, sent, { userAgent: RELEASED_CLI })).toMatchObject({
+      update: ["EMAIL_FROM"],
+      create: ["FIREBASE_CONFIG"],
+      rejected: [],
     });
   });
 
@@ -172,6 +186,17 @@ describe("planPush", () => {
   it("still lets a released CLI update an existing key whatever its name", () => {
     const plan = planPush({ lower_key: "1" }, { lower_key: "2" }, { userAgent: RELEASED_CLI });
     expect(plan).toMatchObject({ update: ["lower_key"], rejected: [] });
+  });
+
+  it("creates new single-case keys next to multi-line values", () => {
+    // The released CLI accepts these; only mixed-case text looks like a line of a value.
+    const current = { MULTI };
+    const added = { http_proxy: "x", no_proxy: "y", _JAVA_OPTIONS: "z", NEW_KEY: "w" };
+    const plan = planPush(current, { ...echo(current), ...added }, { userAgent: RELEASED_CLI });
+    expect(plan).toMatchObject({ create: Object.keys(added), rejected: [] });
+    expect(
+      planPush(current, { ...echo(current), myKey: "v" }, { userAgent: RELEASED_CLI }).rejected
+    ).toEqual([{ key: "myKey", reason: "invalid-key", stored: false }]);
   });
 
   it("accepts new keys outside the dashboard format when no stored value is multi-line", () => {
@@ -364,22 +389,41 @@ describe("describeRejections", () => {
   it("names each key with the reason and points to the dashboard", () => {
     const message = describeRejections(
       [
-        { key: "PEM", reason: "truncated" },
-        { key: "GREETING", reason: "escaped-quote" },
-        { key: "b2xkIGRhdGE", reason: "invalid-key" },
+        { key: "PEM", reason: "truncated", stored: true },
+        { key: "GREETING", reason: "escaped-quote", stored: true },
+        { key: "NEW_KEY", reason: "truncated", stored: false },
+        { key: "http_proxy", reason: "invalid-key", stored: false },
       ],
       "https://app.keyway.sh"
     );
     expect(message).toBe(
       "This version of the keyway CLI cannot push the following safely, so nothing was saved: " +
-        "PEM (multi-line value), GREETING (contains escaped quotes), " +
-        "b2xkIGRhdGE (looks like a line of a multi-line value, not a key). " +
+        "PEM (multi-line value), GREETING (contains escaped quotes), NEW_KEY (multi-line value), " +
+        "http_proxy (looks like a line of a multi-line value, not a key). " +
         "Set them from the Keyway dashboard instead: https://app.keyway.sh"
     );
   });
 
+  it("counts instead of naming new keys that may be fragments of stored values", () => {
+    // Text before "=" on a line of a stored value, e.g. a base64 line of a private key.
+    const message = describeRejections([
+      { key: "PEM", reason: "truncated", stored: true },
+      { key: "b2xkIGRhdGE", reason: "invalid-key", stored: false },
+      { key: "QmFzZTY0TGluZQ", reason: "invalid-key", stored: false },
+      { key: "Zm9v", reason: "truncated", stored: false },
+    ]);
+    expect(message).not.toMatch(/b2xkIGRhdGE|QmFzZTY0TGluZQ|Zm9v/);
+    expect(message).toContain(
+      "PEM (multi-line value), " +
+        "2 keys not shown (looks like a line of a multi-line value, not a key), " +
+        "1 key not shown (multi-line value)."
+    );
+  });
+
   it("neutralizes control and formatting characters in key names", () => {
-    const message = describeRejections([{ key: "\u001b[31mX\nY\u202eZ", reason: "invalid-key" }]);
+    const message = describeRejections([
+      { key: "\u001b[31mX\nY\u202eZ", reason: "invalid-key", stored: true },
+    ]);
     expect(message).toContain("?[31mX?Y?Z (looks like");
   });
 
@@ -387,6 +431,7 @@ describe("describeRejections", () => {
     const rejected = Array.from({ length: 12 }, (_, i) => ({
       key: `${"X".repeat(50)}${i}`,
       reason: "truncated" as const,
+      stored: true,
     }));
     const message = describeRejections(rejected);
     expect(message).toContain(`${"X".repeat(40)}… (multi-line value)`);
@@ -401,18 +446,18 @@ describe("describeKept", () => {
     expect(describeKept([], [])).toBeUndefined();
   });
 
-  it("names the kept and the ignored keys and points to the dashboard", () => {
+  it("names the kept keys, counts the ignored ones and points to the dashboard", () => {
     expect(describeKept(["MULTI", "QUOTED"], ["Zm9vYmFy"], "https://app.keyway.sh")).toBe(
       "Secrets pushed. Kept the stored values of MULTI, QUOTED: " +
         "this version of the keyway CLI cannot read multi-line or quoted values back. " +
-        "Did not create Zm9vYmFy: these look like lines of multi-line values, not keys. " +
+        "Did not create 1 key found inside multi-line values. " +
         "Use the Keyway dashboard for these: https://app.keyway.sh"
     );
   });
 
   it("mentions only what applies", () => {
-    expect(describeKept([], ["X"])).toBe(
-      "Secrets pushed. Did not create X: these look like lines of multi-line values, not keys. " +
+    expect(describeKept([], ["X", "Y"])).toBe(
+      "Secrets pushed. Did not create 2 keys found inside multi-line values. " +
         "Use the Keyway dashboard for these."
     );
   });

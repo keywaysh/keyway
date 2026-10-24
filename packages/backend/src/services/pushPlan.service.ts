@@ -21,6 +21,8 @@ export type RejectReason = "truncated" | "escaped-quote" | "invalid-key";
 export interface Rejection {
   key: string;
   reason: RejectReason;
+  /** The key is in the stored environment, so its name is not a fragment of a value. */
+  stored: boolean;
 }
 
 export interface PushPlanOptions {
@@ -33,8 +35,9 @@ export interface PushPlanOptions {
   canRead?: boolean;
 }
 
-// Same rule as the other secret routes.
-const KEY_FORMAT = /^[A-Z][A-Z0-9_]*$/;
+// A key in one case only (NEW_KEY, http_proxy, _JAVA_OPTIONS). The text before "=" on a line of a
+// stored value, such as a base64 line of a private key, is almost always in mixed case.
+const PLAIN_KEY = /^(?:[A-Z_][A-Z0-9_]*|[a-z_][a-z0-9_]*)$/;
 
 // True when userAgent names `client` with a version below `fixed` (or no parsable version).
 // Accepts "0.6.1", "v0.6.1" and git describe output such as "cli/v0.6.1-3-gabc1234".
@@ -76,14 +79,27 @@ export function resolvePushMode(
   return /keyway-mcp\//i.test(userAgent ?? "") ? "merge" : "replace";
 }
 
+// toEnvFormat escapes every double quote of a value it quotes, so the released CLI's copies keep
+// a backslash before each one. A value with a bare quote comes from elsewhere (the command line,
+// a hand-written .env file).
+function allQuotesEscaped(text: string): boolean {
+  return !/(?<!\\)"/.test(text);
+}
+
+// An opening quote never closed: the first line of a multi-line value, cut by the released
+// parser, from the server's own output (double quotes) or a hand-written .env file.
 function looksTruncated(value: string): boolean {
   const quote = value[0];
-  return (quote === '"' || quote === "'") && (value.length === 1 || !value.endsWith(quote));
+  if (quote !== '"' && quote !== "'") {
+    return false;
+  }
+  const unclosed = value.length === 1 || !value.endsWith(quote);
+  return unclosed && (quote === "'" || allQuotesEscaped(value.slice(1)));
 }
 
 // Characters of multi-line values whose continuation lines one push may scan. Past it, only
-// first lines are read: a value's own echo is still recognized, phantom-like new keys are
-// still refused by the key format check, and every overwrite is archived anyway.
+// first lines are read: a value's own echo is still recognized, mixed-case phantom keys are
+// still refused, and every overwrite is archived anyway.
 const CONTINUATION_SCAN_BUDGET = 1_000_000;
 
 // For each of `wanted`, the values a released client can send for it after pulling
@@ -168,12 +184,12 @@ export function planPush(
     } else if (candidates?.get(key)?.has(value)) {
       (exists ? plan.protected : plan.ignored).push(key);
     } else if (releasedCli && looksTruncated(value)) {
-      plan.rejected.push({ key, reason: "truncated" });
-    } else if (releasedCli && value.includes('\\"')) {
+      plan.rejected.push({ key, reason: "truncated", stored: exists });
+    } else if (releasedCli && value.includes('\\"') && allQuotesEscaped(value)) {
       // The released parsers never unescape, so \" comes from a mis-parsed quoted value.
-      plan.rejected.push({ key, reason: "escaped-quote" });
-    } else if (hasMultiline && !exists && !KEY_FORMAT.test(key)) {
-      plan.rejected.push({ key, reason: "invalid-key" });
+      plan.rejected.push({ key, reason: "escaped-quote", stored: exists });
+    } else if (hasMultiline && !exists && !PLAIN_KEY.test(key)) {
+      plan.rejected.push({ key, reason: "invalid-key", stored: exists });
     } else {
       (exists ? plan.update : plan.create).push(key);
     }
@@ -212,12 +228,24 @@ function displayKey(key: string): string {
   return shown.replace(/[\p{Cc}\p{Cf}\u2028\u2029]/gu, "?");
 }
 
+// "n keys not shown" instead of the name: the CLI and the server logs print these messages.
+function countNotShown(count: number, label: string): string {
+  return `${count} key${count === 1 ? "" : "s"} not shown (${label})`;
+}
+
 /** Error message for a push refused because of `rejected`; the released CLI prints it. */
 export function describeRejections(rejected: Rejection[], dashboardUrl?: string): string {
-  const keys = listKeys(
-    rejected,
-    ({ key, reason }) => `${displayKey(key)} (${REJECT_REASONS[reason]})`
-  );
+  const shown = rejected.filter(({ key, stored }) => stored || PLAIN_KEY.test(key));
+  const hidden = new Map<RejectReason, number>();
+  for (const { reason } of rejected.filter((rejection) => !shown.includes(rejection))) {
+    hidden.set(reason, (hidden.get(reason) ?? 0) + 1);
+  }
+  const keys = [
+    ...(shown.length > 0
+      ? [listKeys(shown, ({ key, reason }) => `${displayKey(key)} (${REJECT_REASONS[reason]})`)]
+      : []),
+    ...[...hidden].map(([reason, count]) => countNotShown(count, REJECT_REASONS[reason])),
+  ].join(", ");
   return (
     "This version of the keyway CLI cannot push the following safely, so nothing was saved: " +
     `${keys}. Set them from the Keyway dashboard instead${dashboardUrl ? `: ${dashboardUrl}` : "."}`
@@ -244,9 +272,10 @@ export function describeKept(
     );
   }
   if (ignoredKeys.length > 0) {
+    // Their names are text from inside stored values: count them.
+    const count = ignoredKeys.length;
     parts.push(
-      `Did not create ${listKeys(ignoredKeys, displayKey)}: ` +
-        "these look like lines of multi-line values, not keys."
+      `Did not create ${count} key${count === 1 ? "" : "s"} found inside multi-line values.`
     );
   }
   parts.push(`Use the Keyway dashboard for these${dashboardUrl ? `: ${dashboardUrl}` : "."}`);

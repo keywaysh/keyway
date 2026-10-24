@@ -19,6 +19,7 @@ import {
   ConflictError,
   PlanLimitError,
   ServiceUnavailableError,
+  ValidationError,
 } from "../../../lib";
 import { trackEvent, AnalyticsEvents } from "../../../utils/analytics";
 import {
@@ -124,6 +125,17 @@ function _parseEnvContent(content: string): Record<string, string> {
 }
 
 type EncryptionService = Awaited<ReturnType<typeof getEncryptionService>>;
+
+// The crypto service did not answer (it restarts on every deploy): nothing was written.
+function isUnavailable(error: unknown): boolean {
+  return error instanceof CryptoServiceError && error.isRetryable;
+}
+
+function cryptoUnavailable(): ServiceUnavailableError {
+  return new ServiceUnavailableError(
+    "The encryption service is unavailable, so nothing was saved. Try again."
+  );
+}
 type SecretRow = typeof secrets.$inferSelect;
 
 // Crypto service calls run a few at a time: an environment can hold up to 1000 secrets.
@@ -153,10 +165,8 @@ async function decryptValues(
         version: row.encryptionVersion,
       })
       .catch((error: unknown) => {
-        if (error instanceof CryptoServiceError && error.isRetryable) {
-          throw new ServiceUnavailableError(
-            "The encryption service is unavailable, so nothing was saved. Try again."
-          );
+        if (isUnavailable(error)) {
+          throw cryptoUnavailable();
         }
         return null;
       })
@@ -225,11 +235,10 @@ async function requireEnvironment(
   }
 }
 
-// Postgres lock_not_available, raised by lock_timeout (drizzle wraps it in `cause`).
-function isLockTimeout(error: unknown): boolean {
-  const code = (error as { code?: string; cause?: { code?: string } } | undefined)?.code;
-  const causeCode = (error as { cause?: { code?: string } } | undefined)?.cause?.code;
-  return code === "55P03" || causeCode === "55P03";
+// Postgres error code (drizzle wraps the driver's error in `cause`).
+function pgCode(error: unknown): string | undefined {
+  const failure = error as { code?: string; cause?: { code?: string } } | undefined;
+  return failure?.code ?? failure?.cause?.code;
 }
 
 /**
@@ -253,7 +262,24 @@ export async function secretsRoutes(fastify: FastifyInstance) {
       ],
     },
     async (request, reply) => {
-      const body = PushSecretsSchema.parse(request.body);
+      const parsed = PushSecretsSchema.safeParse(request.body);
+      if (!parsed.success) {
+        // A released client sends keys parsed out of stored values (e.g. a line of a private
+        // key): keep secret keys out of the response and of the error log.
+        const errors = parsed.error.errors.map((issue) => ({
+          field: issue.path[0] === "secrets" ? "secrets" : issue.path.join("."),
+          code: "invalid",
+          message: issue.message,
+        }));
+        throw new ValidationError(
+          "Invalid request data",
+          errors.filter(
+            (error, i) =>
+              errors.findIndex((e) => e.field === error.field && e.message === error.message) === i
+          )
+        );
+      }
+      const body = parsed.data;
       // Write only where requireEnvironmentAccess checked (body defaults included)
       const checked = request.checkedEnvironment;
       if (
@@ -336,7 +362,9 @@ export async function secretsRoutes(fastify: FastifyInstance) {
         const toWrite = [...candidate.update, ...candidate.create];
         const encryptedValues = await inBatches(toWrite, (key) =>
           encryptionService.encrypt(body.secrets[key])
-        );
+        ).catch((error: unknown) => {
+          throw isUnavailable(error) ? cryptoUnavailable() : error;
+        });
         const encrypted = new Map(toWrite.map((key, i) => [key, encryptedValues[i]]));
 
         const committed = await db
@@ -382,19 +410,27 @@ export async function secretsRoutes(fastify: FastifyInstance) {
             );
 
             const now = new Date();
-            for (const key of candidate.update) {
-              const data = encrypted.get(key)!;
-              await tx
-                .update(secrets)
-                .set({
-                  encryptedValue: data.encryptedContent,
-                  iv: data.iv,
-                  authTag: data.authTag,
-                  encryptionVersion: data.version ?? 1,
-                  lastModifiedById: user?.id ?? null,
-                  updatedAt: now,
-                })
-                .where(eq(secrets.id, byKey.get(key)!.id));
+            // One statement for all updates: the locks are held for as long as this takes
+            if (candidate.update.length > 0) {
+              const values = sql.join(
+                candidate.update.map((key) => {
+                  const data = encrypted.get(key)!;
+                  return sql`(${byKey.get(key)!.id}::uuid, ${data.encryptedContent}, ${data.iv},
+                    ${data.authTag}, ${data.version ?? 1}::integer)`;
+                }),
+                sql`, `
+              );
+              await tx.execute(sql`
+                UPDATE ${secrets}
+                SET encrypted_value = v.encrypted_value,
+                    iv = v.iv,
+                    auth_tag = v.auth_tag,
+                    encryption_version = v.encryption_version,
+                    last_modified_by_id = ${user?.id ?? null}::uuid,
+                    updated_at = ${now.toISOString()}::timestamp
+                FROM (VALUES ${values}) AS v(id, encrypted_value, iv, auth_tag, encryption_version)
+                WHERE ${secrets.id} = v.id
+              `);
             }
 
             if (candidate.create.length > 0) {
@@ -426,8 +462,15 @@ export async function secretsRoutes(fastify: FastifyInstance) {
             return true;
           })
           .catch((error: unknown) => {
-            if (isLockTimeout(error)) {
+            const code = pgCode(error);
+            // lock_not_available, raised by lock_timeout
+            if (code === "55P03") {
               throw new ConflictError("Another push to this vault is still running. Try again.");
+            }
+            // A writer that does not take the vault lock (e.g. the dashboard) created one of
+            // the keys or numbered a version first: plan again on what it wrote.
+            if (code === "23505" || code === "40P01") {
+              return false;
             }
             throw error;
           });
