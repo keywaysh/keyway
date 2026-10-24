@@ -180,19 +180,32 @@ func TestParse_SaysWhenAQuoteNeverClosesBeforeTheNextKey(t *testing.T) {
 }
 
 func TestParse_RefusesPastTheWorkBudget(t *testing.T) {
-	// Every line ends with \": each one is a place where the value may end.
-	content := "K=\"" + strings.Repeat("line \\\"\n", 100) + "end\""
-	want := "line \"\n"
-	if got := mustParse(t, content)["K"]; got != strings.Repeat(want, 100)+"end" {
-		t.Fatalf("within the budget, K = %q", got)
-	}
+	for name, content := range map[string]string{
+		// Every line ends with \": each one is a place where the value may end
+		"many places to end": "K=\"" + strings.Repeat("line \\\"\n", 100) + "end\"",
+		// Its closing quote lies past the budget
+		"one long value": "K=\"" + strings.Repeat("x\n", 1000) + "end\"",
+		// K reads two ways; telling them apart means reading M, which runs past the budget
+		"a long value after an ambiguous one": "K=\"a \\\"\nb\"\nM=\"" + strings.Repeat("x\n", 100) + "\"",
+	} {
+		if _, err := Parse(content); err != nil {
+			t.Fatalf("%s: within the budget, error %v", name, err)
+		}
 
-	defer func(budget int) { maxScannedLines = budget }(maxScannedLines)
-	maxScannedLines = 50
-	_, err := Parse(content)
+		func() {
+			defer func(budget int) { maxScannedLines = budget }(maxScannedLines)
+			maxScannedLines = 50
+			p := newParser(content)
+			_, err := p.parse(lenient)
 
-	var parseErr *ParseError
-	if !errors.As(err, &parseErr) || parseErr.Msg != "too complex to read safely" {
-		t.Fatalf("expected \"too complex to read safely\", got %v", err)
+			var parseErr *ParseError
+			if !errors.As(err, &parseErr) || parseErr.Msg != "too complex to read safely" {
+				t.Errorf("%s: expected \"too complex to read safely\", got %v", name, err)
+			}
+			// The budget bounds the work, not only the outcome
+			if p.scanned > 2*maxScannedLines {
+				t.Errorf("%s: scanned %d lines", name, p.scanned)
+			}
+		}()
 	}
 }

@@ -437,7 +437,7 @@ func Merge(vaultContent string, local, vault map[string]string) string {
 
 		result += "\n\n# Local variables (not in vault)\n"
 		for _, key := range localOnlyKeys {
-			result += FormatLine(key, local[key]) + "\n"
+			result += FileLine(key, local[key]) + "\n"
 		}
 	} else {
 		result += "\n"

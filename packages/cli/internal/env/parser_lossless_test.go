@@ -407,6 +407,49 @@ func TestMerge_QuotesLocalOnlyValues(t *testing.T) {
 	}
 }
 
+func TestFormat_WritesOneLinePerKeyInKeyOrder(t *testing.T) {
+	secrets := map[string]string{}
+	for _, key := range strings.Fields("J C H A E B I D G F") {
+		secrets[key] = "v " + key
+	}
+
+	got := Format(secrets)
+
+	want := `A="v A"
+B="v B"
+C="v C"
+D="v D"
+E="v E"
+F="v F"
+G="v G"
+H="v H"
+I="v I"
+J="v J"`
+	if got != want {
+		t.Errorf("Format = %q", got)
+	}
+}
+
+func TestFileLine_EscapesQuotesWhereNoLineHoldsTheValue(t *testing.T) {
+	// \r\n inside quotes reads as \n whatever the line: keep the server's escaped text.
+	value := "say \"hi\"\r\nthen"
+
+	if got := FileLine("K", value); got != FormatLine("K", value) {
+		t.Errorf("FileLine = %q, want %q", got, FormatLine("K", value))
+	}
+}
+
+func TestMerge_KeepsLocalValuesAPulledLineWouldAlter(t *testing.T) {
+	// W='x' reads as x and CR=x\r as x: write them so that they read back as they are.
+	local := map[string]string{"A": "1", "W": "'x'", "CR": "x\r"}
+
+	result := Merge("A=1", local, map[string]string{"A": "1"})
+
+	if got := mustParse(t, result); !reflect.DeepEqual(got, local) {
+		t.Errorf("Parse(Merge(...)) = %q, want %q", got, local)
+	}
+}
+
 // Telling readings apart stays fast on hostile content; past a work budget, Parse refuses.
 func TestParse_StaysFastOnAdversarialContent(t *testing.T) {
 	contents := map[string]string{
