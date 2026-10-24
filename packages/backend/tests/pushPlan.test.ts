@@ -7,6 +7,7 @@ import {
   describeRejections,
   describeKept,
   isUsableNewKey,
+  describeUnusableKeys,
 } from "../src/services/pushPlan.service";
 
 // Multi-line value whose third line contains "=", like base64 padding.
@@ -531,5 +532,15 @@ describe("isUsableNewKey", () => {
     for (const key of refused) {
       expect(isUsableNewKey(key), JSON.stringify(key)).toBe(false);
     }
+  });
+});
+
+describe("describeUnusableKeys", () => {
+  it("names up to five keys, quoted and printable", () => {
+    const message = describeUnusableKeys(["A=B", " PADDED", "K\nL", "#C", "E=", "F=", "G="]);
+    expect(message).toContain(
+      'Cannot create 7 secret(s) ("A=B", " PADDED", "K?L", "#C", "E=", and 2 more)'
+    );
+    expect(message).not.toMatch(/[\n\r]/);
   });
 });

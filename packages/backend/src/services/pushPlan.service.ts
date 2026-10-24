@@ -250,10 +250,10 @@ const MAX_LISTED = 10;
 const MAX_KEY_LENGTH = 40;
 
 // "A, B, and 3 more", with long keys shortened.
-function listKeys<T>(items: T[], label: (item: T) => string): string {
-  const listed = items.slice(0, MAX_LISTED).map(label);
-  if (items.length > MAX_LISTED) {
-    listed.push(`and ${items.length - MAX_LISTED} more`);
+function listKeys<T>(items: T[], label: (item: T) => string, max = MAX_LISTED): string {
+  const listed = items.slice(0, max).map(label);
+  if (items.length > max) {
+    listed.push(`and ${items.length - max} more`);
   }
   return listed.join(", ");
 }
@@ -267,6 +267,15 @@ function displayKey(key: string): string {
 // "n keys not shown" instead of the name: the CLI and the server logs print these messages.
 function countNotShown(count: number, label: string): string {
   return `${count} key${count === 1 ? "" : "s"} not shown (${label})`;
+}
+
+/** Error message for a push that would create keys `isUsableNewKey` refuses. */
+export function describeUnusableKeys(keys: string[]): string {
+  const listed = listKeys(keys, (key) => JSON.stringify(displayKey(key)), 5);
+  return (
+    `Cannot create ${keys.length} secret(s) (${listed}): a key needs at least one character, ` +
+    `and no "=", line break, control character, leading "#" or surrounding spaces.`
+  );
 }
 
 /** Error message for a push refused because of `rejected`; the released CLI prints it. */

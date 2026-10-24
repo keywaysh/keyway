@@ -106,6 +106,8 @@ export type PushSecretsResponse = z.infer<typeof PushSecretsResponseSchema>;
 
 export const PullSecretsResponseSchema = z.object({
   content: z.string(),
+  // Exact values by key: content is .env text, which cannot hold every value
+  secrets: z.record(z.string(), z.string()),
 });
 
 export type PullSecretsResponse = z.infer<typeof PullSecretsResponseSchema>;
