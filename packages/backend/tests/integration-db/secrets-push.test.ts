@@ -112,6 +112,7 @@ import { secretsRoutes } from "../../src/api/v1/routes/secrets.routes";
 import { vaultsRoutes } from "../../src/api/v1/routes/vaults.routes";
 import { getEncryptionService } from "../../src/utils/encryption";
 import { CryptoServiceError } from "../../src/utils/remoteEncryption";
+import { getUserRoleWithApp } from "../../src/utils/github";
 import { parseLegacyEnv, toEnvFormat } from "../../src/utils/legacyEnvFormat";
 
 const cleanupSql = postgres(TEST_DB_URL, { max: 1 });
@@ -194,15 +195,26 @@ async function setup(stored: Record<string, string>, trashed: Record<string, str
       userAgent,
       mode,
       token = "Bearer test",
-    }: { userAgent?: string; mode?: string; token?: string } = {}
+      query = "",
+      repoFullName = vault.repoFullName,
+      environment = "development",
+    }: {
+      userAgent?: string;
+      mode?: string;
+      token?: string;
+      query?: string;
+      repoFullName?: string;
+      // null leaves it out of the body
+      environment?: string | null;
+    } = {}
   ) => {
     const res = await app.inject({
       method: "POST",
-      url: "/v1/secrets/push",
+      url: `/v1/secrets/push${query}`,
       headers: { authorization: token, ...(userAgent ? { "user-agent": userAgent } : {}) },
       payload: {
-        repoFullName: vault.repoFullName,
-        environment: "development",
+        repoFullName,
+        ...(environment === null ? {} : { environment }),
         secrets: payload,
         ...(mode ? { mode } : {}),
       },
@@ -303,6 +315,7 @@ beforeEach(async () => {
   control.failOn = undefined;
   control.insideTransaction = undefined;
   control.decryptError = undefined;
+  vi.mocked(getUserRoleWithApp).mockResolvedValue("admin");
 });
 
 afterAll(async () => {
@@ -634,5 +647,48 @@ describe("POST /v1/secrets/push (real handler, real DB)", () => {
     expect(status).toBe(200);
     expect(body.data.stats).toMatchObject({ updated: 1, protected: 0 });
     expect(await active()).toEqual({ A: "v1", B: "2" });
+  });
+  it("refuses a push that names another vault in its body than in its URL", async () => {
+    const victim = await setup({ A: "victim" });
+    const caller = await setup({});
+    // The caller administers its own repository and has no access to the victim's.
+    vi.mocked(getUserRoleWithApp).mockImplementation(async (repo) =>
+      repo === caller.vault.repoFullName ? "admin" : null
+    );
+    const { status } = await caller.push(
+      { A: "changed", NEW: "v" },
+      {
+        query: `?repo=${encodeURIComponent(caller.vault.repoFullName)}&environment=development`,
+        repoFullName: victim.vault.repoFullName,
+      }
+    );
+    expect(status).toBe(400);
+    expect(await victim.active()).toEqual({ A: "victim" });
+    expect(await victim.versions()).toEqual([]);
+  });
+
+  it("refuses a push that names another environment in its body than in its URL", async () => {
+    const { push, rows } = await setup({ A: "1" });
+    // The write role may write development but not production.
+    vi.mocked(getUserRoleWithApp).mockResolvedValue("write");
+    expect((await push({ P: "v" }, { environment: "production" })).status).toBe(403);
+    const { status } = await push(
+      { P: "v" },
+      { query: "?environment=development", environment: "production" }
+    );
+    expect(status).toBe(400);
+    expect((await rows()).filter((row) => row.environment === "production")).toEqual([]);
+  });
+  it("refuses a push authorized for one environment that would write another by default", async () => {
+    const { vault, push, rows } = await setup({ A: "1" });
+    await db
+      .insert(vaultEnvironments)
+      .values({ vaultId: vault.id, name: "default", type: "standard", displayOrder: 3 });
+    const { status } = await push(
+      { P: "v" },
+      { query: "?environment=development", environment: null }
+    );
+    expect(status).toBe(400);
+    expect((await rows()).filter((row) => row.environment === "default")).toEqual([]);
   });
 });
