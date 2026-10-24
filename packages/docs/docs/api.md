@@ -340,6 +340,8 @@ Every overwritten value is kept as a version (the last 10 per secret), restorabl
 
 `protected` and `ignored` only concern keyway CLI 0.6.0 and older and MCP 1.0.0, which cannot read multi-line or quoted values back. For them, the server keeps the stored value instead of their corrupted copy and skips keys they parsed out of multi-line values. A push from these CLI versions is refused with a `400`, and nothing is saved, when it contains a value cut at its first line, a value whose quotes are all left escaped, or a mixed-case key next to multi-line values.
 
+A push cannot create a key that is empty, holds `=`, a line break or another control character, starts with `#` or has surrounding spaces: `.env` files cannot hold it (`400`, nothing saved). Existing keys can still be updated.
+
 A `409` means the environment changed during the push or another push to the vault was running. A `503` means the encryption service was unavailable. In both cases nothing was saved: retry.
 
 ### Pull secrets

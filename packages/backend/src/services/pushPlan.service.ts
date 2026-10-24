@@ -62,6 +62,17 @@ function isOlderClient(userAgent: string | undefined, client: string, fixed: num
   return false;
 }
 
+/**
+ * Whether a push may create a secret with this key. The .env text pull sends puts one
+ * KEY=value per line, so the key needs a character and no "=", line break or other control
+ * character, nor a leading "#" or surrounding spaces. Existing keys keep working.
+ */
+export function isUsableNewKey(key: string): boolean {
+  return (
+    key !== "" && key.trim() === key && !key.startsWith("#") && !/[=\p{Cc}\u2028\u2029]/u.test(key)
+  );
+}
+
 /** CLI up to 0.6.0 (all of which send "keyway-cli/dev"). 0.6.1 is the first fixed version. */
 export function isReleasedCli(userAgent: string | undefined): boolean {
   return isOlderClient(userAgent, "keyway-cli", [0, 6, 1]);

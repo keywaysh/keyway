@@ -43,6 +43,7 @@ import {
   resolvePushMode,
   describeRejections,
   describeKept,
+  isUsableNewKey,
   UNDECRYPTABLE,
   type PushPlan,
 } from "../../../services/pushPlan.service";
@@ -357,6 +358,14 @@ export async function secretsRoutes(fastify: FastifyInstance) {
           );
           throw new BadRequestError(
             describeRejections(candidate.rejected, config.app.dashboardUrl)
+          );
+        }
+
+        const unusable = candidate.create.filter((key) => !isUsableNewKey(key));
+        if (unusable.length > 0) {
+          throw new BadRequestError(
+            `Cannot create ${unusable.length} secret(s): a key needs at least one character, ` +
+              `and no "=", line break, control character, leading "#" or surrounding spaces.`
           );
         }
 

@@ -831,6 +831,27 @@ describe("POST /v1/secrets/push (real handler, real DB)", () => {
   });
 });
 
+describe("POST /v1/secrets/push: keys it creates", () => {
+  it.each([["K\nL"], [""], ["#COMMENTED"], [" PADDED"], ["A=B"], ["NUL\u0000"], ["LS\u2028"]])(
+    "refuses to create %j, which a .env file cannot hold, and writes nothing",
+    async (key) => {
+      const { push, rows } = await setup({ A: "1" });
+      const before = await rows();
+      const { status, body } = await push({ A: "1", [key]: "value-1" }, { mode: "merge" });
+      expect(status, JSON.stringify(body)).toBe(400);
+      expect(body.detail).toContain("Cannot create");
+      expect(await rows()).toEqual(before);
+    }
+  );
+
+  it("still updates an existing key with such a name", async () => {
+    const { push, active } = await setup({ "odd key": "1" });
+    const { status } = await push({ "odd key": "2" }, { mode: "merge" });
+    expect(status).toBe(200);
+    expect(await active()).toEqual({ "odd key": "2" });
+  });
+});
+
 describe("GET /v1/secrets/pull (real handler, real DB)", () => {
   it("returns each stored value exactly next to the .env content", async () => {
     // toEnvFormat cannot represent every value (e.g. one ending with a backslash), so
