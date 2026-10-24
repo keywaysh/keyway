@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"maps"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -154,7 +155,6 @@ func runPullWithDeps(opts PullOptions, deps *Dependencies) error {
 		deps.UI.Message("")
 	}
 
-	vaultContent := pulled.Content
 	envFilePath := filepath.Join(".", opts.File)
 
 	// Read existing local file if it exists
@@ -181,6 +181,11 @@ func runPullWithDeps(opts PullOptions, deps *Dependencies) error {
 		showVaultReadError(deps, err)
 		deps.UI.Message(deps.UI.Dim("Use --force to replace the file with the vault's content."))
 		return err
+	}
+	// Written in key order (see env.Format), or as the server sent it when it cannot be read
+	vaultContent := pulled.Content
+	if vaultSecrets != nil {
+		vaultContent = env.Format(vaultSecrets)
 	}
 	asRead := asFile(vaultContent)
 	if asRead == nil {
@@ -253,6 +258,11 @@ func runPullWithDeps(opts PullOptions, deps *Dependencies) error {
 	} else {
 		// Merge mode: start with vault secrets, add local-only secrets
 		finalContent = env.Merge(vaultContent, localSecrets, asRead)
+		if !mergedReadsAsIntended(finalContent, vaultContent, localSecrets, asRead) {
+			deps.UI.Error(fmt.Sprintf("Cannot merge into %s safely: its own variables would change how the vault's secrets read.", opts.File))
+			deps.UI.Message(deps.UI.Dim("Use --force to replace the file, or keyway run to use the exact values."))
+			return fmt.Errorf("merged file does not read back as intended")
+		}
 	}
 
 	// Write file with restricted permissions
@@ -280,6 +290,24 @@ func runPullWithDeps(opts PullOptions, deps *Dependencies) error {
 	deps.UI.Outro("Secrets synced!")
 
 	return nil
+}
+
+// mergedReadsAsIntended reports whether merged, the vault's text followed by local's own
+// variables, reads as the vault's text alone plus those variables, unchanged: a value the
+// vault's text opens with ' could otherwise end on a local line. When the vault's text cannot
+// be read anyway, pull warns after writing it.
+func mergedReadsAsIntended(merged, vaultContent string, local, asRead map[string]string) bool {
+	if asFile(vaultContent) == nil {
+		return true
+	}
+	want := maps.Clone(asRead)
+	for key, value := range local {
+		if _, inVault := asRead[key]; !inVault {
+			want[key] = value
+		}
+	}
+	got := asFile(merged)
+	return got != nil && maps.Equal(got, want)
 }
 
 // warnAboutAlteredValues names the vault's secrets that the written file, read back as written

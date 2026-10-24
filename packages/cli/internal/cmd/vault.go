@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 
@@ -16,9 +17,11 @@ import (
 // vaultState is an environment's secrets as a command reads them before writing to it.
 type vaultState struct {
 	secrets map[string]string
-	content string // the .env text the server sent
-	current bool   // the server sends exact values, so it also understands push modes
-	empty   bool   // the environment has no secrets yet (the server answered 404)
+	current bool // the server sends exact values, so it also understands push modes
+	empty   bool // the environment has no secrets yet (the server answered 404)
+
+	fileView map[string]string // see file
+	fileRead bool
 }
 
 // vaultReadError reports .env text from an older server that cannot be read exactly.
@@ -45,7 +48,7 @@ func readVault(client api.APIClient, repo, envName string) (*vaultState, error) 
 	if err != nil {
 		return nil, err
 	}
-	return &vaultState{secrets: secrets, content: resp.Content, current: current}, nil
+	return &vaultState{secrets: secrets, current: current}, nil
 }
 
 // secretsOf returns the secrets of a pull response, and whether the server is current: it sent
@@ -61,14 +64,56 @@ func secretsOf(resp *api.PullSecretsResponse) (map[string]string, bool, error) {
 	return secrets, false, nil
 }
 
-// asFile returns what a .env file holding the server's text reads as (see env.Parse), or
-// nil when such a file cannot be read.
+// asFile returns what a .env file holding content reads as (see env.Parse), or nil when such
+// a file cannot be read.
 func asFile(content string) map[string]string {
 	read, err := env.Parse(content)
 	if err != nil {
 		return nil
 	}
 	return read
+}
+
+// file returns what the file pull writes for the vault reads as (see asFile), computed once.
+func (v *vaultState) file() map[string]string {
+	if !v.fileRead {
+		v.fileView, v.fileRead = asFile(env.Format(v.secrets)), true
+	}
+	return v.fileView
+}
+
+// lineBreakers returns the keys of secrets whose line in a .env file lets the lines of their
+// value read as lines of their own: a key holding a line break, or a multi-line value whose
+// key the file reads as no key (a comment, "") or as the start of a value ("A=B"). Such keys
+// were stored before the server refused them. Against them, an edit anywhere in the file can
+// change how other values read, so push refuses the file.
+func lineBreakers(secrets map[string]string) []string {
+	var keys []string
+	for key, value := range secrets {
+		name := strings.TrimSpace(key)
+		readsAsNoKey := name == "" || strings.HasPrefix(name, "#") || strings.Contains(key, "=")
+		if strings.Contains(key, "\n") || strings.Contains(value, "\n") && readsAsNoKey {
+			keys = append(keys, key)
+		}
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+// lineNames counts, for each key a .env file reads, the vault's secrets whose own line reads
+// as that key: 2 for PADDED when the vault holds "PADDED" and " PADDED".
+func lineNames(vault *vaultState) map[string]int {
+	names := map[string]int{}
+	for key, value := range vault.secrets {
+		read, err := env.Parse(env.FormatLine(key, value))
+		if err != nil {
+			continue
+		}
+		for fileKey := range read {
+			names[fileKey]++
+		}
+	}
+	return names
 }
 
 // fetchVault reads an environment under a spinner, signing in again when the token expired,
@@ -98,7 +143,7 @@ func fetchVault(deps *Dependencies, client api.APIClient, repo, envName, title s
 // refused them: " PADDED", "#HASHED", "K\nL"): a file never holds them, so --prune must not
 // trash them.
 func unnameable(vault *vaultState) []string {
-	fileView := asFile(vault.content)
+	fileView := vault.file()
 	var keys []string
 	for key, value := range vault.secrets {
 		if fileView != nil {
@@ -157,13 +202,22 @@ func checkMerged(deps *Dependencies, mode api.PushMode, resp *api.PushSecretsRes
 	return fmt.Errorf("server did not merge: %d secret(s) moved to the trash", resp.Stats.Deleted)
 }
 
+// unaltered is what push sends for a local file, and the keys it does not send as read.
+type unaltered struct {
+	secrets map[string]string
+	kept    []string // sent with the vault's value: the file cannot hold it exactly
+	dropped []string // not created: the file only reads it out of how other secrets are written
+	unknown []string // not in the vault, which does not read as a file: nothing tells if it is new
+}
+
 // keepUnaltered returns the secrets to push from local, a file pull wrote and maybe edited.
-// A value that is only what such a file makes of the vault's value ('x' read as x) gets the
-// vault's value back (kept); a key that only comes from how the file reads another value is
-// left out (dropped).
-func keepUnaltered(local map[string]string, vault *vaultState) (result map[string]string, kept, dropped []string) {
-	fileView := asFile(vault.content)
-	result = make(map[string]string, len(local))
+// A value that is only what such a file makes of the vault's value ('x' read as x), or whose
+// line may be another secret's, gets the vault's value back (kept); a key that only comes
+// from how the file writes other secrets (" PADDED" as PADDED) is left out (dropped).
+func keepUnaltered(local map[string]string, vault *vaultState) unaltered {
+	fileView := vault.file()
+	names := lineNames(vault)
+	u := unaltered{secrets: make(map[string]string, len(local))}
 	for key, value := range local {
 		stored, inVault := vault.secrets[key]
 		var read string
@@ -176,18 +230,32 @@ func keepUnaltered(local map[string]string, vault *vaultState) (result map[strin
 		// The file reads this key as value, and that is not the vault's value itself.
 		altered := inFile && read == value && (!inVault || read != stored)
 		switch {
-		case !altered:
-			result[key] = value
-		case inVault:
-			result[key] = stored
-			kept = append(kept, key)
+		case inVault && (altered || names[key] > 1 && value != stored):
+			u.secrets[key] = stored
+			u.kept = append(u.kept, key)
+		case !inVault && (altered || names[key] > 0):
+			u.dropped = append(u.dropped, key)
+		case !inVault && fileView == nil:
+			u.unknown = append(u.unknown, key)
 		default:
-			dropped = append(dropped, key)
+			u.secrets[key] = value
 		}
 	}
-	sort.Strings(kept)
-	sort.Strings(dropped)
-	return result, kept, dropped
+	sort.Strings(u.kept)
+	sort.Strings(u.dropped)
+	sort.Strings(u.unknown)
+	return u
+}
+
+// without returns keys minus those in drop, in order.
+func without(keys, drop []string) []string {
+	var out []string
+	for _, key := range keys {
+		if !slices.Contains(drop, key) {
+			out = append(out, key)
+		}
+	}
+	return out
 }
 
 // keyList joins keys for a message, each one safe to print in a terminal.

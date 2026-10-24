@@ -211,15 +211,26 @@ func runPushWithDeps(opts PushOptions, deps *Dependencies) error {
 		return err
 	}
 	vaultSecrets := vault.secrets
+	if keys := lineBreakers(vaultSecrets); len(keys) > 0 {
+		deps.UI.Error(fmt.Sprintf("Cannot push %s safely: in a .env file, the value of %s reads as lines of its own, which changes how the rest reads.", file, keyList(keys)))
+		deps.UI.Message(deps.UI.Dim("Rename that secret in the dashboard, or change secrets with keyway set."))
+		return fmt.Errorf("the vault holds keys a .env file cannot hold")
+	}
 
 	// What is only an artifact of how the file reads the vault's values is not pushed
-	var kept, dropped []string
-	secrets, kept, dropped = keepUnaltered(secrets, vault)
+	read := keepUnaltered(secrets, vault)
+	if len(read.unknown) > 0 {
+		deps.UI.Error(fmt.Sprintf("Cannot push %s: the vault's secrets do not read back from a .env file, so nothing tells a new key from one read out of their values.", keyList(read.unknown)))
+		deps.UI.Message(deps.UI.Dim("Create new secrets with keyway set or the dashboard."))
+		return fmt.Errorf("cannot tell new secrets from the vault's values")
+	}
+	secrets = read.secrets
 
 	// No file can name these keys, so leaving them out of it does not mean removing them
+	unnamed := unnameable(vault)
 	var nameless []string
 	if opts.Prune {
-		for _, key := range unnameable(vault) {
+		for _, key := range unnamed {
 			if _, inFile := secrets[key]; !inFile {
 				secrets[key] = vaultSecrets[key]
 				nameless = append(nameless, key)
@@ -231,12 +242,12 @@ func runPushWithDeps(opts PushOptions, deps *Dependencies) error {
 	diff := env.CalculatePushDiff(secrets, vaultSecrets)
 	secretsToSend, mode := payloadFor(vault, secrets, opts.Prune)
 
-	if len(kept) > 0 {
-		deps.UI.Warn(fmt.Sprintf("Kept the vault value of %s: %s cannot hold it exactly.", keyList(kept), file))
+	if len(read.kept) > 0 {
+		deps.UI.Warn(fmt.Sprintf("Kept the vault value of %s: %s cannot hold it exactly.", keyList(read.kept), file))
 		deps.UI.Message(deps.UI.Dim("Use keyway set to change it."))
 	}
-	if len(dropped) > 0 {
-		deps.UI.Warn(fmt.Sprintf("Did not create %s: %s only reads it out of how another secret is written.", keyList(dropped), file))
+	if len(read.dropped) > 0 {
+		deps.UI.Warn(fmt.Sprintf("Did not create %s: %s only reads it out of how another secret is written.", keyList(read.dropped), file))
 	}
 	if len(nameless) > 0 {
 		deps.UI.Warn(fmt.Sprintf("Kept %s: a .env file cannot name it, so --prune leaves it alone.", keyList(nameless)))
@@ -264,10 +275,11 @@ func runPushWithDeps(opts PushOptions, deps *Dependencies) error {
 			}
 		}
 
-		// Warn about vault-only secrets when --prune is NOT set
-		if !opts.Prune && len(diff.Removed) > 0 {
+		// Warn about vault-only secrets when --prune is NOT set, except those no file can name
+		// (--prune keeps them)
+		if missing := without(diff.Removed, unnamed); !opts.Prune && len(missing) > 0 {
 			deps.UI.Message("")
-			deps.UI.Warn(fmt.Sprintf("%d secret(s) in vault not in local file: %s", len(diff.Removed), keyList(diff.Removed)))
+			deps.UI.Warn(fmt.Sprintf("%d secret(s) in vault not in local file: %s", len(missing), keyList(missing)))
 			deps.UI.Message(deps.UI.Dim("Use --prune to remove them, or keyway pull to fetch them"))
 		}
 		deps.UI.Message("")
