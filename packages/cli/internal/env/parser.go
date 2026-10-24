@@ -19,22 +19,23 @@ func (e *ParseError) Error() string {
 
 // Parse reads a .env file: one that `keyway pull` wrote, possibly edited by hand.
 //
-// A value in double or single quotes may span lines, and inside double quotes \" stands for a
-// quote. Blank lines, comments and lines without "=" are skipped. A single-line value that
-// starts and ends with the same quote loses them, as in earlier versions; unlike them, a
-// trailing tab is kept, a comment may follow a closing double quote, and a quote that never
-// closes or text after a closing quote is an error rather than a value cut at its first line.
+// A value in double or single quotes may span lines (CRLF line ends read as \n), and inside
+// double quotes \" stands for a quote. Blank lines, comments and lines without "=" are
+// skipped. A single-line value that starts and ends with the same quote loses them, as in
+// earlier versions; unlike them, a trailing tab is kept, a comment may follow a closing double
+// quote, and a double quote that never closes or text after it is an error rather than a value
+// cut at its first line. A value that merely starts with a single quote ('abc) reads as is.
 //
-// The server's format is ambiguous where a line ends with \": an escaped quote, or a value
-// ending with a backslash and its closing quote. Parse keeps the only reading that the
-// server could have written and that leaves valid lines after it; failing that, the only one
-// that leaves valid lines; otherwise it returns a *ParseError rather than guess.
+// Where text reads more than one way (a line ending with \", an escaped quote or a backslash
+// ending the value; a single quote closed on a later line), Parse keeps the only reading whose
+// following lines hold, preferring, for double quotes, the server's own text. Otherwise it
+// returns a *ParseError rather than guess.
 //
-// A file cannot carry every value: an unquoted value ending with \r reads without it, and one
-// wrapped in single quotes ('x') reads without them. ParseServer reads the server's text
-// exactly.
+// A file cannot carry every value: an unquoted value ending with \r reads without it, one
+// wrapped in single quotes ('x') without them, and \r\n inside a quoted value as \n.
+// ParseServer reads the server's text exactly.
 func Parse(content string) (map[string]string, error) {
-	return newParser(content).parse(lenient)
+	return newParser(strings.TrimPrefix(content, "\uFEFF")).parse(lenient)
 }
 
 // ParseServer reads the .env text the server sends (its toEnvFormat) exactly. Single quotes,
@@ -69,7 +70,7 @@ type parser struct {
 }
 
 func newParser(content string) *parser {
-	p := &parser{lines: strings.Split(strings.TrimPrefix(content, "\uFEFF"), "\n")}
+	p := &parser{lines: strings.Split(content, "\n")}
 	for g := range p.holds {
 		p.holds[g] = map[int]bool{}
 	}
@@ -149,7 +150,7 @@ func (p *parser) parse(g grammar) (map[string]string, error) {
 			if err != nil {
 				return nil, err
 			}
-			out[st.key] = p.text(i, st.value, r)
+			out[st.key] = p.text(i, st.value, r, g)
 			i = r.next
 		}
 	}
@@ -235,26 +236,31 @@ func (p *parser) choose(start int, rest string, g grammar) (reading, error) {
 		return reading{}, &ParseError{Line: start + 1, Msg: "quote never closed"}
 	}
 
-	// Several readings: keep the one whose following lines hold. In a file, prefer the
-	// server's own readings, the way pull wrote it.
-	tiers := []func(reading) bool{func(r reading) bool { return p.holdsFrom(g, r.next) }}
-	if g == lenient {
-		tiers = []func(reading) bool{
-			func(r reading) bool { return r.asServer && p.holdsFrom(written, r.next) },
-			func(r reading) bool { return p.holdsFrom(lenient, r.next) },
-		}
+	// Several readings: keep the one whose following lines hold. For double quotes in a file,
+	// prefer the server's own readings: the text pull wrote, then with comments and blank
+	// lines. The server never writes single quotes, so its readings settle nothing there.
+	holds := func(in grammar, onlyServer bool) func(reading) bool {
+		return func(r reading) bool { return (!onlyServer || r.asServer) && p.holdsFrom(in, r.next) }
 	}
-	for _, holds := range tiers {
-		var holding []reading
+	tiers := []func(reading) bool{holds(g, false)}
+	if g == lenient && rest[0] == '"' {
+		tiers = []func(reading) bool{holds(server, true), holds(written, true), holds(lenient, false)}
+	}
+	for _, holding := range tiers {
+		var kept []reading
 		for _, r := range readings {
-			if holds(r) {
-				holding = append(holding, r)
+			if holding(r) {
+				kept = append(kept, r)
 			}
 		}
-		if len(holding) == 1 {
-			return holding[0], nil
+		if p.scanned > maxScannedLines {
+			// A reading cut short by the budget looks like one that does not hold
+			return reading{}, &ParseError{Line: start + 1, Msg: "too complex to read safely"}
 		}
-		if len(holding) > 1 {
+		if len(kept) == 1 {
+			return kept[0], nil
+		}
+		if len(kept) > 1 {
 			return reading{}, &ParseError{
 				Line: start + 1,
 				Msg:  "cannot tell where this quoted value ends: it reads more than one way",
@@ -335,19 +341,26 @@ func (p *parser) readings(start int, rest string, g grammar) (readings []reading
 	}
 }
 
-// text builds the value of reading r of the quoted value starting on line start.
-func (p *parser) text(start int, rest string, r reading) string {
+// text builds the value of reading r of the quoted value starting on line start. In a file,
+// a CRLF line end inside the value reads as \n.
+func (p *parser) text(start int, rest string, r reading, g grammar) string {
 	if r.final {
 		return r.value
 	}
 	if r.endLine == start {
 		return unescape(rest[1:1+r.endAt], rest[0])
 	}
+	lineText := func(text string) string {
+		if g == lenient {
+			return strings.TrimSuffix(text, "\r")
+		}
+		return text
+	}
 	var b strings.Builder
-	b.WriteString(rest[1:])
+	b.WriteString(lineText(rest[1:]))
 	for line := start + 1; line < r.endLine; line++ {
 		b.WriteString("\n")
-		b.WriteString(p.lines[line])
+		b.WriteString(lineText(p.lines[line]))
 	}
 	b.WriteString("\n")
 	b.WriteString(p.lines[r.endLine][:r.endAt])

@@ -4,7 +4,7 @@ import "strings"
 
 // FormatValue writes a value the way the server's .env output does (toEnvFormat in the
 // backend): in double quotes, with each quote escaped, when it holds a space, a newline or a
-// quote; as is otherwise. Parse reads it back.
+// quote; as is otherwise. ParseServer reads it back exactly; Parse, as a file holds it.
 func FormatValue(value string) string {
 	if strings.ContainsAny(value, " \n\"") {
 		return `"` + strings.ReplaceAll(value, `"`, `\"`) + `"`

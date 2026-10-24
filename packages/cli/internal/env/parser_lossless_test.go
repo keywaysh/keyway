@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode"
 )
 
 func TestParse_MultiLineDoubleQuotedValue(t *testing.T) {
@@ -226,15 +227,18 @@ func TestParse_ReadsBackWhatTheServerWrites(t *testing.T) {
 		if formatted := strings.Join(lines, "\n"); formatted != c.Content {
 			t.Errorf("FormatLine differs from the server:\n got %q\nwant %q", formatted, c.Content)
 		}
-		// The recorded values are all ones a file carries, so both readers get them back.
-		for name, parse := range map[string]func(string) (map[string]string, error){
-			"ParseServer": ParseServer,
-			"Parse":       Parse,
-		} {
-			got, err := parse(c.Content)
-			if err != nil || !reflect.DeepEqual(got, c.Values) {
-				t.Errorf("%s(%q)\n got %q (%v)\nwant %q", name, c.Content, got, err, c.Values)
-			}
+		got, err := ParseServer(c.Content)
+		if err != nil || !reflect.DeepEqual(got, c.Values) {
+			t.Errorf("ParseServer(%q)\n got %q (%v)\nwant %q", c.Content, got, err, c.Values)
+		}
+		// A file holds the same values, except \r\n inside quotes, read as \n.
+		inFile := make(map[string]string, len(c.Values))
+		for key, value := range c.Values {
+			inFile[key] = strings.ReplaceAll(value, "\r\n", "\n")
+		}
+		got, err = Parse(c.Content)
+		if err != nil || !reflect.DeepEqual(got, inFile) {
+			t.Errorf("Parse(%q)\n got %q (%v)\nwant %q", c.Content, got, err, inFile)
 		}
 	}
 }
@@ -323,15 +327,16 @@ func FuzzParse_NeverReadsBackSomethingElse(f *testing.F) {
 	})
 }
 
-// carriedByFormat reports whether the server's .env format can carry value exactly. It cannot
-// tell an unquoted value ending with \r from a CRLF line end, nor one wrapped in single quotes
-// ('x') from a hand-quoted one; a leading byte order mark reads as the file's.
+// carriedByFormat reports whether a .env file carries value exactly. It cannot tell an
+// unquoted value ending with \r, or \r\n inside a quoted one, from CRLF line ends, nor a value
+// wrapped in single quotes ('x') from a hand-quoted one; a leading byte order mark reads as
+// the file's.
 func carriedByFormat(value string) bool {
 	if strings.HasPrefix(value, "\uFEFF") {
 		return false
 	}
 	if strings.ContainsAny(value, " \n\"") {
-		return true // quoted
+		return !strings.Contains(value, "\r\n") // quoted
 	}
 	if strings.HasSuffix(value, "\r") {
 		return false
@@ -345,13 +350,15 @@ func carriedByFormat(value string) bool {
 	return at < 0 || (strings.TrimSpace(value[at+2:]) != "" && !wrapped)
 }
 
-// usableKey mirrors the keys the server accepts for new secrets.
+// usableKey mirrors isUsableNewKey in the backend (pushPlan.service.ts): the keys the server
+// accepts for new secrets.
 func usableKey(key string) bool {
-	if key == "" || strings.ContainsAny(key, "=#") || strings.TrimSpace(key) != key {
+	isJSSpace := func(r rune) bool { return unicode.IsSpace(r) || r == '\uFEFF' }
+	if key == "" || strings.TrimFunc(key, isJSSpace) != key || strings.HasPrefix(key, "#") {
 		return false
 	}
 	for _, r := range key {
-		if r < 0x20 || r == 0x7f || r == '\u2028' || r == '\u2029' {
+		if r == '=' || unicode.IsControl(r) || r == '\u2028' || r == '\u2029' {
 			return false
 		}
 	}
@@ -400,7 +407,7 @@ func TestMerge_QuotesLocalOnlyValues(t *testing.T) {
 	}
 }
 
-// Readings of ambiguous lines are told apart in linear time, whatever the content.
+// Telling readings apart stays fast on hostile content; past a work budget, Parse refuses.
 func TestParse_StaysFastOnAdversarialContent(t *testing.T) {
 	contents := map[string]string{
 		"every line ends with an escaped quote": "K=\"" + strings.Repeat("line \\\"\n", 50000) + "end\"",
