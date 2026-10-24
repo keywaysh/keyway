@@ -9,7 +9,7 @@ import (
 
 // ParseError reports .env content that cannot be read without guessing.
 type ParseError struct {
-	Line int // 1-based line where the value starts
+	Line int // 1-based line where the problem starts
 	Msg  string
 }
 
@@ -17,204 +17,314 @@ func (e *ParseError) Error() string {
 	return fmt.Sprintf("line %d: %s", e.Line, e.Msg)
 }
 
-// Parse parses env file content and returns a map of key-value pairs.
+// Parse reads a .env file: one that `keyway pull` wrote, possibly edited by hand.
 //
-// It reads what `keyway pull` writes (the server's format) back exactly: a value in double or
-// single quotes may span lines, and inside double quotes \" stands for a quote. Single-line
-// values read as in earlier versions. Content it could only read by guessing, such as an
-// unterminated double quote, is a *ParseError rather than a cut value.
+// A value in double or single quotes may span lines, and inside double quotes \" stands for a
+// quote. Blank lines, comments and lines without "=" are skipped. A single-line value that
+// starts and ends with the same quote loses them, as in earlier versions; unlike them, a
+// trailing tab is kept, a comment may follow a closing double quote, and a quote that never
+// closes or text after a closing quote is an error rather than a value cut at its first line.
 //
-// The format cannot carry every value: an unquoted value ending with \r reads without it,
-// and one wrapped in single quotes ('x') reads without them, as earlier versions did. Read
-// exact values from the API instead of from .env content.
+// The server's format is ambiguous where a line ends with \": an escaped quote, or a value
+// ending with a backslash and its closing quote. Parse keeps the only reading that the
+// server could have written and that leaves valid lines after it; failing that, the only one
+// that leaves valid lines; otherwise it returns a *ParseError rather than guess.
+//
+// A file cannot carry every value: an unquoted value ending with \r reads without it, and one
+// wrapped in single quotes ('x') reads without them. ParseServer reads the server's text
+// exactly.
 func Parse(content string) (map[string]string, error) {
-	p := &parser{
-		lines: strings.Split(strings.TrimPrefix(content, "\uFEFF"), "\n"),
-		holds: map[int]bool{},
-	}
-	result := make(map[string]string)
-	if err := p.parse(0, result); err != nil {
-		return nil, err
-	}
-	return result, nil
+	return newParser(content).parse(lenient)
 }
+
+// ParseServer reads the .env text the server sends (its toEnvFormat) exactly. Single quotes,
+// \r and tabs are part of values there. It returns a *ParseError for text the server does not
+// write.
+func ParseServer(content string) (map[string]string, error) {
+	return newParser(content).parse(server)
+}
+
+// grammar is a set of rules for reading .env lines.
+type grammar int
+
+const (
+	// lenient: what people write; see Parse.
+	lenient grammar = iota
+	// server: exactly what toEnvFormat writes. Every line is KEY=value, and a value is in
+	// double quotes, each of its quotes escaped, if and only if it holds a space, a newline or
+	// a quote. Nothing else is escaped.
+	server
+	// written: the server's lines plus blank lines and comments, as in a pulled file someone
+	// edited. Used to tell readings apart.
+	written
+)
 
 // Lines scanned in total before giving up: bounds the work on adversarial content.
 const maxScannedLines = 5_000_000
 
 type parser struct {
 	lines   []string
-	holds   map[int]bool // memo for holdsFrom
+	holds   [3]map[int]bool // per grammar, whether the lines from an index read to the end
 	scanned int
 }
 
-// reading is one way to read a quoted value. Its text is built only once it is chosen.
-type reading struct {
-	value   string // set for single-line readings of single-quoted values
-	literal bool   // value is final
-	endLine int    // line where the value ends
-	endAt   int    // index in that line's text where the value ends
-	next    int    // line after the value
-	closed  bool   // ends on a closing quote, not on a backslash before it
-}
-
-// parse reads lines[from:] into out.
-func (p *parser) parse(from int, out map[string]string) error {
-	for i := from; i < len(p.lines); {
-		key, value, quoted, ok := splitAssignment(p.lines[i])
-		if !ok {
-			i++ // blank, comment, or a line without "=": skipped, as in earlier versions
-			continue
-		}
-		if !quoted {
-			out[key] = value
-			i++
-			continue
-		}
-		r, err := p.quoted(i, value, false)
-		if err != nil {
-			return err
-		}
-		out[key] = p.text(i, value, r)
-		i = r.next
+func newParser(content string) *parser {
+	p := &parser{lines: strings.Split(strings.TrimPrefix(content, "\uFEFF"), "\n")}
+	for g := range p.holds {
+		p.holds[g] = map[int]bool{}
 	}
-	return nil
+	return p
 }
 
-// holdsFrom reports whether lines[from:] read without error when every non-blank,
-// non-comment line must be an assignment. It tells apart the readings of an ambiguous value:
-// the server's output always holds, a reading that cuts it elsewhere leaves stray lines.
-func (p *parser) holdsFrom(from int) bool {
-	if held, ok := p.holds[from]; ok {
+// statement is a KEY=value line. For a quoted value, value is the text after "=".
+type statement struct {
+	key    string
+	value  string
+	quoted bool
+}
+
+// split reads a line under grammar g. skip: not a statement, and g skips it. ok=false: g
+// does not allow the line. In check mode, lenient does not skip lines without "=".
+func split(line string, g grammar, check bool) (st statement, skip, ok bool) {
+	trimmed := strings.TrimSpace(line)
+	if g != server && (trimmed == "" || strings.HasPrefix(trimmed, "#")) {
+		return statement{}, true, true
+	}
+	eq := strings.IndexByte(line, '=')
+
+	if g == lenient {
+		if eq == -1 || strings.TrimSpace(line[:eq]) == "" {
+			return statement{}, !check, !check
+		}
+		key, rest := strings.TrimSpace(line[:eq]), line[eq+1:]
+		if rest != "" && (rest[0] == '"' || rest[0] == '\'') {
+			return statement{key: key, value: rest, quoted: true}, false, true
+		}
+		return statement{key: key, value: strings.TrimRight(rest, " \r")}, false, true
+	}
+
+	// The server writes KEY=value lines only, quoting exactly the values that need it.
+	if eq <= 0 {
+		return statement{}, false, false
+	}
+	key, rest := line[:eq], line[eq+1:]
+	if strings.HasPrefix(rest, `"`) {
+		return statement{key: key, value: rest, quoted: true}, false, true
+	}
+	if strings.ContainsAny(rest, ` "`) {
+		return statement{}, false, false
+	}
+	return statement{key: key, value: rest}, false, true
+}
+
+// endsHere reports whether only empty lines remain from line i: the server's text may end
+// with a newline.
+func (p *parser) endsHere(i int) bool {
+	for ; i < len(p.lines); i++ {
+		if p.lines[i] != "" {
+			return false
+		}
+	}
+	return true
+}
+
+// parse reads every line under grammar g (lenient or server).
+func (p *parser) parse(g grammar) (map[string]string, error) {
+	out := make(map[string]string)
+	for i := 0; i < len(p.lines); {
+		if g == server && p.endsHere(i) {
+			break
+		}
+		st, skip, ok := split(p.lines[i], g, false)
+		switch {
+		case !ok:
+			return nil, &ParseError{Line: i + 1, Msg: "not a line of the server's .env format"}
+		case skip:
+			i++
+		case !st.quoted:
+			out[st.key] = st.value
+			i++
+		default:
+			r, err := p.choose(i, st.value, g)
+			if err != nil {
+				return nil, err
+			}
+			out[st.key] = p.text(i, st.value, r)
+			i = r.next
+		}
+	}
+	return out, nil
+}
+
+// holdsFrom reports whether the lines from index from read to the end under grammar g, for
+// some reading of each quoted value.
+func (p *parser) holdsFrom(g grammar, from int) bool {
+	if held, ok := p.holds[g][from]; ok {
 		return held
 	}
-	// The outcome from each statement on the way is the same, so remember it for all.
-	var path []int
+	var path []int // statements on the way share the outcome
 	held := true
 	for i := from; i < len(p.lines); {
-		if known, ok := p.holds[i]; ok {
+		if known, ok := p.holds[g][i]; ok {
 			held = known
 			break
 		}
 		path = append(path, i)
-		trimmed := strings.TrimSpace(p.lines[i])
-		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
-			i++
-			continue
+		if g == server && p.endsHere(i) {
+			break
 		}
-		_, value, quoted, ok := splitAssignment(p.lines[i])
+		st, skip, ok := split(p.lines[i], g, true)
 		if !ok {
 			held = false
 			break
 		}
-		if !quoted {
+		if skip || !st.quoted {
 			i++
 			continue
 		}
-		r, err := p.quoted(i, value, true)
-		if err != nil {
-			held = false
-			break
+		readings, fallback, _ := p.readings(i, st.value, g)
+		held = false
+		for _, r := range readings {
+			if p.holdsFrom(g, r.next) {
+				held = true
+				break
+			}
 		}
-		i = r.next
+		if !held && fallback {
+			held = p.holdsFrom(g, i+1)
+		}
+		break
 	}
 	for _, i := range path {
-		p.holds[i] = held
+		p.holds[g][i] = held
 	}
 	return held
 }
 
-// quoted chooses how to read the quoted value starting on line start; first is that line's
-// text after "=". In check mode (from holdsFrom) any reading whose remaining lines hold will do.
-func (p *parser) quoted(start int, first string, check bool) (reading, error) {
-	readings, fallback, sawClosing := p.readings(start, first)
+// reading is one way to read a quoted value. Its text is built only once it is chosen.
+type reading struct {
+	value    string // set when final: single-line readings of single-quoted values
+	final    bool
+	endLine  int  // line where the value ends
+	endAt    int  // index in that line's text where the value ends
+	next     int  // line after the value
+	asServer bool // the server writes this value this way
+}
+
+// choose picks the reading of the quoted value starting on line start; rest is that line's
+// text after "=".
+func (p *parser) choose(start int, rest string, g grammar) (reading, error) {
+	readings, fallback, sawClosing := p.readings(start, rest, g)
 	if p.scanned > maxScannedLines {
 		return reading{}, &ParseError{Line: start + 1, Msg: "too complex to read safely"}
 	}
 
-	switch {
-	case len(readings) == 1:
+	switch len(readings) {
+	case 1:
 		return readings[0], nil
-	case len(readings) > 1:
+	case 0:
+		// Read the line as earlier versions did when it starts and ends with the same quote,
+		// like a hand-written "say "hi"".
+		if fallback {
+			line := strings.TrimRight(rest, " \r")
+			return reading{value: line[1 : len(line)-1], final: true, next: start + 1}, nil
+		}
+		if sawClosing {
+			return reading{}, &ParseError{Line: start + 1, Msg: "unexpected text after the closing quote"}
+		}
+		return reading{}, &ParseError{Line: start + 1, Msg: "quote never closed"}
+	}
+
+	// Several readings: keep the one whose following lines hold. In a file, prefer the
+	// server's own readings, the way pull wrote it.
+	tiers := []func(reading) bool{func(r reading) bool { return p.holdsFrom(g, r.next) }}
+	if g == lenient {
+		tiers = []func(reading) bool{
+			func(r reading) bool { return r.asServer && p.holdsFrom(written, r.next) },
+			func(r reading) bool { return p.holdsFrom(lenient, r.next) },
+		}
+	}
+	for _, holds := range tiers {
 		var holding []reading
 		for _, r := range readings {
-			if p.holdsFrom(r.next) {
+			if holds(r) {
 				holding = append(holding, r)
 			}
 		}
-		if len(holding) == 1 || (len(holding) > 1 && check) {
+		if len(holding) == 1 {
 			return holding[0], nil
 		}
 		if len(holding) > 1 {
 			return reading{}, &ParseError{
 				Line: start + 1,
-				Msg:  "ambiguous quoted value: it may end with a backslash or go on to the next lines",
+				Msg:  "cannot tell where this quoted value ends: it reads more than one way",
 			}
 		}
-		if check {
-			return reading{}, &ParseError{Line: start + 1, Msg: "no reading holds"}
-		}
-		// None holds because hand-written lines follow: prefer the usual reading, the one
-		// that ends on a closing quote.
-		for _, r := range readings {
-			if r.closed {
-				return r, nil
-			}
-		}
-		return readings[0], nil
 	}
-
-	// No reading: read the line as earlier versions did (outer quotes removed) when it
-	// starts and ends with the same quote, e.g. a hand-written "say "hi"".
-	if fallback && !check {
-		line := strings.TrimRight(first, " \r")
-		return reading{value: line[1 : len(line)-1], literal: true, next: start + 1}, nil
+	return reading{}, &ParseError{
+		Line: start + 1,
+		Msg:  "cannot tell where this quoted value ends: no reading leaves valid lines after it",
 	}
-	if sawClosing {
-		return reading{}, &ParseError{Line: start + 1, Msg: "unexpected text after the closing quote"}
-	}
-	return reading{}, &ParseError{Line: start + 1, Msg: "quote never closed"}
 }
 
-// readings lists the ways to read the quoted value starting on line start, in line order.
-// fallback reports whether that line on its own starts and ends with the quote; sawClosing
-// whether a closing quote was found at all.
-func (p *parser) readings(start int, first string) (readings []reading, fallback, sawClosing bool) {
-	quote := first[0]
-	firstLine := strings.TrimRight(first, " \r")
-	fallback = len(firstLine) >= 2 && firstLine[len(firstLine)-1] == quote
+// readings lists the ways grammar g can read the quoted value starting on line start, in line
+// order; rest is that line's text after "=". fallback reports whether, under the lenient
+// grammar, that line on its own starts and ends with the quote; sawClosing whether a closing
+// quote was found at all. Under the server's grammars, only the server's own readings count.
+func (p *parser) readings(start int, rest string, g grammar) (readings []reading, fallback, sawClosing bool) {
+	quote := rest[0]
+	firstLine := strings.TrimRight(rest, " \r")
+	fallback = g == lenient && len(firstLine) >= 2 && firstLine[len(firstLine)-1] == quote
 
 	if quote == '\'' {
 		// The server never writes single quotes, but writes a value that merely starts with
 		// one as is ('abc123, 'it's). Read single-line values as earlier versions did.
-		if at := strings.IndexByte(first[1:], '\''); at >= 0 {
-			value := firstLine // as is, like 'it's
-			if strings.TrimSpace(first[at+2:]) == "" {
-				value = first[1 : at+1]
+		asIs := !strings.ContainsAny(firstLine, ` "`) // the server would write it unquoted
+		if at := strings.IndexByte(rest[1:], '\''); at >= 0 {
+			value, asServer := firstLine, asIs // as is, like 'it's
+			if strings.TrimSpace(rest[at+2:]) == "" {
+				value, asServer = rest[1:at+1], false
 			} else if fallback {
-				value = firstLine[1 : len(firstLine)-1]
+				value, asServer = firstLine[1:len(firstLine)-1], false
 			}
-			return []reading{{value: value, literal: true, next: start + 1, closed: true}}, fallback, true
+			return []reading{{value: value, final: true, next: start + 1, asServer: asServer}}, fallback, true
 		}
-		readings = append(readings, reading{value: firstLine, literal: true, next: start + 1})
+		readings = append(readings, reading{value: firstLine, final: true, next: start + 1, asServer: asIs})
 	}
 
-	segment := first[1:]
+	add := func(r reading) {
+		if g == lenient || r.asServer {
+			readings = append(readings, r)
+		}
+	}
+	// The server quotes a value only when it holds a space, a newline or a quote.
+	quotable := func(line int, text string) bool {
+		return line > start || strings.ContainsAny(text, ` "`)
+	}
+	segment := rest[1:]
 	for line := start; ; {
 		p.scanned++
 		if at := closingQuote(segment, quote); at >= 0 {
-			if isBlankOrComment(segment[at+1:], quote) {
-				readings = append(readings, reading{endLine: line, endAt: at, next: line + 1, closed: true})
+			after := segment[at+1:]
+			if isBlankOrComment(after, quote) {
+				add(reading{
+					endLine:  line,
+					endAt:    at,
+					next:     line + 1,
+					asServer: quote == '"' && after == "" && quotable(line, segment[:at]),
+				})
 			}
 			return readings, fallback, true
 		}
-		// `\"` ending a line is an escaped quote, or a backslash that ends the value followed
-		// by the closing quote: keep both readings.
+		// `\"` ending a line is an escaped quote, or a backslash ending the value followed by
+		// the closing quote: keep both readings.
 		if quote == '"' && strings.HasSuffix(strings.TrimRight(segment, " \t\r"), `\"`) {
-			readings = append(readings, reading{
-				endLine: line,
-				endAt:   strings.LastIndex(segment, `"`),
-				next:    line + 1,
+			end := strings.LastIndex(segment, `"`)
+			add(reading{
+				endLine:  line,
+				endAt:    end,
+				next:     line + 1,
+				asServer: end == len(segment)-1 && quotable(line, segment[:end]),
 			})
 		}
 		line++
@@ -226,22 +336,22 @@ func (p *parser) readings(start int, first string) (readings []reading, fallback
 }
 
 // text builds the value of reading r of the quoted value starting on line start.
-func (p *parser) text(start int, first string, r reading) string {
-	if r.literal {
+func (p *parser) text(start int, rest string, r reading) string {
+	if r.final {
 		return r.value
 	}
 	if r.endLine == start {
-		return unescape(first[1:1+r.endAt], first[0])
+		return unescape(rest[1:1+r.endAt], rest[0])
 	}
 	var b strings.Builder
-	b.WriteString(first[1:])
+	b.WriteString(rest[1:])
 	for line := start + 1; line < r.endLine; line++ {
 		b.WriteString("\n")
 		b.WriteString(p.lines[line])
 	}
 	b.WriteString("\n")
 	b.WriteString(p.lines[r.endLine][:r.endAt])
-	return unescape(b.String(), first[0])
+	return unescape(b.String(), rest[0])
 }
 
 // closingQuote returns the index of the quote that closes the value in segment, or -1.
@@ -269,28 +379,6 @@ func unescape(text string, quote byte) string {
 func isBlankOrComment(rest string, quote byte) bool {
 	rest = strings.TrimSpace(rest)
 	return rest == "" || (quote == '"' && strings.HasPrefix(rest, "#"))
-}
-
-// splitAssignment splits a KEY=value line. value is the unquoted value (leading whitespace
-// kept, trailing spaces and \r removed), or the raw text after "=" when quoted.
-func splitAssignment(line string) (key, value string, quoted, ok bool) {
-	trimmed := strings.TrimSpace(line)
-	if trimmed == "" || strings.HasPrefix(trimmed, "#") {
-		return "", "", false, false
-	}
-	eq := strings.Index(line, "=")
-	if eq == -1 {
-		return "", "", false, false
-	}
-	key = strings.TrimSpace(line[:eq])
-	if key == "" {
-		return "", "", false, false
-	}
-	value = line[eq+1:]
-	if value != "" && (value[0] == '"' || value[0] == '\'') {
-		return key, value, true, true
-	}
-	return key, strings.TrimRight(value, " \r"), false, true
 }
 
 // CountLines counts non-empty, non-comment lines in env content.

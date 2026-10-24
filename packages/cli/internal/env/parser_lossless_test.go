@@ -111,9 +111,15 @@ func TestParse_HandWrittenQuotesKeepTheirMeaning(t *testing.T) {
 	result := mustParse(t, "A=\"say \"hi\"\"\nB='it'\nC='abc123\nD=it's")
 
 	want := map[string]string{"A": `say "hi"`, "B": "it", "C": "'abc123", "D": "it's"}
-	if got := mustParse(t, "E='it's\nF='x'y\nG='x'\t"); got["E"] != "'it's" || got["F"] != "'x'y" || got["G"] != "x" {
-		t.Errorf("values starting with a quote: got %q", got)
+	if !reflect.DeepEqual(result, want) {
+		t.Errorf("got %q, want %q", result, want)
 	}
+}
+
+func TestParse_ValuesStartingWithASingleQuote(t *testing.T) {
+	result := mustParse(t, "E='it's\nF='x'y\nG='x'\t")
+
+	want := map[string]string{"E": "'it's", "F": "'x'y", "G": "x"}
 	if !reflect.DeepEqual(result, want) {
 		t.Errorf("got %q, want %q", result, want)
 	}
@@ -152,9 +158,20 @@ func TestParse_PicksTheOnlyReadingThatHolds(t *testing.T) {
 	}
 }
 
+func TestParse_KeepsTheReadingTheServerCouldHaveWritten(t *testing.T) {
+	// Also readable as {A: "a b\"\nC=", D: `1"`}, but the server would quote `1"`.
+	result := mustParse(t, "A=\"a b\\\"\nC=\"\nD=1\"")
+
+	want := map[string]string{"A": `a b\`, "C": "\nD=1"}
+	if !reflect.DeepEqual(result, want) {
+		t.Errorf("got %q, want %q", result, want)
+	}
+}
+
 func TestParse_RefusesAmbiguousContent(t *testing.T) {
-	// Read as {A: `a b\`, C: "\nD=1"} or as {A: "a b\"\nC=", D: `1"`}: never guess.
-	_, err := Parse("A=\"a b\\\"\nC=\"\nD=1\"")
+	// {A: `a b\`, B: `b"`, JSON: ...} or {A: "a b\"\nB=b", JSON: ...}: hand-written lines
+	// follow, so the server's format cannot tell; never guess.
+	_, err := Parse("A=\"a b\\\"\nB=b\"\nJSON={\"a\": 1}")
 
 	var parseErr *ParseError
 	if !errors.As(err, &parseErr) || parseErr.Line != 1 {
@@ -181,7 +198,7 @@ func TestFormatLine_MatchesTheServerFormat(t *testing.T) {
 	}
 }
 
-// Values the server wrote are read back exactly, or refused; never read as something else.
+// Values the server wrote are read back exactly, from its text and from a file.
 func TestParse_ReadsBackWhatTheServerWrites(t *testing.T) {
 	data, err := os.ReadFile("testdata/toenvformat.json")
 	if err != nil {
@@ -209,60 +226,70 @@ func TestParse_ReadsBackWhatTheServerWrites(t *testing.T) {
 		if formatted := strings.Join(lines, "\n"); formatted != c.Content {
 			t.Errorf("FormatLine differs from the server:\n got %q\nwant %q", formatted, c.Content)
 		}
-
-		got, err := Parse(c.Content)
-		if err != nil {
-			continue // refused: allowed, checked below for the plain cases
-		}
-		if !reflect.DeepEqual(got, c.Values) {
-			t.Errorf("Parse(%q)\n got %q\nwant %q", c.Content, got, c.Values)
-		}
-	}
-
-	// Each value on its own is always read back.
-	for _, c := range fixture.Cases {
-		if len(c.Values) != 1 {
-			continue
-		}
-		if _, err := Parse(c.Content); err != nil {
-			t.Errorf("Parse(%q) refused a lone value: %v", c.Content, err)
+		// The recorded values are all ones a file carries, so both readers get them back.
+		for name, parse := range map[string]func(string) (map[string]string, error){
+			"ParseServer": ParseServer,
+			"Parse":       Parse,
+		} {
+			got, err := parse(c.Content)
+			if err != nil || !reflect.DeepEqual(got, c.Values) {
+				t.Errorf("%s(%q)\n got %q (%v)\nwant %q", name, c.Content, got, err, c.Values)
+			}
 		}
 	}
 }
 
-// Over random secrets, reading back what FormatLine wrote gives the secrets or an error.
+// randomSecrets returns random secrets and the server's text for them.
+func randomSecrets(rng *rand.Rand) (map[string]string, string) {
+	pieces := []string{"a", "Z9", " ", "\n", `"`, "'", `\`, "=", "#", "\t", "\r", "é", "x=y", `\"`, "\n\n", "\nK=\""}
+	keys := []string{"A", "B", "C_1", "DB_URL", "lower", "_X"}
+	secrets := map[string]string{}
+	for _, key := range keys[:1+rng.Intn(len(keys))] {
+		var b strings.Builder
+		for n := rng.Intn(6); n > 0; n-- {
+			b.WriteString(pieces[rng.Intn(len(pieces))])
+		}
+		secrets[key] = b.String()
+	}
+	order := make([]string, 0, len(secrets))
+	for key := range secrets {
+		order = append(order, key)
+	}
+	sort.Strings(order)
+	rng.Shuffle(len(order), func(a, b int) { order[a], order[b] = order[b], order[a] })
+	lines := make([]string, 0, len(order))
+	for _, key := range order {
+		lines = append(lines, FormatLine(key, secrets[key]))
+	}
+	return secrets, strings.Join(lines, "\n")
+}
+
+// The server's text always reads back exactly.
+func TestParseServer_RoundTripProperty(t *testing.T) {
+	rng := rand.New(rand.NewSource(20261024))
+	for i := 0; i < 50000; i++ {
+		secrets, content := randomSecrets(rng)
+		got, err := ParseServer(content)
+		if err != nil || !reflect.DeepEqual(got, secrets) {
+			t.Fatalf("ParseServer(%q)\n got %q (%v)\nwant %q", content, got, err, secrets)
+		}
+	}
+}
+
+// A file reads back as the secrets it can carry, or is refused; never as something else.
 func TestParse_RoundTripProperty(t *testing.T) {
 	rng := rand.New(rand.NewSource(20261024))
-	pieces := []string{"a", "Z9", " ", "\n", `"`, "'", `\`, "=", "#", "\t", "é", "x=y", `\"`, "\n\n"}
-	keys := []string{"A", "B", "C_1", "DB_URL", "lower", "_X"}
-	refused := 0
-	const runs = 20000
-
-	for i := 0; i < runs; i++ {
-		secrets := map[string]string{}
-		for _, key := range keys[:1+rng.Intn(len(keys))] {
-			var b strings.Builder
-			for n := rng.Intn(6); n > 0; n-- {
-				b.WriteString(pieces[rng.Intn(len(pieces))])
-			}
-			value := b.String()
-			if !carriedByFormat(value) {
-				continue
-			}
-			secrets[key] = value
+	refused, runs := 0, 0
+	for i := 0; i < 50000; i++ {
+		secrets, content := randomSecrets(rng)
+		carried := true
+		for _, value := range secrets {
+			carried = carried && carriedByFormat(value)
 		}
-		order := make([]string, 0, len(secrets))
-		for key := range secrets {
-			order = append(order, key)
+		if !carried {
+			continue
 		}
-		sort.Strings(order)
-		rng.Shuffle(len(order), func(a, b int) { order[a], order[b] = order[b], order[a] })
-		lines := make([]string, 0, len(order))
-		for _, key := range order {
-			lines = append(lines, FormatLine(key, secrets[key]))
-		}
-		content := strings.Join(lines, "\n")
-
+		runs++
 		got, err := Parse(content)
 		if err != nil {
 			refused++
@@ -272,8 +299,8 @@ func TestParse_RoundTripProperty(t *testing.T) {
 			t.Fatalf("Parse(%q)\n got %q\nwant %q", content, got, secrets)
 		}
 	}
-	// Refusals only come from values the format cannot tell apart: they must stay rare.
-	if refused > runs/10 {
+	// Refusals come from hand-written-looking values (e.g. 'x' then x' on a later line): rare.
+	if refused*100 > runs {
 		t.Errorf("refused %d of %d contents", refused, runs)
 	}
 }
@@ -316,6 +343,35 @@ func carriedByFormat(value string) bool {
 	at := strings.IndexByte(value[1:], '\'')
 	wrapped := len(value) >= 2 && value[len(value)-1] == '\''
 	return at < 0 || (strings.TrimSpace(value[at+2:]) != "" && !wrapped)
+}
+
+// usableKey mirrors the keys the server accepts for new secrets.
+func usableKey(key string) bool {
+	if key == "" || strings.ContainsAny(key, "=#") || strings.TrimSpace(key) != key {
+		return false
+	}
+	for _, r := range key {
+		if r < 0x20 || r == 0x7f || r == '\u2028' || r == '\u2029' {
+			return false
+		}
+	}
+	return true
+}
+
+func FuzzParseServer_ReadsBackExactly(f *testing.F) {
+	f.Add("A", "value-1", "B", "line1\nline2")
+	f.Add("A", `ends with \`, "B", "\nB=\"")
+	f.Add("K", `title: "Hello"`+"\nbody: x", "W", "'x'")
+	f.Fuzz(func(t *testing.T, k1, v1, k2, v2 string) {
+		if !usableKey(k1) || !usableKey(k2) || k1 == k2 || strings.HasPrefix(k1, "\uFEFF") {
+			return
+		}
+		content := FormatLine(k1, v1) + "\n" + FormatLine(k2, v2)
+		got, err := ParseServer(content)
+		if err != nil || !reflect.DeepEqual(got, map[string]string{k1: v1, k2: v2}) {
+			t.Fatalf("ParseServer(%q)\n got %q (%v)", content, got, err)
+		}
+	})
 }
 
 func FuzzParse_NoPanic(f *testing.F) {
