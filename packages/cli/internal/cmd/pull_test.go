@@ -339,8 +339,8 @@ func TestRunPullWithDeps_ForceReplace(t *testing.T) {
 	}
 
 	content := string(written)
-	// Should contain vault content exactly
-	if content != "API_KEY=new_value\nDB_URL=postgres://localhost" {
+	// Should contain vault content exactly, ending with a newline
+	if content != "API_KEY=new_value\nDB_URL=postgres://localhost\n" {
 		t.Errorf("expected vault content exactly, got %q", content)
 	}
 }

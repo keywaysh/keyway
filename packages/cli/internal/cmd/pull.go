@@ -262,8 +262,12 @@ func runPullWithDeps(opts PullOptions, deps *Dependencies) error {
 	// Prepare final content
 	var finalContent string
 	if opts.Force || !localExists {
-		// Replace mode: use vault content as-is
+		// Replace mode: use vault content as-is, ending with a newline so that lines appended
+		// later (echo >> .env) start on a line of their own
 		finalContent = vaultContent
+		if !strings.HasSuffix(finalContent, "\n") {
+			finalContent += "\n"
+		}
 	} else {
 		// Merge mode: start with vault secrets, add local-only secrets
 		finalContent = env.Merge(vaultContent, localSecrets, vaultSecrets)

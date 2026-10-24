@@ -423,3 +423,26 @@ func TestRunDiffWithDeps_ComparesExactValues(t *testing.T) {
 		t.Errorf("expected W to differ, got %+v", result)
 	}
 }
+
+func TestRunPullWithDeps_EndsTheFileWithANewline(t *testing.T) {
+	// Users append lines with echo >> .env: the last pulled line must not absorb them.
+	for _, force := range []bool{false, true} {
+		deps, _, _, _, fsMock, _, apiMock := NewTestDepsWithEnv()
+		apiMock.PullResponse = currentServer(map[string]string{"WRAPPED": "'x'", "A": "1"})
+		opts := pullOpts()
+		opts.Force = force
+
+		if err := runPullWithDeps(opts, deps); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		written := string(fsMock.Written[".env"])
+		if !strings.HasSuffix(written, "\n") {
+			t.Fatalf("force=%v: file does not end with a newline: %q", force, written)
+		}
+		got, err := env.Parse(written + "CERT=\"line one\nline two\"\n")
+		if err != nil || got["CERT"] != "line one\nline two" || got["A"] != "1" {
+			t.Errorf("force=%v: appended line read as %q (%v)", force, got, err)
+		}
+	}
+}
