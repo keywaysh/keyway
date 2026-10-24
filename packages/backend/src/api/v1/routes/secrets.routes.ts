@@ -465,11 +465,17 @@ export async function secretsRoutes(fastify: FastifyInstance) {
             const code = pgCode(error);
             // lock_not_available, raised by lock_timeout
             if (code === "55P03") {
-              throw new ConflictError("Another push to this vault is still running. Try again.");
+              throw new ConflictError("Another write to this vault is still running. Try again.");
             }
             // A writer that does not take the vault lock (e.g. the dashboard) created one of
             // the keys or numbered a version first: plan again on what it wrote.
             if (code === "23505" || code === "40P01") {
+              const constraint = (error as { cause?: { constraint_name?: string } }).cause
+                ?.constraint_name;
+              request.log.warn(
+                { code, constraint, platform },
+                "Push: re-planning after a conflict"
+              );
               return false;
             }
             throw error;

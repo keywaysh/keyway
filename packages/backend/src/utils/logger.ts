@@ -51,6 +51,11 @@ export function sanitizeHeaders(headers: Record<string, any>): Record<string, an
  * @param error - Error object to sanitize
  * @returns Sanitized error data
  */
+// Drizzle puts a failed query's bound values (ciphertexts, key names) in its error message.
+export function withoutQueryParams(message: string): string {
+  return message.replace(/\nparams: [\s\S]*$/, "\nparams: [redacted]");
+}
+
 export function sanitizeError(error: any): any {
   if (!error) {
     return error;
@@ -59,7 +64,7 @@ export function sanitizeError(error: any): any {
   // Create a clean copy with all useful debugging info
   const sanitized: any = {
     name: error.name,
-    message: error.message,
+    message: typeof error.message === "string" ? withoutQueryParams(error.message) : error.message,
     code: error.code,
     statusCode: error.statusCode,
     type: error.type,

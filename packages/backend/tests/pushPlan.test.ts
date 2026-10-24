@@ -161,6 +161,16 @@ describe("planPush", () => {
     });
   });
 
+  it("rejects a stale copy of a last line that ends with the closing quote", () => {
+    // toEnvFormat closes a multi-line value with a bare quote at the end of its last line.
+    const pulled = { DB_PASSWORD: "value-1", ZCONF: 'DB_HOST=localhost\nDB_PASSWORD="value-3"' };
+    const sent = echo(pulled);
+    expect(sent.DB_PASSWORD).toBe('\\"value-3\\""');
+    const current = { ...pulled, ZCONF: 'DB_HOST=localhost\nDB_PASSWORD="value-2"' };
+    const plan = planPush(current, sent, { userAgent: RELEASED_CLI });
+    expect(plan.rejected).toEqual([{ key: "DB_PASSWORD", reason: "escaped-quote", stored: true }]);
+  });
+
   it("accepts quoted values that a released parser did not cut or escape", () => {
     // From the command line or a hand-written .env: a quote after the first character is not
     // escaped, so the value is not the CLI's copy of a stored one.

@@ -86,6 +86,15 @@ function allQuotesEscaped(text: string): boolean {
   return !/(?<!\\)"/.test(text);
 }
 
+// The released parsers never unescape, so \" comes from a value toEnvFormat quoted. Its last
+// line also keeps the bare quote that closed it.
+function looksEscaped(value: string): boolean {
+  return (
+    value.includes('\\"') &&
+    (allQuotesEscaped(value) || (value.endsWith('"') && allQuotesEscaped(value.slice(0, -1))))
+  );
+}
+
 // An opening quote never closed: the first line of a multi-line value, cut by the released
 // parser, from the server's own output (double quotes) or a hand-written .env file.
 function looksTruncated(value: string): boolean {
@@ -185,8 +194,7 @@ export function planPush(
       (exists ? plan.protected : plan.ignored).push(key);
     } else if (releasedCli && looksTruncated(value)) {
       plan.rejected.push({ key, reason: "truncated", stored: exists });
-    } else if (releasedCli && value.includes('\\"') && allQuotesEscaped(value)) {
-      // The released parsers never unescape, so \" comes from a mis-parsed quoted value.
+    } else if (releasedCli && looksEscaped(value)) {
       plan.rejected.push({ key, reason: "escaped-quote", stored: exists });
     } else if (hasMultiline && !exists && !PLAIN_KEY.test(key)) {
       plan.rejected.push({ key, reason: "invalid-key", stored: exists });
