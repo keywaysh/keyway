@@ -136,6 +136,16 @@ export async function secretsRoutes(fastify: FastifyInstance) {
     },
     async (request, reply) => {
       const body = PushSecretsSchema.parse(request.body);
+      // Write only where requireEnvironmentAccess checked (body defaults included)
+      const checked = request.checkedEnvironment;
+      if (
+        checked?.repoFullName !== body.repoFullName ||
+        checked.environment !== body.environment
+      ) {
+        throw new BadRequestError(
+          "The repository and environment must be the same in the URL and in the request body"
+        );
+      }
       const vcsUser = request.vcsUser || request.githubUser!;
 
       const vault = await db.query.vaults.findFirst({
