@@ -607,9 +607,9 @@ export async function secretsRoutes(fastify: FastifyInstance) {
         );
       }
 
-      // Decrypt and build content
+      // Decrypt and build content. No prototype, so any key (even "__proto__") is a plain entry.
       const encryptionService = await getEncryptionService();
-      const secretsMap: Record<string, string> = {};
+      const secretsMap: Record<string, string> = Object.create(null);
       for (const secret of envSecrets) {
         secretsMap[secret.key] = await encryptionService.decrypt({
           encryptedContent: secret.encryptedValue,
@@ -694,7 +694,8 @@ export async function secretsRoutes(fastify: FastifyInstance) {
         );
       }
 
-      return sendData(reply, { content }, { requestId: request.id });
+      // `content` is .env text, which cannot represent every value; `secrets` is exact.
+      return sendData(reply, { content, secrets: secretsMap }, { requestId: request.id });
     }
   );
 

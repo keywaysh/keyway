@@ -232,14 +232,13 @@ async function setup(stored: Record<string, string>, trashed: Record<string, str
     });
     return { status: res.statusCode, body: JSON.parse(res.body) };
   };
-  const pull = async (environment: string) => {
-    const res = await app.inject({
+  const pullResponse = (environment: string) =>
+    app.inject({
       method: "GET",
       url: `/v1/secrets/pull?repo=${encodeURIComponent(vault.repoFullName)}&environment=${environment}`,
       headers: { authorization: "Bearer test" },
     });
-    return res.statusCode;
-  };
+  const pull = async (environment: string) => (await pullResponse(environment)).statusCode;
   const renameEnvironment = async (name: string, newName: string) => {
     const res = await app.inject({
       method: "PATCH",
@@ -332,6 +331,7 @@ async function setup(stored: Record<string, string>, trashed: Record<string, str
     push,
     create,
     pull,
+    pullResponse,
     renameEnvironment,
     deleteEnvironment,
     listVersions,
@@ -828,5 +828,27 @@ describe("POST /v1/secrets/push (real handler, real DB)", () => {
     expect(body.detail).toContain("nothing was saved");
     expect(await rows()).toEqual(before);
     expect(await versions()).toEqual([]);
+  });
+});
+
+describe("GET /v1/secrets/pull (real handler, real DB)", () => {
+  it("returns each stored value exactly next to the .env content", async () => {
+    // toEnvFormat cannot represent every value (e.g. one ending with a backslash), so
+    // clients read secrets, not content.
+    const stored = {
+      MULTI,
+      QUOTED,
+      TRAIL: "ends with \\",
+      SPACED: "  padded  ",
+      ["__proto__"]: "own key",
+    };
+    const { pullResponse } = await setup(stored);
+    const res = await pullResponse("development");
+    expect(res.statusCode).toBe(200);
+    const { data } = JSON.parse(res.body);
+    expect(data.secrets).toEqual(stored);
+    expect(Object.keys(data.secrets).sort()).toEqual(Object.keys(stored).sort());
+    // Same values, in the order the rows came back
+    expect(data.content).toBe(toEnvFormat(data.secrets));
   });
 });

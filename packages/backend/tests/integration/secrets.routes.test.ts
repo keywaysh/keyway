@@ -473,6 +473,8 @@ describe('Secrets Routes', () => {
       const body = JSON.parse(response.body);
       // Released clients parse this exact format (see utils/legacyEnvFormat.ts).
       expect(body.data.content).toBe('API_KEY="two words"\nDB_URL=plain');
+      // Exact values, for clients that must not depend on that format.
+      expect(body.data.secrets).toEqual({ API_KEY: 'two words', DB_URL: 'plain' });
     });
 
     it('should return 403 for non-existent vault (access denied)', async () => {

@@ -350,7 +350,16 @@ GET /v1/secrets/pull?repo=owner/repo&environment=local
 
 **Scope required:** `read:secrets`
 
-Returns `.env` format in `data.content`.
+```json
+{
+  "data": {
+    "content": "API_KEY=sk_test_...\nGREETING=\"say \\\"hi\\\"\"",
+    "secrets": { "API_KEY": "sk_test_...", "GREETING": "say \"hi\"" }
+  }
+}
+```
+
+`data.secrets` holds every value exactly. `data.content` is the same secrets in `.env` format, for writing a file; it cannot represent every value (for example one ending with a backslash), so read `data.secrets` to process values.
 
 ---
 
