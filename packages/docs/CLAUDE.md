@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Keyway Docs is the documentation site for Keyway, built with Docusaurus 3. Hosted at docs.keyway.sh.
+Keyway Docs is the documentation site for Keyway, built with Docusaurus 3. Hosted at docs.keyway.sh by the Vercel project `keyway-docs` (root directory `packages/docs`), which deploys pushes to `main` that change this package or `pnpm-lock.yaml`.
 
 ## Development Commands
 

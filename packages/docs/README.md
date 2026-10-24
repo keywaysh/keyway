@@ -51,7 +51,7 @@ pnpm serve
 ## Tech Stack
 
 - [Docusaurus 3](https://docusaurus.io/) - Documentation framework
-- Deployed on Cloudflare Pages
+- Deployed on Vercel (project `keyway-docs`, root directory `packages/docs`): a push to `main` that changes this package or `pnpm-lock.yaml` deploys docs.keyway.sh
 
 ## Contributing
 
