@@ -301,7 +301,8 @@ func runSetRemote(opts SetOptions, deps *Dependencies) error {
 // genericPushMessage is the server's message when it has nothing more to say.
 const genericPushMessage = "Secrets pushed successfully"
 
-// formatEnvContent formats a map as env file content (sorted for deterministic output)
+// formatEnvContent formats a map as env file content (sorted for deterministic output), each
+// line one a file reads back as its value (see env.FileLine)
 func formatEnvContent(secrets map[string]string) string {
 	keys := make([]string, 0, len(secrets))
 	for k := range secrets {
@@ -311,7 +312,7 @@ func formatEnvContent(secrets map[string]string) string {
 
 	var lines []string
 	for _, k := range keys {
-		lines = append(lines, env.FormatLine(k, secrets[k]))
+		lines = append(lines, env.FileLine(k, secrets[k]))
 	}
 	return strings.Join(lines, "\n") + "\n"
 }

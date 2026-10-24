@@ -216,6 +216,25 @@ func TestRunSetWithDeps_LocalFileKeepsMultiLineValues(t *testing.T) {
 	}
 }
 
+func TestRunSetWithDeps_LocalFileKeepsValuesAPulledLineWouldAlter(t *testing.T) {
+	// W="'x'" holds 'x' and CR="a\r" holds a\r: written as W='x' and CR=a\r, they would read
+	// as x and a.
+	deps, _, _, _, fsMock, _, _ := NewTestDepsWithEnv()
+	fsMock.Files[".env"] = []byte("W=\"'x'\"\nCR=\"a\r\"\n")
+	opts := setOpts("NEW_KEY", "'y'")
+	opts.LocalOnly = true
+
+	if err := runSetWithDeps(opts, deps); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	got, err := env.Parse(string(fsMock.Written[".env"]))
+	want := map[string]string{"W": "'x'", "CR": "a\r", "NEW_KEY": "'y'"}
+	if err != nil || !reflect.DeepEqual(got, want) {
+		t.Errorf("file reads back %q (%v), want %q", got, err, want)
+	}
+}
+
 // --- push ---
 
 func pushOpts(prune bool) PushOptions {
