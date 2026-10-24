@@ -839,7 +839,7 @@ describe("POST /v1/secrets/push: keys it creates", () => {
       const before = await rows();
       const { status, body } = await push({ A: "1", [key]: "value-1" }, { mode: "merge" });
       expect(status, JSON.stringify(body)).toBe(400);
-      expect(body.detail).toContain("Cannot create 1 secret(s) (");
+      expect(body.detail).toContain("Cannot create 1 secret(s):");
       expect(await rows()).toEqual(before);
     }
   );

@@ -250,10 +250,10 @@ const MAX_LISTED = 10;
 const MAX_KEY_LENGTH = 40;
 
 // "A, B, and 3 more", with long keys shortened.
-function listKeys<T>(items: T[], label: (item: T) => string, max = MAX_LISTED): string {
-  const listed = items.slice(0, max).map(label);
-  if (items.length > max) {
-    listed.push(`and ${items.length - max} more`);
+function listKeys<T>(items: T[], label: (item: T) => string): string {
+  const listed = items.slice(0, MAX_LISTED).map(label);
+  if (items.length > MAX_LISTED) {
+    listed.push(`and ${items.length - MAX_LISTED} more`);
   }
   return listed.join(", ");
 }
@@ -269,11 +269,14 @@ function countNotShown(count: number, label: string): string {
   return `${count} key${count === 1 ? "" : "s"} not shown (${label})`;
 }
 
-/** Error message for a push that would create keys `isUsableNewKey` refuses. */
+/**
+ * Error message for a push that would create keys `isUsableNewKey` refuses. It counts them
+ * without naming them: like the keys `describeRejections` counts, they can be text from inside
+ * stored values (a client that sends a value's lines as keys), and the server logs the message.
+ */
 export function describeUnusableKeys(keys: string[]): string {
-  const listed = listKeys(keys, (key) => JSON.stringify(displayKey(key)), 5);
   return (
-    `Cannot create ${keys.length} secret(s) (${listed}): a key needs at least one character, ` +
+    `Cannot create ${keys.length} secret(s): a key needs at least one character, ` +
     `and no "=", line break, control character, leading "#" or surrounding spaces.`
   );
 }

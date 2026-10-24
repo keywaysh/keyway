@@ -536,11 +536,10 @@ describe("isUsableNewKey", () => {
 });
 
 describe("describeUnusableKeys", () => {
-  it("names up to five keys, quoted and printable", () => {
-    const message = describeUnusableKeys(["A=B", " PADDED", "K\nL", "#C", "E=", "F=", "G="]);
-    expect(message).toContain(
-      'Cannot create 7 secret(s) ("A=B", " PADDED", "K?L", "#C", "E=", and 2 more)'
-    );
-    expect(message).not.toMatch(/[\n\r]/);
+  it("counts the keys without naming them: they can be text from inside stored values", () => {
+    const message = describeUnusableKeys(["Zm9vYmFy==", " PADDED"]);
+    expect(message).toContain("Cannot create 2 secret(s):");
+    expect(message).not.toContain("Zm9vYmFy");
+    expect(message).not.toContain("PADDED");
   });
 });
