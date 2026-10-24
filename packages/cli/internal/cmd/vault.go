@@ -128,7 +128,7 @@ func fetchVault(deps *Dependencies, client api.APIClient, repo, envName, title s
 	if err != nil {
 		var readErr *vaultReadError
 		switch {
-		case explained:
+		case explained: // spinWithRelogin showed why already
 		case errors.As(err, &readErr):
 			showVaultReadError(deps, err)
 		default:

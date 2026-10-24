@@ -5,10 +5,10 @@ import (
 	"strings"
 )
 
-// FormatValue writes a value the way the server's .env output does (toEnvFormat in the
+// formatValue writes a value the way the server's .env output does (toEnvFormat in the
 // backend): in double quotes, with each quote escaped, when it holds a space, a newline or a
 // quote; as is otherwise. ParseServer reads it back exactly; Parse, as a file holds it.
-func FormatValue(value string) string {
+func formatValue(value string) string {
 	if strings.ContainsAny(value, " \n\"") {
 		return `"` + strings.ReplaceAll(value, `"`, `\"`) + `"`
 	}
@@ -17,7 +17,7 @@ func FormatValue(value string) string {
 
 // FormatLine writes one KEY=value line of .env content.
 func FormatLine(key, value string) string {
-	return key + "=" + FormatValue(value)
+	return key + "=" + formatValue(value)
 }
 
 // FileLine writes one KEY=value line for a file someone keeps: FormatLine, or the value in
@@ -50,7 +50,8 @@ func Format(secrets map[string]string) string {
 
 // ReadBack returns what value becomes once written to a .env line and read again, and
 // whether that line reads at all. It differs from value only where the format cannot carry
-// it (an unquoted value ending with \r, or one wrapped in single quotes).
+// it (an unquoted value ending with \r, one wrapped in single quotes, \r\n inside a quoted
+// value, read as \n).
 func ReadBack(key, value string) (string, bool) {
 	parsed, err := Parse(FormatLine(key, value))
 	if err != nil {
