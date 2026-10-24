@@ -432,9 +432,11 @@ func TestRunDiffWithDeps_ComparesExactValues(t *testing.T) {
 }
 
 func TestRunPullWithDeps_EndsTheFileWithANewline(t *testing.T) {
-	// Users append lines with echo >> .env: the last pulled line must not absorb them.
+	// Users append lines with echo >> .env: the last pulled line must not absorb them. Merge
+	// and --force write the file differently; check both.
 	for _, force := range []bool{false, true} {
 		deps, _, _, _, fsMock, _, apiMock := NewTestDepsWithEnv()
+		fsMock.Files[".env"] = []byte("A=0")
 		apiMock.PullResponse = currentServer(map[string]string{"WRAPPED": "'x'", "A": "1"})
 		opts := pullOpts()
 		opts.Force = force
@@ -560,7 +562,7 @@ func TestRunPushWithDeps_KeepsWhatTheFileMisreads(t *testing.T) {
 	if !reflect.DeepEqual(apiMock.PushedSecrets, map[string]string{"A": vault["A"]}) {
 		t.Errorf("pushed %q, want A unchanged and nothing else", apiMock.PushedSecrets)
 	}
-	if !strings.Contains(joined(uiMock.WarnCalls), "Did not push Q") {
+	if !strings.Contains(joined(uiMock.WarnCalls), "Did not create Q") {
 		t.Errorf("expected Q to be named, got %q", uiMock.WarnCalls)
 	}
 }
@@ -611,7 +613,7 @@ func TestRunPullWithDeps_NamesKeysSafely(t *testing.T) {
 	}
 }
 
-func TestRunPullWithDeps_EndsAMergedFileWithANewline(t *testing.T) {
+func TestRunPullWithDeps_KeepsLocalOnlyLinesAndAppendedOnes(t *testing.T) {
 	deps, _, _, _, fsMock, _, apiMock := NewTestDepsWithEnv()
 	fsMock.Files[".env"] = []byte("LOCAL=only here")
 	apiMock.PullResponse = currentServer(map[string]string{"A": "1"})
@@ -663,12 +665,10 @@ func TestSpinWithRelogin_RetriesWithTheNewToken(t *testing.T) {
 	deps, _, _, _, _, _, apiMock := NewTestDepsWithEnv()
 	apiMock.PullErrorFirst = &api.APIError{StatusCode: 401}
 	apiMock.PullResponse = currentServer(map[string]string{"A": "1"})
-	defer func(saved func(error, *Dependencies) (string, error)) { relogin = saved }(relogin)
-	relogin = func(err error, _ *Dependencies) (string, error) { return "new-token", nil }
+	deps.Relogin = func(error, *Dependencies) (string, error) { return "new-token", nil }
 
-	client := deps.APIFactory.NewClient("old-token")
 	var vault *vaultState
-	explained, err := spinWithRelogin(deps, &client, "Fetching...", func(c api.APIClient) error {
+	_, explained, err := spinWithRelogin(deps, deps.APIFactory.NewClient("old-token"), "Fetching...", func(c api.APIClient) error {
 		var readErr error
 		vault, readErr = readVault(c, "owner/repo", "development")
 		return readErr
@@ -686,17 +686,70 @@ func TestSpinWithRelogin_RetriesWithTheNewToken(t *testing.T) {
 func TestSpinWithRelogin_ReportsAFailedReloginAsExplained(t *testing.T) {
 	deps, _, _, _, _, _, apiMock := NewTestDepsWithEnv()
 	apiMock.PullErrorFirst = &api.APIError{StatusCode: 401}
-	defer func(saved func(error, *Dependencies) (string, error)) { relogin = saved }(relogin)
 	cancelled := errors.New("login cancelled")
-	relogin = func(err error, _ *Dependencies) (string, error) { return "", cancelled }
+	deps.Relogin = func(error, *Dependencies) (string, error) { return "", cancelled }
 
-	client := deps.APIFactory.NewClient("old-token")
-	explained, err := spinWithRelogin(deps, &client, "Fetching...", func(c api.APIClient) error {
+	_, explained, err := spinWithRelogin(deps, deps.APIFactory.NewClient("old-token"), "Fetching...", func(c api.APIClient) error {
 		_, readErr := readVault(c, "owner/repo", "development")
 		return readErr
 	})
 
 	if !explained || !errors.Is(err, cancelled) {
 		t.Errorf("got %v (explained %v), want the re-login error, explained", err, explained)
+	}
+}
+
+// Keys created before the server refused them cannot be written to a .env file: a file never
+// holds them, so --prune must not take that as asking to remove them.
+func TestRunPushWithDeps_PruneKeepsKeysAFileCannotName(t *testing.T) {
+	deps, _, _, uiMock, fsMock, envMock, apiMock := NewTestDepsWithEnv()
+	vault := map[string]string{" PADDED": "1", "#HASHED": "2", "K\nL": "3", "A": "0"}
+	pulled := currentServer(vault)
+	fsMock.Files[".env"] = []byte(pulled.Content + "\n")
+	envMock.Candidates = []EnvCandidate{{File: ".env", Env: "development"}}
+	apiMock.PullResponse = pulled
+	apiMock.PushResponse = &api.PushSecretsResponse{Message: "Secrets pushed successfully"}
+
+	if err := runPushWithDeps(pushOpts(true), deps); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	for _, key := range []string{" PADDED", "#HASHED", "K\nL"} {
+		if apiMock.PushedSecrets[key] != vault[key] {
+			t.Errorf("%q: pushed %q, want its stored value kept", key, apiMock.PushedSecrets[key])
+		}
+	}
+	if !strings.Contains(joined(uiMock.WarnCalls), "a .env file cannot name it") {
+		t.Errorf("expected the kept keys to be named, got %q", uiMock.WarnCalls)
+	}
+}
+
+func TestRunPullWithDeps_SaysWhichKeysTheFileCannotName(t *testing.T) {
+	deps, _, _, uiMock, _, _, apiMock := NewTestDepsWithEnv()
+	apiMock.PullResponse = currentServer(map[string]string{" PADDED": "1", "A": "1"})
+
+	if err := runPullWithDeps(pullOpts(), deps); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	warns := joined(uiMock.WarnCalls)
+	if !strings.Contains(warns, `cannot name " PADDED"`) || strings.Contains(warns, "exact value") {
+		t.Errorf("expected the key, not its value, to be named, got %q", warns)
+	}
+}
+
+func TestRunPushWithDeps_EscapesVaultOnlyKeys(t *testing.T) {
+	deps, _, _, uiMock, fsMock, envMock, apiMock := NewTestDepsWithEnv()
+	fsMock.Files[".env"] = []byte("A=1\n")
+	envMock.Candidates = []EnvCandidate{{File: ".env", Env: "development"}}
+	apiMock.PullResponse = currentServer(map[string]string{"A": "0", "B\u202eC": "x"})
+	apiMock.PushResponse = &api.PushSecretsResponse{Message: "Secrets pushed successfully"}
+
+	if err := runPushWithDeps(pushOpts(false), deps); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if warns := joined(uiMock.WarnCalls); strings.Contains(warns, "\u202e") || !strings.Contains(warns, `"B\u202eC"`) {
+		t.Errorf("expected the key escaped, got %q", warns)
 	}
 }

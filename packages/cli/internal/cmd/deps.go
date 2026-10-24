@@ -135,4 +135,7 @@ type Dependencies struct {
 	Stat       FileStat
 	AuthStore  AuthStore
 	HTTP       HTTPClient
+	// Relogin asks for a new token after a 401; nil means handleAuthError, which clears the
+	// stored credentials (tests set it).
+	Relogin func(err error, deps *Dependencies) (string, error)
 }

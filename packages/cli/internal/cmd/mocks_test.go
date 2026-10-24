@@ -415,6 +415,7 @@ func NewTestDeps() (*Dependencies, *MockGitClient, *MockAuthProvider, *MockUIPro
 		Stat:       stat,
 		AuthStore:  authStore,
 		HTTP:       httpClient,
+		Relogin:    noRelogin,
 	}
 
 	return deps, git, auth, ui, fs, apiClient
@@ -453,6 +454,7 @@ func NewTestDepsWithEnv() (*Dependencies, *MockGitClient, *MockAuthProvider, *Mo
 		Stat:       stat,
 		AuthStore:  authStore,
 		HTTP:       httpClient,
+		Relogin:    noRelogin,
 	}
 
 	return deps, git, auth, ui, fs, envHelper, apiClient
@@ -491,6 +493,7 @@ func NewTestDepsWithRunner() (*Dependencies, *MockGitClient, *MockAuthProvider, 
 		Stat:       stat,
 		AuthStore:  authStore,
 		HTTP:       httpClient,
+		Relogin:    noRelogin,
 	}
 
 	return deps, git, auth, ui, cmdRunner, apiClient
@@ -539,7 +542,13 @@ func NewTestDepsForDoctor() (*Dependencies, *MockGitClient, *MockUIProvider, *Mo
 		Stat:       stat,
 		AuthStore:  authStore,
 		HTTP:       httpClient,
+		Relogin:    noRelogin,
 	}
 
 	return deps, git, ui, stat, authStore, httpClient, apiClient
+}
+
+// noRelogin stands for a sign-in the user declines, without touching stored credentials.
+func noRelogin(err error, _ *Dependencies) (string, error) {
+	return "", err
 }

@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -211,21 +210,8 @@ func runSetRemote(opts SetOptions, deps *Dependencies) error {
 	deps.UI.Step(fmt.Sprintf("Environment: %s", deps.UI.Value(envName)))
 
 	// Fetch current vault state
-	var vault *vaultState
-	explained, err := spinWithRelogin(deps, &client, "Fetching current secrets...", func(c api.APIClient) error {
-		var readErr error
-		vault, readErr = readVault(c, repo, envName)
-		return readErr
-	})
+	client, vault, err := fetchVault(deps, client, repo, envName, "Fetching current secrets...")
 	if err != nil {
-		var readErr *vaultReadError
-		switch {
-		case explained:
-		case errors.As(err, &readErr):
-			showVaultReadError(deps, err)
-		default:
-			deps.UI.Error(err.Error())
-		}
 		return err
 	}
 
@@ -262,7 +248,7 @@ func runSetRemote(opts SetOptions, deps *Dependencies) error {
 	payload, mode := payloadFor(vault, map[string]string{opts.Key: opts.Value}, false)
 
 	var resp *api.PushSecretsResponse
-	explained, err = spinWithRelogin(deps, &client, "Pushing to vault...", func(c api.APIClient) error {
+	_, explained, err := spinWithRelogin(deps, client, "Pushing to vault...", func(c api.APIClient) error {
 		var pushErr error
 		resp, pushErr = c.PushSecrets(ctx, repo, envName, payload, mode)
 		return pushErr

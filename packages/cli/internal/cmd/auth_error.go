@@ -45,22 +45,22 @@ func isAuthError(err error) bool {
 	return ok && apiErr.StatusCode == 401
 }
 
-// relogin asks for a new token after a 401. Tests replace it: handleAuthError clears the
-// stored credentials.
-var relogin = handleAuthError
-
 // spinWithRelogin runs call under a spinner. When the token has expired, it asks to sign in
-// again and retries once with a client for the new token, left in *client. explained reports
-// an error the re-login already showed to the user.
-func spinWithRelogin(deps *Dependencies, client *api.APIClient, title string, call func(api.APIClient) error) (explained bool, err error) {
-	err = deps.UI.Spin(title, func() error { return call(*client) })
+// again (deps.Relogin) and retries once with a client for the new token. It returns the client
+// to use from then on; explained reports an error the sign-in already showed to the user.
+func spinWithRelogin(deps *Dependencies, client api.APIClient, title string, call func(api.APIClient) error) (api.APIClient, bool, error) {
+	err := deps.UI.Spin(title, func() error { return call(client) })
 	if err == nil || !isAuthError(err) {
-		return false, err
+		return client, false, err
+	}
+	relogin := deps.Relogin
+	if relogin == nil {
+		relogin = handleAuthError
 	}
 	token, err := relogin(err, deps)
 	if err != nil {
-		return true, err
+		return client, true, err
 	}
-	*client = deps.APIFactory.NewClient(token)
-	return false, deps.UI.Spin(title, func() error { return call(*client) })
+	client = deps.APIFactory.NewClient(token)
+	return client, false, deps.UI.Spin(title, func() error { return call(client) })
 }

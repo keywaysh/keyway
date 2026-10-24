@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"strings"
 
@@ -207,21 +206,8 @@ func runPushWithDeps(opts PushOptions, deps *Dependencies) error {
 	deps.UI.Step(fmt.Sprintf("Environment: %s", deps.UI.Value(envName)))
 
 	// Fetch current vault state to show preview
-	var vault *vaultState
-	explained, err := spinWithRelogin(deps, &client, "Fetching current vault state...", func(c api.APIClient) error {
-		var readErr error
-		vault, readErr = readVault(c, repo, envName)
-		return readErr
-	})
+	client, vault, err := fetchVault(deps, client, repo, envName, "Fetching current vault state...")
 	if err != nil {
-		var readErr *vaultReadError
-		switch {
-		case explained:
-		case errors.As(err, &readErr):
-			showVaultReadError(deps, err)
-		default:
-			deps.UI.Error(err.Error())
-		}
 		return err
 	}
 	vaultSecrets := vault.secrets
@@ -229,6 +215,17 @@ func runPushWithDeps(opts PushOptions, deps *Dependencies) error {
 	// What is only an artifact of how the file reads the vault's values is not pushed
 	var kept, dropped []string
 	secrets, kept, dropped = keepUnaltered(secrets, vault)
+
+	// No file can name these keys, so leaving them out of it does not mean removing them
+	var nameless []string
+	if opts.Prune {
+		for _, key := range unnameable(vault) {
+			if _, inFile := secrets[key]; !inFile {
+				secrets[key] = vaultSecrets[key]
+				nameless = append(nameless, key)
+			}
+		}
+	}
 
 	// Calculate and show diff
 	diff := env.CalculatePushDiff(secrets, vaultSecrets)
@@ -239,7 +236,10 @@ func runPushWithDeps(opts PushOptions, deps *Dependencies) error {
 		deps.UI.Message(deps.UI.Dim("Use keyway set to change it."))
 	}
 	if len(dropped) > 0 {
-		deps.UI.Warn(fmt.Sprintf("Did not push %s: %s only reads it out of another value.", keyList(dropped), file))
+		deps.UI.Warn(fmt.Sprintf("Did not create %s: %s only reads it out of how another secret is written.", keyList(dropped), file))
+	}
+	if len(nameless) > 0 {
+		deps.UI.Warn(fmt.Sprintf("Kept %s: a .env file cannot name it, so --prune leaves it alone.", keyList(nameless)))
 	}
 
 	if diff.HasChanges() {
@@ -267,7 +267,7 @@ func runPushWithDeps(opts PushOptions, deps *Dependencies) error {
 		// Warn about vault-only secrets when --prune is NOT set
 		if !opts.Prune && len(diff.Removed) > 0 {
 			deps.UI.Message("")
-			deps.UI.Warn(fmt.Sprintf("%d secret(s) in vault not in local file: %s", len(diff.Removed), strings.Join(diff.Removed, ", ")))
+			deps.UI.Warn(fmt.Sprintf("%d secret(s) in vault not in local file: %s", len(diff.Removed), keyList(diff.Removed)))
 			deps.UI.Message(deps.UI.Dim("Use --prune to remove them, or keyway pull to fetch them"))
 		}
 		deps.UI.Message("")
@@ -294,7 +294,7 @@ func runPushWithDeps(opts PushOptions, deps *Dependencies) error {
 	})
 
 	var resp *api.PushSecretsResponse
-	explained, err = spinWithRelogin(deps, &client, "Uploading secrets...", func(c api.APIClient) error {
+	_, explained, err := spinWithRelogin(deps, client, "Uploading secrets...", func(c api.APIClient) error {
 		var pushErr error
 		resp, pushErr = c.PushSecrets(ctx, repo, envName, secretsToSend, mode)
 		return pushErr

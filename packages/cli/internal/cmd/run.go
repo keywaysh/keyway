@@ -109,7 +109,7 @@ func runRunWithDeps(opts RunOptions, deps *Dependencies) error {
 
 	deps.UI.Step(fmt.Sprintf("Environment: %s", deps.UI.Value(envName)))
 
-	// 5. Fetch Secrets: exact values, or the parsed .env text from older servers
+	// 5. Fetch Secrets: exact values, or the older servers' .env text read exactly
 	var secrets map[string]string
 	err = deps.UI.Spin("Fetching secrets...", func() error {
 		resp, err := client.PullSecrets(ctx, repo, envName)
@@ -132,7 +132,7 @@ func runRunWithDeps(opts RunOptions, deps *Dependencies) error {
 		return err
 	}
 
-	// An environment variable cannot hold NUL, nor have "=" in its name
+	// 6. Skip what cannot be an environment variable: NUL, or "=" in the name
 	var skipped []string
 	for key, value := range secrets {
 		if key == "" || strings.ContainsAny(key, "=\x00") || strings.Contains(value, "\x00") {

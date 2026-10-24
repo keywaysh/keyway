@@ -51,7 +51,7 @@ keyway push --prune                      # Remove secrets not in local file
 Push is additive — existing secrets not in your local file are preserved. Use `--prune` to remove them.
 :::
 
-Quoted values may span several lines, as `keyway pull` writes them; inside double quotes, `\"` is a quote. A line the CLI could only read by guessing, such as a quote that never closes, stops the push and names the line.
+Quoted values may span several lines, as `keyway pull` writes them; inside double quotes, `\"` is a quote. A file the CLI could only read by guessing (a double quote that never closes, or a single-quoted value that reads two ways) stops the push and names the line.
 
 ---
 

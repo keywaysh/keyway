@@ -236,6 +236,8 @@ func TestSafeKey(t *testing.T) {
 		"\x1b[31mRED":      `"\x1b[31mRED"`,
 		"bidi\u202eevil":   `"bidi\u202eevil"`,
 		"nbsp\u00a0inside": `"nbsp\u00a0inside"`,
+		"":                 `""`,
+		" PADDED":          `" PADDED"`,
 	}
 	for key, want := range tests {
 		if got := SafeKey(key); got != want {

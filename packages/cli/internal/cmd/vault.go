@@ -71,6 +71,48 @@ func asFile(content string) map[string]string {
 	return read
 }
 
+// fetchVault reads an environment under a spinner, signing in again when the token expired,
+// and shows why when it fails. It returns the client to use from then on.
+func fetchVault(deps *Dependencies, client api.APIClient, repo, envName, title string) (api.APIClient, *vaultState, error) {
+	var vault *vaultState
+	client, explained, err := spinWithRelogin(deps, client, title, func(c api.APIClient) error {
+		var readErr error
+		vault, readErr = readVault(c, repo, envName)
+		return readErr
+	})
+	if err != nil {
+		var readErr *vaultReadError
+		switch {
+		case explained:
+		case errors.As(err, &readErr):
+			showVaultReadError(deps, err)
+		default:
+			deps.UI.Error(err.Error())
+		}
+		return client, nil, err
+	}
+	return client, vault, nil
+}
+
+// unnameable returns the vault's keys a .env file cannot name (created before the server
+// refused them: " PADDED", "#HASHED", "K\nL"): a file never holds them, so --prune must not
+// trash them.
+func unnameable(vault *vaultState) []string {
+	fileView := asFile(vault.content)
+	var keys []string
+	for key, value := range vault.secrets {
+		if fileView != nil {
+			if _, ok := fileView[key]; !ok {
+				keys = append(keys, key)
+			}
+		} else if _, ok := env.ReadBack(key, value); !ok {
+			keys = append(keys, key)
+		}
+	}
+	sort.Strings(keys)
+	return keys
+}
+
 // showVaultReadError explains an older server's unreadable .env text.
 func showVaultReadError(deps *Dependencies, err error) {
 	deps.UI.Error(err.Error())

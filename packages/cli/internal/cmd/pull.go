@@ -122,7 +122,7 @@ func runPullWithDeps(opts PullOptions, deps *Dependencies) error {
 	})
 
 	var pulled *api.PullSecretsResponse
-	explained, err := spinWithRelogin(deps, &client, "Downloading secrets...", func(c api.APIClient) error {
+	_, explained, err := spinWithRelogin(deps, client, "Downloading secrets...", func(c api.APIClient) error {
 		var pullErr error
 		pulled, pullErr = c.PullSecrets(ctx, repo, envName)
 		return pullErr
@@ -282,23 +282,30 @@ func runPullWithDeps(opts PullOptions, deps *Dependencies) error {
 	return nil
 }
 
-// warnAboutAlteredValues names the vault values that the written file, read back as written
-// (readErr if it cannot be), does not hold exactly. keyway push leaves them alone, and keyway
-// run injects the exact values.
+// warnAboutAlteredValues names the vault's secrets that the written file, read back as written
+// (readErr if it cannot be), does not hold exactly: keys it cannot name, values it alters.
+// keyway push leaves them alone, and keyway run injects the exact values.
 func warnAboutAlteredValues(deps *Dependencies, file string, written map[string]string, readErr error, exact map[string]string) {
 	if readErr != nil {
 		deps.UI.Warn(fmt.Sprintf("%s cannot be read back safely (%v), so keyway push would refuse it. Use keyway run to get the exact values.", file, readErr))
 		return
 	}
-	var altered []string
+	var nameless, altered []string
 	for key, value := range exact {
-		if got, ok := written[key]; !ok || got != value {
+		got, ok := written[key]
+		switch {
+		case !ok:
+			nameless = append(nameless, key)
+		case got != value:
 			altered = append(altered, key)
 		}
 	}
-	if len(altered) == 0 {
-		return
-	}
+	sort.Strings(nameless)
 	sort.Strings(altered)
-	deps.UI.Warn(fmt.Sprintf("%s cannot hold the exact value of %s. Use keyway run to get the exact values.", file, keyList(altered)))
+	if len(nameless) > 0 {
+		deps.UI.Warn(fmt.Sprintf("%s cannot name %s: keyway push leaves it alone; use keyway run or the dashboard.", file, keyList(nameless)))
+	}
+	if len(altered) > 0 {
+		deps.UI.Warn(fmt.Sprintf("%s cannot hold the exact value of %s. Use keyway run to get the exact values.", file, keyList(altered)))
+	}
 }
