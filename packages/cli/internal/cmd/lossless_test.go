@@ -892,11 +892,14 @@ func TestRunPushWithDeps_RefusesWhenAKeyLetsItsValueReadAsLines(t *testing.T) {
 		"comment key, multi-line value": {"#H": "a\nB=1", "A": "x"},
 		"key with =, multi-line value":  {"A=B": "a\nC=1", "A": "x"},
 		"empty key, multi-line value":   {"": "a\nC=1", "A": "x"},
+		"key opening a double quote":    {"K=\"": " #note", "A": "x"},
+		"key opening a single quote":    {"K='": "v", "A": "x"},
 	} {
 		deps, _, _, uiMock, fsMock, envMock, apiMock := NewTestDepsWithEnv()
 		fsMock.Files[".env"] = []byte("A=y\n")
 		envMock.Candidates = []EnvCandidate{{File: ".env", Env: "development"}}
 		apiMock.PullResponse = currentServer(stored)
+		apiMock.PushResponse = &api.PushSecretsResponse{Message: "Secrets pushed successfully"}
 
 		err := runPushWithDeps(pushOpts(false), deps)
 
@@ -938,5 +941,87 @@ func TestRunPullWithDeps_MergeKeepsLocalValuesExactly(t *testing.T) {
 	got, err := env.Parse(string(fsMock.Written[".env"]))
 	if err != nil || got["LOCAL"] != "'x'" || got["A"] != "1" {
 		t.Errorf("file reads back %q (%v)", got, err)
+	}
+}
+
+func TestRunPushWithDeps_RefusesAFileWhereAQuoteTakesOtherSecretsLines(t *testing.T) {
+	// A="1: the quote now ends on _M's line, so Q and X read as part of A, and B=1 out of
+	// _M's value. --prune would trash Q, X and _M.
+	stored := map[string]string{"A": "1", "Q": "2", "X": "3", "_M": "\nB=1"}
+	edited := strings.Replace(env.Format(stored)+"\n", "A=1\n", "A=\"1\n", 1)
+	for i, prune := range []bool{false, true, false} {
+		content := edited
+		if i == 2 { // saved with CRLF line ends
+			content = strings.ReplaceAll(edited, "\n", "\r\n")
+		}
+		deps, _, _, uiMock, fsMock, envMock, apiMock := NewTestDepsWithEnv()
+		fsMock.Files[".env"] = []byte(content)
+		envMock.Candidates = []EnvCandidate{{File: ".env", Env: "development"}}
+		apiMock.PullResponse = currentServer(stored)
+		apiMock.PushResponse = &api.PushSecretsResponse{Message: "Secrets pushed successfully"}
+
+		err := runPushWithDeps(pushOpts(prune), deps)
+
+		if err == nil || apiMock.PushCalls != 0 {
+			t.Errorf("prune=%v: err %v, %d push(es), want a refusal", prune, err, apiMock.PushCalls)
+		}
+		if msg := joined(uiMock.ErrorCalls); !strings.Contains(msg, "Q") || !strings.Contains(msg, "X") {
+			t.Errorf("prune=%v: the swallowed keys are not named: %q", prune, msg)
+		}
+	}
+}
+
+func TestRunPullWithDeps_MergeKeepsALocalKeyOnlyALegacyLineNames(t *testing.T) {
+	// " PADDED=x" reads as PADDED, but the vault has no PADDED: the local one stays.
+	deps, _, _, uiMock, fsMock, _, apiMock := NewTestDepsWithEnv()
+	fsMock.Files[".env"] = []byte("PADDED=mine\nLOCAL=keep\n")
+	apiMock.PullResponse = currentServer(map[string]string{" PADDED": "x", "A": "1"})
+
+	if err := runPullWithDeps(pullOpts(), deps); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	got, err := env.Parse(string(fsMock.Written[".env"]))
+	if want := map[string]string{"PADDED": "mine", "LOCAL": "keep", "A": "1"}; err != nil || !reflect.DeepEqual(got, want) {
+		t.Errorf("file reads back %q (%v), want %q", got, err, want)
+	}
+	if len(uiMock.DiffChangedCalls) != 0 {
+		t.Errorf("shows a change from the vault: %q", uiMock.DiffChangedCalls)
+	}
+}
+
+func TestRunPushWithDeps_KeepsAKeyAnotherSecretsLineAlsoNames(t *testing.T) {
+	// "A=B=1" is the line of the secret "A=B", and reads as A: editing it does not change A.
+	stored := map[string]string{"A": "x", "A=B": "1"}
+	deps, _, _, uiMock, fsMock, envMock, apiMock := NewTestDepsWithEnv()
+	fsMock.Files[".env"] = []byte(strings.Replace(env.Format(stored)+"\n", "A=B=1", "A=B=2", 1))
+	envMock.Candidates = []EnvCandidate{{File: ".env", Env: "development"}}
+	apiMock.PullResponse = currentServer(stored)
+	apiMock.PushResponse = &api.PushSecretsResponse{Message: "Secrets pushed successfully"}
+
+	if err := runPushWithDeps(pushOpts(false), deps); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if apiMock.PushedSecrets["A"] != "x" {
+		t.Errorf("pushed A=%q, want its stored value", apiMock.PushedSecrets["A"])
+	}
+	if !strings.Contains(joined(uiMock.WarnCalls), "Kept the vault value of A") {
+		t.Errorf("no warning about A: %q", uiMock.WarnCalls)
+	}
+}
+
+func TestRunPullWithDeps_MergesBesideAKeyNoFileCanName(t *testing.T) {
+	deps, _, _, _, fsMock, _, apiMock := NewTestDepsWithEnv()
+	fsMock.Files[".env"] = []byte("LOCAL=keep\n")
+	apiMock.PullResponse = currentServer(map[string]string{" PADDED": "x", "A": "1"})
+
+	if err := runPullWithDeps(pullOpts(), deps); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	got, err := env.Parse(string(fsMock.Written[".env"]))
+	if want := map[string]string{"PADDED": "x", "A": "1", "LOCAL": "keep"}; err != nil || !reflect.DeepEqual(got, want) {
+		t.Errorf("file reads back %q (%v), want %q", got, err, want)
 	}
 }

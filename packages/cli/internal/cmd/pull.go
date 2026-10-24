@@ -191,9 +191,20 @@ func runPullWithDeps(opts PullOptions, deps *Dependencies) error {
 	if asRead == nil {
 		asRead = vaultSecrets
 	}
+	// Only the keys the vault holds as such: " PADDED" reads as PADDED, which the vault does
+	// not hold, so a local PADDED stays the file's own
+	vaultView := asRead
+	if vaultSecrets != nil {
+		vaultView = make(map[string]string, len(asRead))
+		for key, value := range asRead {
+			if _, held := vaultSecrets[key]; held {
+				vaultView[key] = value
+			}
+		}
+	}
 
 	// Calculate diff
-	diff := env.CalculatePullDiff(localSecrets, asRead)
+	diff := env.CalculatePullDiff(localSecrets, vaultView)
 
 	// Show diff if there are changes and file exists
 	if localExists && diff.HasChanges() {
@@ -257,8 +268,8 @@ func runPullWithDeps(opts PullOptions, deps *Dependencies) error {
 		}
 	} else {
 		// Merge mode: start with vault secrets, add local-only secrets
-		finalContent = env.Merge(vaultContent, localSecrets, asRead)
-		if !mergedReadsAsIntended(finalContent, vaultContent, localSecrets, asRead) {
+		finalContent = env.Merge(vaultContent, localSecrets, vaultView)
+		if !mergedReadsAsIntended(finalContent, vaultContent, localSecrets, vaultView) {
 			deps.UI.Error(fmt.Sprintf("Cannot merge into %s safely: its own variables would change how the vault's secrets read.", opts.File))
 			deps.UI.Message(deps.UI.Dim("Use --force to replace the file, or keyway run to use the exact values."))
 			return fmt.Errorf("merged file does not read back as intended")
@@ -293,16 +304,17 @@ func runPullWithDeps(opts PullOptions, deps *Dependencies) error {
 }
 
 // mergedReadsAsIntended reports whether merged, the vault's text followed by local's own
-// variables, reads as the vault's text alone plus those variables, unchanged: a value the
-// vault's text opens with ' could otherwise end on a local line. When the vault's text cannot
-// be read anyway, pull warns after writing it.
-func mergedReadsAsIntended(merged, vaultContent string, local, asRead map[string]string) bool {
-	if asFile(vaultContent) == nil {
+// variables (those not in vaultView), reads as the vault's text alone plus those variables,
+// unchanged: a value the vault's text opens with ' could otherwise end on a local line. When
+// the vault's text cannot be read anyway, pull warns after writing it.
+func mergedReadsAsIntended(merged, vaultContent string, local, vaultView map[string]string) bool {
+	base := asFile(vaultContent)
+	if base == nil {
 		return true
 	}
-	want := maps.Clone(asRead)
+	want := maps.Clone(base)
 	for key, value := range local {
-		if _, inVault := asRead[key]; !inVault {
+		if _, inVault := vaultView[key]; !inVault {
 			want[key] = value
 		}
 	}

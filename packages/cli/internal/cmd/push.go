@@ -216,6 +216,11 @@ func runPushWithDeps(opts PushOptions, deps *Dependencies) error {
 		deps.UI.Message(deps.UI.Dim("Rename that secret in the dashboard, or change secrets with keyway set."))
 		return fmt.Errorf("the vault holds keys a .env file cannot hold")
 	}
+	if keys := swallowedLines(string(content), secrets, vault); len(keys) > 0 {
+		deps.UI.Error(fmt.Sprintf("Cannot push %s safely: it holds the line of %s, but reads it as part of another value.", file, keyList(keys)))
+		deps.UI.Message(deps.UI.Dim("Look for a quote above that line that does not close where you meant."))
+		return fmt.Errorf("lines of the vault's secrets read as part of another value")
+	}
 
 	// What is only an artifact of how the file reads the vault's values is not pushed
 	read := keepUnaltered(secrets, vault)

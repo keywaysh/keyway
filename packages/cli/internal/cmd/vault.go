@@ -82,17 +82,31 @@ func (v *vaultState) file() map[string]string {
 	return v.fileView
 }
 
-// lineBreakers returns the keys of secrets whose line in a .env file lets the lines of their
-// value read as lines of their own: a key holding a line break, or a multi-line value whose
-// key the file reads as no key (a comment, "") or as the start of a value ("A=B"). Such keys
-// were stored before the server refused them. Against them, an edit anywhere in the file can
-// change how other values read, so push refuses the file.
+// fileName returns the key a .env file reads the line of key as: the text before its first
+// "=", trimmed (" PADDED" and "A=B" read as PADDED and A), or "" when that line is a comment
+// or names no key.
+func fileName(key string) string {
+	name, _, _ := strings.Cut(key, "=")
+	name = strings.TrimSpace(name)
+	if strings.HasPrefix(name, "#") {
+		return ""
+	}
+	return name
+}
+
+// lineBreakers returns the keys of secrets whose line in a .env file lets other lines read as
+// part of it, or the lines of their value as lines of their own: a key holding a line break,
+// one whose first "=" is followed by a quote ("K=\"" opens a quoted value), or a multi-line
+// value under a key the file reads as no key (a comment, "") or as the start of a value
+// ("A=B"). Such keys were stored before the server refused them. Against them, an edit
+// anywhere in the file can change how other values read, so push refuses the file.
 func lineBreakers(secrets map[string]string) []string {
 	var keys []string
 	for key, value := range secrets {
-		name := strings.TrimSpace(key)
-		readsAsNoKey := name == "" || strings.HasPrefix(name, "#") || strings.Contains(key, "=")
-		if strings.Contains(key, "\n") || strings.Contains(value, "\n") && readsAsNoKey {
+		_, rest, hasEquals := strings.Cut(key, "=")
+		opensQuote := strings.HasPrefix(rest, `"`) || strings.HasPrefix(rest, "'")
+		readsAsNoKey := fileName(key) == "" || hasEquals
+		if strings.Contains(key, "\n") || opensQuote || strings.Contains(value, "\n") && readsAsNoKey {
 			keys = append(keys, key)
 		}
 	}
@@ -104,16 +118,34 @@ func lineBreakers(secrets map[string]string) []string {
 // as that key: 2 for PADDED when the vault holds "PADDED" and " PADDED".
 func lineNames(vault *vaultState) map[string]int {
 	names := map[string]int{}
-	for key, value := range vault.secrets {
-		read, err := env.Parse(env.FormatLine(key, value))
-		if err != nil {
-			continue
-		}
-		for fileKey := range read {
-			names[fileKey]++
+	for key := range vault.secrets {
+		if name := fileName(key); name != "" {
+			names[name]++
 		}
 	}
 	return names
+}
+
+// swallowedLines returns the vault's keys whose pulled line the file still holds but does not
+// read as a key of its own: a quote opened above it (A="1) takes it into another value.
+// Pushing that file would change that value and, with --prune, trash those keys.
+func swallowedLines(content string, local map[string]string, vault *vaultState) []string {
+	lines := map[string]bool{}
+	for _, line := range strings.Split(strings.TrimPrefix(content, "\uFEFF"), "\n") {
+		lines[strings.TrimSuffix(line, "\r")] = true
+	}
+	var keys []string
+	for key, value := range vault.secrets {
+		name := fileName(key)
+		if _, read := local[name]; read || name == "" {
+			continue
+		}
+		if first, _, _ := strings.Cut(env.FormatLine(key, value), "\n"); lines[first] {
+			keys = append(keys, key)
+		}
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 // fetchVault reads an environment under a spinner, signing in again when the token expired,
