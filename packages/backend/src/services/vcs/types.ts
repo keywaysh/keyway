@@ -6,6 +6,7 @@
  */
 
 import type { CollaboratorRole } from "../../db/schema";
+import type { ForgeAccount } from "../../utils/forgeAccount";
 
 // ============================================================================
 // Core Types
@@ -187,20 +188,22 @@ export interface VcsProviderInterface {
 
   // Repository
   getRepository(accessToken: string, owner: string, repo: string): Promise<VcsRepository | null>;
+  /** Bound to `account.forgeUserId`: logins can be released and re-registered. */
   getUserRole(
     accessToken: string,
     owner: string,
     repo: string,
-    username: string
+    account: ForgeAccount
   ): Promise<CollaboratorRole | null>;
   listCollaborators(accessToken: string, owner: string, repo: string): Promise<VcsCollaborator[]>;
 
   // Organization
   getOrganization(accessToken: string, org: string): Promise<VcsOrganization | null>;
   listOrgMembers(accessToken: string, org: string): Promise<VcsOrgMember[]>;
+  /** Null unless the forge's answer is about `account.forgeUserId`. */
   getOrgMembership(
     accessToken: string,
     org: string,
-    username: string
+    account: ForgeAccount
   ): Promise<{ role: "owner" | "member"; state: string } | null>;
 }

@@ -20,6 +20,7 @@ import {
   BadRequestError,
   ValidationError,
   InternalError,
+  ConflictError,
 } from "../../../lib/errors";
 import { logger } from "../../../utils/sharedLogger";
 
@@ -332,25 +333,39 @@ export async function billingRoutes(fastify: FastifyInstance) {
         throw new BadRequestError("Missing raw request body");
       }
 
+      let event: ReturnType<typeof constructWebhookEvent>;
       try {
-        const event = constructWebhookEvent(rawBody, signature);
-        await handleWebhookEvent(event);
-
-        // Webhook response format (Stripe-specific)
-        return reply.send({ received: true });
-      } catch (error: any) {
-        logger.error({ error: error.message }, "Webhook error");
-
-        // Return 400 for signature verification errors
-        if (error.message.includes("signature")) {
-          throw new BadRequestError("Invalid webhook signature");
-        }
-
-        // For other errors, still return 200 to prevent Stripe retries
-        // The event was already recorded for idempotency
-        // Return generic message — internal details already logged above
-        return reply.send({ received: true, error: "Processing failed" });
+        event = constructWebhookEvent(rawBody, signature);
+      } catch (error) {
+        logger.warn(
+          { error: error instanceof Error ? error.message : "Unknown error" },
+          "Webhook signature verification failed"
+        );
+        throw new BadRequestError("Invalid webhook signature");
       }
+
+      try {
+        await handleWebhookEvent(event);
+      } catch (error) {
+        // Another delivery of this event is being processed: 409, Stripe retries later.
+        if (error instanceof ConflictError) {
+          throw error;
+        }
+        // The event was not recorded as processed: a 5xx makes Stripe retry it.
+        // Internal details stay in the logs.
+        logger.error(
+          {
+            eventId: event.id,
+            eventType: event.type,
+            error: error instanceof Error ? error.message : "Unknown error",
+          },
+          "Webhook processing failed"
+        );
+        throw new InternalError("Webhook processing failed");
+      }
+
+      // Webhook response format (Stripe-specific)
+      return reply.send({ received: true });
     }
   );
 }

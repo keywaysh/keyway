@@ -10,6 +10,11 @@ import { logger } from "../../../utils/sharedLogger";
 import { maskToken } from "../../../utils/logger";
 import type { CollaboratorRole } from "../../../db/schema";
 import { isValidRepoSegment } from "../../../utils/repoName";
+import {
+  githubAccountId,
+  isSameGitHubAccount,
+  type ForgeAccount,
+} from "../../../utils/forgeAccount";
 
 const GITHUB_API_BASE = config.github?.apiBaseUrl || "https://api.github.com";
 
@@ -38,6 +43,7 @@ export interface GitHubRepo {
   default_branch?: string;
   owner: {
     login: string;
+    id?: number;
     type: "User" | "Organization";
   };
   permissions?: {
@@ -65,6 +71,8 @@ export interface GitHubOrgMembership {
     login: string;
     avatar_url: string;
   };
+  /** Whose membership this is: the login in the URL may now name someone else. */
+  user?: { id: number; login: string };
 }
 
 export interface GitHubOrgMember {
@@ -88,6 +96,8 @@ export interface GitHubTokenErrorResponse {
 export interface GitHubPermissionResponse {
   permission: string;
   role_name: string;
+  /** Whose permission this is: the login in the URL may now name someone else. */
+  user?: { id: number; login: string };
 }
 
 // ============================================================================
@@ -257,17 +267,30 @@ export class GitHubApiClient {
   /**
    * Get user's role on a repository
    * Checks multiple sources: repo owner, org membership, collaborator permission
+   *
+   * GitHub is asked by login, which can be released and re-registered by another
+   * account: owner, org membership and collaborator answers count only when they
+   * name `account.forgeUserId`. A mismatch or missing id grants nothing.
    */
   async getUserRole(
     accessToken: string,
     owner: string,
     repo: string,
-    username: string
+    account: ForgeAccount
   ): Promise<CollaboratorRole | null> {
+    const username = account.username;
     logger.debug({ username, owner, repo }, "Getting GitHub user role");
 
     if (!isValidRepoSegment(owner) || !isValidRepoSegment(repo)) {
       logger.warn({ owner, repo }, "Rejected invalid repository name in role check");
+      return null;
+    }
+    const accountId = githubAccountId(account);
+    if (accountId === null) {
+      logger.warn(
+        { username, owner, repo },
+        "Role check without a GitHub user id; nothing granted"
+      );
       return null;
     }
 
@@ -278,8 +301,9 @@ export class GitHubApiClient {
       return null;
     }
 
-    // Check if user is the repository owner (canonical owner from GitHub, never the requested name)
-    if (repoData.owner.login === username) {
+    // Check if user is the repository owner (canonical owner from GitHub, never the
+    // requested name), by immutable id: the owner's login may have been re-registered
+    if (isSameGitHubAccount(accountId, repoData.owner)) {
       logger.debug({ username, reason: "repo_owner" }, "User is repo owner");
       return "admin";
     }
@@ -293,7 +317,11 @@ export class GitHubApiClient {
     // For org repos, check org membership
     if (repoData.owner.type === "Organization") {
       const membership = await this.getOrgMembership(accessToken, repoData.owner.login, username);
-      if (membership?.role === "admin" && membership?.state === "active") {
+      if (
+        membership?.role === "admin" &&
+        membership?.state === "active" &&
+        isSameGitHubAccount(accountId, membership.user)
+      ) {
         logger.debug({ username, reason: "org_owner" }, "User is org owner");
         return "admin";
       }
@@ -301,6 +329,13 @@ export class GitHubApiClient {
 
     // Try to get detailed collaborator role
     const permission = await this.getUserPermission(accessToken, owner, repo, username);
+    if (permission && !isSameGitHubAccount(accountId, permission.user)) {
+      logger.warn(
+        { username, forgeUserId: accountId, owner, repo },
+        "Collaborator permission is for a different GitHub account than the signed-in user"
+      );
+      return null;
+    }
     if (permission) {
       const role = GITHUB_ROLE_MAP[permission.role_name] || GITHUB_ROLE_MAP[permission.permission];
       if (role) {

@@ -19,7 +19,8 @@ export interface ActivityLogItem {
 }
 
 export interface LogActivityInput {
-  userId: string;
+  /** null for a system action with no user behind it */
+  userId: string | null;
   action: ActivityAction;
   platform: ActivityPlatform;
   vaultId?: string | null;

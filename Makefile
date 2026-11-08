@@ -56,13 +56,14 @@ setup:
 			echo -e "  $(GREEN)✓$(NC) POSTGRES_PASSWORD (already set)"; \
 			return; \
 		fi; \
-		pw=$$(openssl rand -hex 24); \
-		if grep -q "^POSTGRES_PASSWORD=" .env 2>/dev/null; then \
-			perl -pi -e "s/^POSTGRES_PASSWORD=.*/POSTGRES_PASSWORD=$$pw/" .env; \
+		if [ -n "$${POSTGRES_PASSWORD:-}" ]; then \
+			pw="$$POSTGRES_PASSWORD"; src="from your environment"; \
 		else \
-			printf '\nPOSTGRES_PASSWORD=%s\n' "$$pw" >> .env; \
+			pw=$$(openssl rand -hex 24); src="generated"; \
 		fi; \
-		echo -e "  $(GREEN)✓$(NC) POSTGRES_PASSWORD (generated)"; \
+		perl -ni -e 'print unless /^POSTGRES_PASSWORD=$$/' .env 2>/dev/null; \
+		printf '\nPOSTGRES_PASSWORD=%s\n' "$$pw" >> .env; \
+		echo -e "  $(GREEN)✓$(NC) POSTGRES_PASSWORD ($$src)"; \
 	}; \
 	if command -v keyway > /dev/null 2>&1; then \
 		KEYWAY_CMD="keyway"; \

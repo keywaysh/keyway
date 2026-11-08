@@ -897,9 +897,11 @@ describe('Vault routes — authorization hardening', () => {
       headers: { authorization: 'Bearer mock-keyway-token' },
     });
 
-    expect(getUserRoleWithApp).toHaveBeenCalledWith('testuser/test-repo', 'testuser', {
-      expectedRepoId: mockVault.forgeRepoId,
-    });
+    expect(getUserRoleWithApp).toHaveBeenCalledWith(
+      'testuser/test-repo',
+      expect.objectContaining({ username: 'testuser', forgeUserId: mockUser.forgeUserId }),
+      { expectedRepoId: mockVault.forgeRepoId }
+    );
   });
 
   it('lists only secrets from environments the caller may read', async () => {

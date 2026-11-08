@@ -442,9 +442,11 @@ describe('Integration Routes', () => {
         url: '/v1/integrations/vaults/testuser/test-repo/sync/status?connectionId=11111111-1111-4111-8111-111111111111&projectId=p1',
       });
 
-      expect(getUserRoleWithApp).toHaveBeenCalledWith('testuser/test-repo', mockUser.username, {
-        expectedRepoId: '777',
-      });
+      expect(getUserRoleWithApp).toHaveBeenCalledWith(
+        'testuser/test-repo',
+        expect.objectContaining({ username: mockUser.username, forgeUserId: mockUser.forgeUserId }),
+        { expectedRepoId: '777' }
+      );
     });
   });
 

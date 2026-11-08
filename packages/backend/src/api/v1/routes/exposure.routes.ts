@@ -71,7 +71,7 @@ export async function exposureRoutes(fastify: FastifyInstance) {
       // Only org owners can view exposure reports. Checked LIVE on GitHub (the
       // cached org_role isn't refreshed when an admin is demoted), bound to the
       // org's immutable GitHub id (its login can be re-registered after a rename).
-      const isOwner = await isLiveOrgAdmin(org, vcsUser.username);
+      const isOwner = await isLiveOrgAdmin(org, vcsUser);
       if (!isOwner) {
         throw new ForbiddenError("Only organization owners can view exposure reports");
       }
@@ -134,7 +134,7 @@ export async function exposureRoutes(fastify: FastifyInstance) {
       // Only org owners can view exposure reports. Checked LIVE on GitHub (the
       // cached org_role isn't refreshed when an admin is demoted), bound to the
       // org's immutable GitHub id (its login can be re-registered after a rename).
-      const isOwner = await isLiveOrgAdmin(org, vcsUser.username);
+      const isOwner = await isLiveOrgAdmin(org, vcsUser);
       if (!isOwner) {
         throw new ForbiddenError("Only organization owners can view exposure reports");
       }
@@ -205,12 +205,12 @@ export async function exposureRoutes(fastify: FastifyInstance) {
       // Access history is for CURRENT admins, checked live: having created the vault
       // doesn't count once the user lost admin on the repo, and the cached org_role
       // isn't refreshed when an org admin is demoted.
-      const repoRole = await getUserRoleWithApp(vault.repoFullName, vcsUser.username, {
+      const repoRole = await getUserRoleWithApp(vault.repoFullName, vcsUser, {
         expectedRepoId: vault.forgeRepoId,
       }).catch(() => null);
       if (repoRole !== "admin") {
         const isOrgAdmin =
-          vault.orgId && org ? await isLiveOrgAdmin(org, vcsUser.username) : false;
+          vault.orgId && org ? await isLiveOrgAdmin(org, vcsUser) : false;
         if (!isOrgAdmin) {
           throw new ForbiddenError(
             "Only repository or organization admins can view access history"

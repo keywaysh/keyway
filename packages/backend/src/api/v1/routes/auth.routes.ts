@@ -871,11 +871,11 @@ export async function authRoutes(fastify: FastifyInstance) {
               if (user) {
                 // Installation now available: hand out the token once (the code is consumed)
                 if (!(await consumeDeviceCode(deviceCodeRecord.id, "oauth_complete"))) {
-                  return reply.status(400).send({
-                    status: "expired",
-                    error: "device_code_expired",
-                    message: "The device code has already been used.",
-                  });
+                  // The code left "oauth_complete" since we read it: the install
+                  // callback approved it (next poll takes the "approved" branch) or
+                  // another poll consumed it (next poll sees "expired"). Either way
+                  // single use holds; keep polling rather than abort the login.
+                  return { status: "pending" };
                 }
 
                 fastify.log.info(

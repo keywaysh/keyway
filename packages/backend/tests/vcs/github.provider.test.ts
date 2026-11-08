@@ -264,12 +264,15 @@ describe('GitHubProvider', () => {
       mockFetch.mockResolvedValueOnce({
         ok: true,
         json: async () => ({
-          owner: { login: 'testuser', type: 'User' },
+          owner: { login: 'testuser', id: 1, type: 'User' },
           permissions: { admin: true },
         }),
       });
 
-      const result = await provider.getUserRole(accessToken, 'testuser', 'repo', 'testuser');
+      const result = await provider.getUserRole(accessToken, 'testuser', 'repo', {
+        username: 'testuser',
+        forgeUserId: '1',
+      });
 
       expect(result).toBe('admin');
     });
@@ -371,13 +374,13 @@ describe('GitHubProvider', () => {
       // Second call: getOrgMembership for admin1
       mockFetch.mockResolvedValueOnce({
         ok: true,
-        json: async () => ({ role: 'admin', state: 'active' }),
+        json: async () => ({ role: 'admin', state: 'active', user: { id: 1, login: 'admin1' } }),
       });
 
       // Third call: getOrgMembership for member1
       mockFetch.mockResolvedValueOnce({
         ok: true,
-        json: async () => ({ role: 'member', state: 'active' }),
+        json: async () => ({ role: 'member', state: 'active', user: { id: 2, login: 'member1' } }),
       });
 
       const result = await provider.listOrgMembers(accessToken, 'myorg');
@@ -399,16 +402,35 @@ describe('GitHubProvider', () => {
         },
       ]);
     });
+
+    it("does not give a member the owner role of whoever holds their login now", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => [{ id: 1, login: 'admin1', avatar_url: 'url1' }],
+      });
+      // admin1 renamed between the two calls and someone else (id 99) took the login
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ role: 'admin', state: 'active', user: { id: 99, login: 'admin1' } }),
+      });
+
+      const result = await provider.listOrgMembers(accessToken, 'myorg');
+
+      expect(result[0]).toMatchObject({ forgeUserId: '1', role: 'member' });
+    });
   });
 
   describe('getOrgMembership', () => {
     it('should return membership with owner role for admin', async () => {
       mockFetch.mockResolvedValueOnce({
         ok: true,
-        json: async () => ({ role: 'admin', state: 'active' }),
+        json: async () => ({ role: 'admin', state: 'active', user: { id: 11, login: 'adminuser' } }),
       });
 
-      const result = await provider.getOrgMembership(accessToken, 'myorg', 'adminuser');
+      const result = await provider.getOrgMembership(accessToken, 'myorg', {
+        username: 'adminuser',
+        forgeUserId: '11',
+      });
 
       expect(result).toEqual({
         role: 'owner',
@@ -419,10 +441,13 @@ describe('GitHubProvider', () => {
     it('should return membership with member role for non-admin', async () => {
       mockFetch.mockResolvedValueOnce({
         ok: true,
-        json: async () => ({ role: 'member', state: 'active' }),
+        json: async () => ({ role: 'member', state: 'active', user: { id: 12, login: 'memberuser' } }),
       });
 
-      const result = await provider.getOrgMembership(accessToken, 'myorg', 'memberuser');
+      const result = await provider.getOrgMembership(accessToken, 'myorg', {
+        username: 'memberuser',
+        forgeUserId: '12',
+      });
 
       expect(result).toEqual({
         role: 'member',
@@ -438,7 +463,25 @@ describe('GitHubProvider', () => {
         text: async () => 'Not a member',
       });
 
-      const result = await provider.getOrgMembership(accessToken, 'myorg', 'stranger');
+      const result = await provider.getOrgMembership(accessToken, 'myorg', {
+        username: 'stranger',
+        forgeUserId: '13',
+      });
+
+      expect(result).toBeNull();
+    });
+
+    it("returns nothing when the login now belongs to another account", async () => {
+      // Alice (id 1001) renamed; Bob (id 2002) registered "alice" and is an org admin.
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ role: 'admin', state: 'active', user: { id: 2002, login: 'alice' } }),
+      });
+
+      const result = await provider.getOrgMembership(accessToken, 'myorg', {
+        username: 'alice',
+        forgeUserId: '1001',
+      });
 
       expect(result).toBeNull();
     });

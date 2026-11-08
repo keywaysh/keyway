@@ -65,6 +65,16 @@ const dbUser = {
 const validJwt = () =>
   generateKeywayToken({ userId: 'user-1', forgeType: 'github', forgeUserId: '42', username: 'alice' });
 
+/**
+ * Role checks address the user on GitHub by login, which can be released and
+ * re-registered: they must also carry the immutable forge id, from the DB row.
+ */
+const signedInAccount = expect.objectContaining({
+  forgeType: 'github',
+  forgeUserId: '42',
+  username: 'alice',
+});
+
 describe('auth middleware', () => {
   let app: FastifyInstance;
 
@@ -215,7 +225,7 @@ describe('auth middleware', () => {
       });
 
       expect(res.statusCode).toBe(200);
-      expect(getUserRoleWithApp).toHaveBeenCalledWith('acme/api', 'alice', {
+      expect(getUserRoleWithApp).toHaveBeenCalledWith('acme/api', signedInAccount, {
         expectedRepoId: '123',
       });
     });
@@ -253,7 +263,7 @@ describe('auth middleware', () => {
       });
 
       expect(res.statusCode).toBe(200);
-      expect(getUserRoleWithApp).toHaveBeenCalledWith('acme/api', 'alice', {
+      expect(getUserRoleWithApp).toHaveBeenCalledWith('acme/api', signedInAccount, {
         expectedRepoId: '123',
       });
     });
@@ -269,7 +279,7 @@ describe('auth middleware', () => {
       });
 
       expect(res.statusCode).toBe(200);
-      expect(getUserRoleWithApp).toHaveBeenCalledWith('acme/new-repo', 'alice', {
+      expect(getUserRoleWithApp).toHaveBeenCalledWith('acme/new-repo', signedInAccount, {
         expectedRepoId: undefined,
       });
     });

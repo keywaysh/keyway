@@ -58,6 +58,7 @@ import {
   touchVault,
 } from '../../src/services/vault.service';
 import { db } from '../../src/db';
+import { ForbiddenError } from '../../src/lib';
 
 describe('VaultService', () => {
   beforeEach(() => {
@@ -91,7 +92,7 @@ describe('VaultService', () => {
         }),
       });
 
-      const result = await getVaultsForUser(mockUser.id, mockUser.username, 'team');
+      const result = await getVaultsForUser(mockUser.id, mockUser, 'team');
 
       expect(result).toHaveLength(1);
       expect(result[0]).toMatchObject({
@@ -138,7 +139,7 @@ describe('VaultService', () => {
         }),
       });
 
-      const result = await getVaultsForUser(mockUser.id, mockUser.username, 'free');
+      const result = await getVaultsForUser(mockUser.id, mockUser, 'free');
 
       expect(result).toHaveLength(1);
       expect(result[0].isReadOnly).toBe(true);
@@ -165,7 +166,7 @@ describe('VaultService', () => {
         }),
       });
 
-      const result = await getVaultsForUser(mockUser.id, mockUser.username, 'team');
+      const result = await getVaultsForUser(mockUser.id, mockUser, 'team');
 
       // Default environments - string array for backwards compatibility
       expect(result[0].environments).toHaveLength(3);
@@ -206,7 +207,7 @@ describe('VaultService', () => {
         }),
       });
 
-      const result = await getVaultsForUser(mockUser.id, mockUser.username, 'free');
+      const result = await getVaultsForUser(mockUser.id, mockUser, 'free');
 
       // vault-1 is within limit, vault-2 is excess
       const vault1 = result.find(v => v.id === 'vault-1');
@@ -227,7 +228,7 @@ describe('VaultService', () => {
         }),
       });
 
-      const result = await getVaultsForUser(mockUser.id, mockUser.username, 'team');
+      const result = await getVaultsForUser(mockUser.id, mockUser, 'team');
 
       expect(result).toEqual([]);
     });
@@ -258,7 +259,7 @@ describe('VaultService', () => {
         }),
       });
 
-      const result = await getVaultByRepo('testuser/test-repo', mockUser.username, 'team');
+      const result = await getVaultByRepo('testuser/test-repo', mockUser, 'team');
 
       expect(result.hasAccess).toBe(true);
       expect(result.vault).toMatchObject({
@@ -276,7 +277,7 @@ describe('VaultService', () => {
     it('should return no access for non-existent vault', async () => {
       (db.query.vaults.findFirst as any).mockResolvedValue(null);
 
-      const result = await getVaultByRepo('unknown/repo', mockUser.username, 'team');
+      const result = await getVaultByRepo('unknown/repo', mockUser, 'team');
 
       expect(result.hasAccess).toBe(false);
     });
@@ -294,7 +295,11 @@ describe('VaultService', () => {
 
       (db.query.vaults.findFirst as any).mockResolvedValue(vaultWithRelations);
 
-      const result = await getVaultByRepo('testuser/test-repo', 'stranger', 'team');
+      const result = await getVaultByRepo(
+        'testuser/test-repo',
+        { forgeType: 'github', forgeUserId: '777', username: 'stranger' },
+        'team'
+      );
 
       expect(result.hasAccess).toBe(false);
     });
@@ -320,9 +325,83 @@ describe('VaultService', () => {
         }),
       });
 
-      const result = await getVaultByRepo('testuser/test-repo', mockUser.username, 'team');
+      const result = await getVaultByRepo('testuser/test-repo', mockUser, 'team');
 
       expect(result.vault.secretCount).toBe(2);
+    });
+  });
+
+  // ==========================================================================
+  // getVaultByRepo — repo inaccessible: only the vault owner, by immutable id
+  // ==========================================================================
+
+  /**
+   * GitHub lets a login be released and re-registered. When the repo can't vouch
+   * for anyone (App uninstalled, repo deleted) only the vault owner may still see
+   * the vault, and "owner" must mean the same GitHub account (forge type + id),
+   * not whoever holds the owner's old login today.
+   */
+  describe('getVaultByRepo — repo inaccessible (vault-owner fallback)', () => {
+    const owner = { forgeType: 'github' as const, forgeUserId: mockUser.forgeUserId, username: mockUser.username };
+
+    beforeEach(async () => {
+      const { getUserRoleWithApp } = await import('../../src/utils/github');
+      (getUserRoleWithApp as any).mockRejectedValueOnce(
+        new ForbiddenError('GitHub App not installed for testuser/test-repo.')
+      );
+      (db.query.vaults.findFirst as any).mockResolvedValue({
+        ...mockVault,
+        secrets: [],
+        owner: mockUser,
+        vaultSyncs: [],
+      });
+      (db.select as any).mockReturnValue({
+        from: vi.fn().mockReturnValue({
+          where: vi.fn().mockReturnValue({ orderBy: vi.fn().mockResolvedValue([]) }),
+        }),
+      });
+    });
+
+    it('lets the vault owner in after a GitHub rename (same id, new login)', async () => {
+      const result = await getVaultByRepo(
+        'testuser/test-repo',
+        { ...owner, username: 'testuser-renamed' },
+        'team'
+      );
+
+      expect(result.hasAccess).toBe(true);
+      expect(result.vault.warning).toBe('repo_inaccessible');
+    });
+
+    it("refuses the account that re-registered the owner's old login", async () => {
+      const result = await getVaultByRepo(
+        'testuser/test-repo',
+        { forgeType: 'github', forgeUserId: '99999', username: mockUser.username },
+        'team'
+      );
+
+      expect(result.hasAccess).toBe(false);
+    });
+
+    it('refuses the same numeric id on another forge', async () => {
+      const result = await getVaultByRepo(
+        'testuser/test-repo',
+        { ...owner, forgeType: 'gitlab' },
+        'team'
+      );
+
+      expect(result.hasAccess).toBe(false);
+    });
+
+    it('checks the repo role for the account, not the bare login', async () => {
+      const { getUserRoleWithApp } = await import('../../src/utils/github');
+      await getVaultByRepo('testuser/test-repo', owner, 'team');
+
+      expect(getUserRoleWithApp).toHaveBeenCalledWith(
+        'testuser/test-repo',
+        expect.objectContaining({ username: owner.username, forgeUserId: owner.forgeUserId }),
+        expect.anything()
+      );
     });
   });
 
@@ -459,7 +538,7 @@ describe('VaultService', () => {
           }),
         });
 
-        const result = await getVaultByRepo(renamedRepo, mockUser.username, 'team');
+        const result = await getVaultByRepo(renamedRepo, mockUser, 'team');
 
         expect(result.hasAccess).toBe(true);
         expect(result.vault).toBeDefined();
@@ -468,7 +547,7 @@ describe('VaultService', () => {
       it('should return no access when both lookups fail', async () => {
         (db.query.vaults.findFirst as any).mockResolvedValue(null);
 
-        const result = await getVaultByRepo('nonexistent/repo', mockUser.username, 'team');
+        const result = await getVaultByRepo('nonexistent/repo', mockUser, 'team');
 
         expect(result.hasAccess).toBe(false);
       });

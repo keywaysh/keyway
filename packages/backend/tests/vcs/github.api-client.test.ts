@@ -270,16 +270,21 @@ describe('GitHubApiClient', () => {
   });
 
   describe('getUserRole', () => {
-    it('should return admin for repo owner', async () => {
+    // The login only addresses the account on GitHub; the id is who it is.
+    const testuser = { username: 'testuser', forgeUserId: '1' };
+    const orgadmin = { username: 'orgadmin', forgeUserId: '2' };
+    const collaborator = { username: 'collaborator', forgeUserId: '3' };
+
+    it('should return admin for repo owner (same account id)', async () => {
       mockFetch.mockResolvedValueOnce({
         ok: true,
         json: async () => ({
-          owner: { login: 'testuser', type: 'User' },
+          owner: { login: 'testuser', id: 1, type: 'User' },
           permissions: { pull: true, push: true, admin: true },
         }),
       });
 
-      const result = await client.getUserRole(accessToken, 'testuser', 'repo', 'testuser');
+      const result = await client.getUserRole(accessToken, 'testuser', 'repo', testuser);
 
       expect(result).toBe('admin');
     });
@@ -290,19 +295,19 @@ describe('GitHubApiClient', () => {
         .mockResolvedValueOnce({
           ok: true,
           json: async () => ({
-            owner: { login: 'victim-org', type: 'User' },
+            owner: { login: 'victim-org', id: 50, type: 'User' },
             permissions: { pull: true, push: false, admin: false },
           }),
         })
         .mockResolvedValueOnce({ ok: false, status: 404, text: async () => '', json: async () => ({}) });
 
-      const result = await client.getUserRole(accessToken, 'testuser', 'repo', 'testuser');
+      const result = await client.getUserRole(accessToken, 'testuser', 'repo', testuser);
 
       expect(result).not.toBe('admin');
     });
 
     it('never queries GitHub for a crafted owner or repo name', async () => {
-      const result = await client.getUserRole(accessToken, 'attacker', '..\\victim\\api', 'attacker');
+      const result = await client.getUserRole(accessToken, 'attacker', '..\\victim\\api', testuser);
 
       expect(result).toBeNull();
       expect(mockFetch).not.toHaveBeenCalled();
@@ -312,12 +317,12 @@ describe('GitHubApiClient', () => {
       mockFetch.mockResolvedValueOnce({
         ok: true,
         json: async () => ({
-          owner: { login: 'other', type: 'User' },
+          owner: { login: 'other', id: 60, type: 'User' },
           permissions: { admin: true },
         }),
       });
 
-      const result = await client.getUserRole(accessToken, 'other', 'repo', 'testuser');
+      const result = await client.getUserRole(accessToken, 'other', 'repo', testuser);
 
       expect(result).toBe('admin');
     });
@@ -327,7 +332,7 @@ describe('GitHubApiClient', () => {
       mockFetch.mockResolvedValueOnce({
         ok: true,
         json: async () => ({
-          owner: { login: 'myorg', type: 'Organization' },
+          owner: { login: 'myorg', id: 70, type: 'Organization' },
           permissions: { pull: true, push: true },
         }),
       });
@@ -338,10 +343,11 @@ describe('GitHubApiClient', () => {
         json: async () => ({
           role: 'admin',
           state: 'active',
+          user: { id: 2, login: 'orgadmin' },
         }),
       });
 
-      const result = await client.getUserRole(accessToken, 'myorg', 'repo', 'orgadmin');
+      const result = await client.getUserRole(accessToken, 'myorg', 'repo', orgadmin);
 
       expect(result).toBe('admin');
     });
@@ -351,7 +357,7 @@ describe('GitHubApiClient', () => {
       mockFetch.mockResolvedValueOnce({
         ok: true,
         json: async () => ({
-          owner: { login: 'other', type: 'User' },
+          owner: { login: 'other', id: 60, type: 'User' },
           permissions: { pull: true },
         }),
       });
@@ -362,10 +368,11 @@ describe('GitHubApiClient', () => {
         json: async () => ({
           role_name: 'push',
           permission: 'write',
+          user: { id: 3, login: 'collaborator' },
         }),
       });
 
-      const result = await client.getUserRole(accessToken, 'other', 'repo', 'collaborator');
+      const result = await client.getUserRole(accessToken, 'other', 'repo', collaborator);
 
       expect(result).toBe('write');
     });
@@ -375,7 +382,7 @@ describe('GitHubApiClient', () => {
       mockFetch.mockResolvedValueOnce({
         ok: true,
         json: async () => ({
-          owner: { login: 'other', type: 'User' },
+          owner: { login: 'other', id: 60, type: 'User' },
           permissions: { pull: true, push: true },
         }),
       });
@@ -388,7 +395,7 @@ describe('GitHubApiClient', () => {
         text: async () => 'Not Found',
       });
 
-      const result = await client.getUserRole(accessToken, 'other', 'repo', 'collaborator');
+      const result = await client.getUserRole(accessToken, 'other', 'repo', collaborator);
 
       expect(result).toBe('write');
     });
@@ -401,9 +408,77 @@ describe('GitHubApiClient', () => {
         text: async () => 'Not Found',
       });
 
-      const result = await client.getUserRole(accessToken, 'owner', 'nonexistent', 'user');
+      const result = await client.getUserRole(accessToken, 'owner', 'nonexistent', testuser);
 
       expect(result).toBeNull();
+    });
+
+    describe('login released and re-registered', () => {
+      // Alice (id 1001) renamed; Bob (id 2002) registered "alice". Keyway still says "alice".
+      const staleAlice = { username: 'alice', forgeUserId: '1001' };
+      const bob = { id: 2002, login: 'alice' };
+
+      it('does not make the stale login the owner of a repo the new holder owns', async () => {
+        mockFetch
+          .mockResolvedValueOnce({
+            ok: true,
+            json: async () => ({ owner: { login: 'alice', id: 2002, type: 'User' } }),
+          })
+          .mockResolvedValueOnce({
+            ok: true,
+            json: async () => ({ role_name: 'admin', permission: 'admin', user: bob }),
+          });
+
+        expect(await client.getUserRole(accessToken, 'alice', 'repo', staleAlice)).toBeNull();
+      });
+
+      it('recognises the owner by id when the stored login is stale', async () => {
+        mockFetch.mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({ owner: { login: 'alice-new', id: 1001, type: 'User' } }),
+        });
+
+        expect(await client.getUserRole(accessToken, 'alice-new', 'repo', staleAlice)).toBe('admin');
+      });
+
+      it("does not take the new holder's org ownership", async () => {
+        mockFetch
+          .mockResolvedValueOnce({
+            ok: true,
+            json: async () => ({ owner: { login: 'myorg', id: 70, type: 'Organization' } }),
+          })
+          .mockResolvedValueOnce({ ok: true, json: async () => ({ role: 'admin', state: 'active', user: bob }) })
+          .mockResolvedValueOnce({
+            ok: true,
+            json: async () => ({ role_name: 'admin', permission: 'admin', user: bob }),
+          });
+
+        expect(await client.getUserRole(accessToken, 'myorg', 'repo', staleAlice)).toBeNull();
+      });
+
+      it('refuses a permission answer for another account, without falling back', async () => {
+        mockFetch
+          .mockResolvedValueOnce({
+            ok: true,
+            json: async () => ({
+              owner: { login: 'other', id: 60, type: 'User' },
+              permissions: { pull: true, push: true },
+            }),
+          })
+          .mockResolvedValueOnce({
+            ok: true,
+            json: async () => ({ role_name: 'push', permission: 'write', user: bob }),
+          });
+
+        expect(await client.getUserRole(accessToken, 'other', 'repo', staleAlice)).toBeNull();
+      });
+
+      it('grants nothing without a GitHub user id', async () => {
+        expect(
+          await client.getUserRole(accessToken, 'other', 'repo', { username: 'alice', forgeUserId: '' })
+        ).toBeNull();
+        expect(mockFetch).not.toHaveBeenCalled();
+      });
     });
   });
 

@@ -210,7 +210,7 @@ export async function vaultsRoutes(fastify: FastifyInstance) {
         });
       }
 
-      const vaultList = await getVaultsForUser(user.id, vcsUser.username, user.plan);
+      const vaultList = await getVaultsForUser(user.id, vcsUser, user.plan);
 
       // Apply pagination (in-memory for now, could be optimized)
       const paginatedVaults = vaultList.slice(
@@ -453,11 +453,7 @@ export async function vaultsRoutes(fastify: FastifyInstance) {
         }
       }
 
-      const { vault, hasAccess } = await getVaultByRepo(
-        repoFullName,
-        vcsUser.username,
-        effectivePlan
-      );
+      const { vault, hasAccess } = await getVaultByRepo(repoFullName, vcsUser, effectivePlan);
 
       if (!vault || !hasAccess) {
         throw new NotFoundError(`Vault '${repoFullName}' not found or you don't have access`);
@@ -556,7 +552,7 @@ export async function vaultsRoutes(fastify: FastifyInstance) {
         throw new NotFoundError("Vault not found");
       }
 
-      const role = await getUserRoleWithApp(vault.repoFullName, vcsUser.username, {
+      const role = await getUserRoleWithApp(vault.repoFullName, vcsUser, {
         expectedRepoId: vault.forgeRepoId,
       });
       if (!role) {
@@ -609,7 +605,7 @@ export async function vaultsRoutes(fastify: FastifyInstance) {
       const user = await getOrThrowUser(vcsUser);
 
       // Check GitHub role using GitHub App
-      const role = await getUserRoleWithApp(vault.repoFullName, vcsUser.username, {
+      const role = await getUserRoleWithApp(vault.repoFullName, vcsUser, {
         expectedRepoId: vault.forgeRepoId,
       });
       if (!role) {
@@ -698,7 +694,7 @@ export async function vaultsRoutes(fastify: FastifyInstance) {
       const user = await getOrThrowUser(vcsUser);
 
       // Check GitHub role using GitHub App
-      const role = await getUserRoleWithApp(vault.repoFullName, vcsUser.username, {
+      const role = await getUserRoleWithApp(vault.repoFullName, vcsUser, {
         expectedRepoId: vault.forgeRepoId,
       });
       if (!role) {
@@ -777,7 +773,7 @@ export async function vaultsRoutes(fastify: FastifyInstance) {
       const user = await getOrThrowUser(vcsUser);
 
       // Check GitHub role using GitHub App
-      const role = await getUserRoleWithApp(vault.repoFullName, vcsUser.username, {
+      const role = await getUserRoleWithApp(vault.repoFullName, vcsUser, {
         expectedRepoId: vault.forgeRepoId,
       });
       if (!role) {
@@ -875,7 +871,7 @@ export async function vaultsRoutes(fastify: FastifyInstance) {
       const user = await getOrThrowUser(vcsUser);
 
       // Check GitHub role using GitHub App
-      const role = await getUserRoleWithApp(vault.repoFullName, vcsUser.username, {
+      const role = await getUserRoleWithApp(vault.repoFullName, vcsUser, {
         expectedRepoId: vault.forgeRepoId,
       });
       if (!role) {
@@ -973,7 +969,7 @@ export async function vaultsRoutes(fastify: FastifyInstance) {
         throw new NotFoundError("Vault not found");
       }
 
-      const role = await getUserRoleWithApp(vault.repoFullName, vcsUser.username, {
+      const role = await getUserRoleWithApp(vault.repoFullName, vcsUser, {
         expectedRepoId: vault.forgeRepoId,
       });
       if (!role) {
@@ -1031,7 +1027,7 @@ export async function vaultsRoutes(fastify: FastifyInstance) {
       // Get user from database first (needed for permission resolution)
       const user = await getOrThrowUser(vcsUser);
 
-      const role = await getUserRoleWithApp(vault.repoFullName, vcsUser.username, {
+      const role = await getUserRoleWithApp(vault.repoFullName, vcsUser, {
         expectedRepoId: vault.forgeRepoId,
       });
       if (!role) {
@@ -1100,7 +1096,7 @@ export async function vaultsRoutes(fastify: FastifyInstance) {
       const user = await getOrThrowUser(vcsUser);
 
       // Check GitHub role
-      const role = await getUserRoleWithApp(vault.repoFullName, vcsUser.username, {
+      const role = await getUserRoleWithApp(vault.repoFullName, vcsUser, {
         expectedRepoId: vault.forgeRepoId,
       });
       if (!role) {
@@ -1181,7 +1177,7 @@ export async function vaultsRoutes(fastify: FastifyInstance) {
         throw new NotFoundError("Vault not found");
       }
 
-      const role = await getUserRoleWithApp(vault.repoFullName, vcsUser.username, {
+      const role = await getUserRoleWithApp(vault.repoFullName, vcsUser, {
         expectedRepoId: vault.forgeRepoId,
       });
       if (!role) {
@@ -1234,7 +1230,7 @@ export async function vaultsRoutes(fastify: FastifyInstance) {
       const user = await getOrThrowUser(vcsUser);
 
       // Check GitHub role
-      const role = await getUserRoleWithApp(vault.repoFullName, vcsUser.username, {
+      const role = await getUserRoleWithApp(vault.repoFullName, vcsUser, {
         expectedRepoId: vault.forgeRepoId,
       });
       if (!role) {
@@ -1325,7 +1321,7 @@ export async function vaultsRoutes(fastify: FastifyInstance) {
       const user = await getOrThrowUser(vcsUser);
 
       // Check GitHub role
-      const role = await getUserRoleWithApp(vault.repoFullName, vcsUser.username, {
+      const role = await getUserRoleWithApp(vault.repoFullName, vcsUser, {
         expectedRepoId: vault.forgeRepoId,
       });
       if (!role) {
@@ -1395,7 +1391,7 @@ export async function vaultsRoutes(fastify: FastifyInstance) {
 
       // Check GitHub role - require admin for bulk trash operations
       // This is because emptying trash affects multiple environments
-      const role = await getUserRoleWithApp(vault.repoFullName, vcsUser.username, {
+      const role = await getUserRoleWithApp(vault.repoFullName, vcsUser, {
         expectedRepoId: vault.forgeRepoId,
       });
       if (!role) {
@@ -1464,7 +1460,7 @@ export async function vaultsRoutes(fastify: FastifyInstance) {
         throw new NotFoundError("Vault not found");
       }
 
-      const role = await getUserRoleWithApp(vault.repoFullName, vcsUser.username, {
+      const role = await getUserRoleWithApp(vault.repoFullName, vcsUser, {
         expectedRepoId: vault.forgeRepoId,
       });
       if (!role) {
@@ -1876,7 +1872,7 @@ export async function vaultsRoutes(fastify: FastifyInstance) {
         throw new NotFoundError("Vault not found");
       }
 
-      const role = await getUserRoleWithApp(vault.repoFullName, vcsUser.username, {
+      const role = await getUserRoleWithApp(vault.repoFullName, vcsUser, {
         expectedRepoId: vault.forgeRepoId,
       });
       if (!role) {
@@ -1992,7 +1988,7 @@ export async function vaultsRoutes(fastify: FastifyInstance) {
         throw new NotFoundError("Vault not found");
       }
 
-      const role = await getUserRoleWithApp(vault.repoFullName, vcsUser.username, {
+      const role = await getUserRoleWithApp(vault.repoFullName, vcsUser, {
         expectedRepoId: vault.forgeRepoId,
       });
       if (!role) {

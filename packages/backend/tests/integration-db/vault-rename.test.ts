@@ -134,16 +134,17 @@ describe("Vault rename handling (real DB)", () => {
     expect(after!.forgeRepoId).toBeNull();
   });
 
-  it("backfill script binds a vault to a repository older than the vault", async () => {
+  it("backfill script binds a vault to an older repository owned by its creator", async () => {
+    const user = await createUser(db);
     const { getRepoInfoWithApp } = await import("../../src/utils/github");
     (getRepoInfoWithApp as any).mockResolvedValue({
       repoId: "33333",
       fullName: "owner/my-repo-2",
       createdAt: new Date("2000-01-01T00:00:00Z"),
+      ownerId: user.forgeUserId,
       isPrivate: false,
       isOrganization: false,
     });
-    const user = await createUser(db);
     const vault = await createVault(db, user.id, {
       repoFullName: "owner/my-repo-2",
       forgeRepoId: null,
@@ -158,16 +159,17 @@ describe("Vault rename handling (real DB)", () => {
   });
 
   it("backfill script refuses a repository created after the vault", async () => {
+    const user = await createUser(db);
     const { getRepoInfoWithApp } = await import("../../src/utils/github");
     (getRepoInfoWithApp as any).mockResolvedValue({
       repoId: "33334",
       fullName: "owner/reused-name",
       // well after the vault, whatever the DB server's timezone (created_at has no time zone)
       createdAt: new Date(Date.now() + 2 * 24 * 60 * 60_000),
+      ownerId: user.forgeUserId,
       isPrivate: false,
       isOrganization: false,
     });
-    const user = await createUser(db);
     const vault = await createVault(db, user.id, {
       repoFullName: "owner/reused-name",
       forgeRepoId: null,
@@ -178,6 +180,31 @@ describe("Vault rename handling (real DB)", () => {
 
     const updated = await findVaultById(db, vault.id);
     expect(updated!.forgeRepoId).toBeNull();
+  });
+
+  it("backfill script leaves for review an older repository owned by someone else", async () => {
+    const user = await createUser(db);
+    const { getRepoInfoWithApp } = await import("../../src/utils/github");
+    (getRepoInfoWithApp as any).mockResolvedValue({
+      repoId: "33335",
+      fullName: "owner/moved-in",
+      createdAt: new Date("2000-01-01T00:00:00Z"),
+      ownerId: "not-the-creator",
+      isPrivate: false,
+      isOrganization: false,
+    });
+    const vault = await createVault(db, user.id, {
+      repoFullName: "owner/moved-in",
+      forgeRepoId: null,
+    });
+
+    const { runBackfillForgeRepoIds } = await import("../../src/scripts/backfillForgeRepoIdsCli");
+    await runBackfillForgeRepoIds(["--apply"], () => {});
+    expect((await findVaultById(db, vault.id))!.forgeRepoId).toBeNull();
+
+    // After review, the operator binds it explicitly
+    await runBackfillForgeRepoIds(["--apply", "--bind", `${vault.id}=33335`], () => {});
+    expect((await findVaultById(db, vault.id))!.forgeRepoId).toBe("33335");
   });
 
   // =========================================================================

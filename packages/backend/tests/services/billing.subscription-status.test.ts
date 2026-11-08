@@ -6,52 +6,37 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
  * grace). "incomplete" (first payment not made) grants nothing; terminal or
  * suspended statuses (unpaid, incomplete_expired, canceled, paused) drop the
  * account to free even if Stripe never sends customer.subscription.deleted.
+ *
+ * The status that counts is the one Stripe holds now (here: the same as the
+ * event's, see billing.entitlement-sync.test.ts for out-of-order deliveries).
  */
 
 const mocks = vi.hoisted(() => ({
   updateOrganizationPlan: vi.fn(),
   getOrganizationById: vi.fn(),
   convertTrial: vi.fn(),
-  selectQueue: [] as unknown[][],
-  userUpdates: [] as Record<string, unknown>[],
+  subscriptionsList: vi.fn(),
+}));
+
+vi.mock("stripe", () => ({
+  default: class {
+    subscriptions = { list: mocks.subscriptionsList };
+    prices = { list: vi.fn().mockResolvedValue({ data: [] }) };
+  },
 }));
 
 vi.mock("../../src/config", () => ({
-  config: { billing: { enabled: true }, stripe: undefined },
+  config: {
+    billing: { enabled: true },
+    stripe: { secretKey: "sk_test_x", webhookSecret: "whsec_x" },
+  },
 }));
 
-vi.mock("../../src/db", () => {
-  const chainSelect = () => ({
-    from: () => ({
-      where: () => ({
-        limit: async () => mocks.selectQueue.shift() ?? [],
-      }),
-    }),
-  });
-  return {
-    db: {
-      select: vi.fn(chainSelect),
-      insert: vi.fn(() => ({
-        values: vi.fn(() =>
-          Object.assign(Promise.resolve(undefined), {
-            onConflictDoUpdate: vi.fn().mockResolvedValue(undefined),
-          })
-        ),
-      })),
-      update: vi.fn(() => ({
-        set: (values: Record<string, unknown>) => {
-          mocks.userUpdates.push(values);
-          return { where: vi.fn().mockResolvedValue(undefined) };
-        },
-      })),
-      delete: vi.fn(() => ({ where: vi.fn().mockResolvedValue(undefined) })),
-    },
-    users: { id: "id", plan: "plan", stripeCustomerId: "stripeCustomerId" },
-    subscriptions: { userId: "userId" },
-    stripeWebhookEvents: { id: "id", stripeEventId: "stripeEventId" },
-    organizations: { id: "id", stripeCustomerId: "stripeCustomerId" },
-  };
-});
+vi.mock("drizzle-orm", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("drizzle-orm")>()),
+  ...(await import("../helpers/billingFakes")).conditionFakes,
+}));
+vi.mock("../../src/db", async () => (await import("../helpers/billingFakes")).fakeDbModule);
 
 vi.mock("../../src/services/organization.service", () => ({
   updateOrganizationPlan: mocks.updateOrganizationPlan,
@@ -79,31 +64,23 @@ vi.mock("../../src/utils/analytics", () => ({
 }));
 
 import { handleOrgSubscriptionChange, handleWebhookEvent } from "../../src/services/billing.service";
+import { billingDb, stripeEvent, stripeSubscription } from "../helpers/billingFakes";
 
 const DAY = 24 * 60 * 60 * 1000;
 
+/** The event's subscription, which Stripe also holds in that status right now. */
 function subscription(status: string, metadata: Record<string, string>) {
-  return {
-    id: "sub_1",
-    status,
-    customer: "cus_1",
-    cancel_at_period_end: false,
-    metadata,
-    items: {
-      data: [
-        {
-          current_period_end: Math.floor(Date.now() / 1000) + 30 * 86400,
-          price: { id: "price_biz_m", lookup_key: "business_month_eur", recurring: { interval: "month" } },
-        },
-      ],
-    },
-  } as any;
+  const sub = stripeSubscription("sub_1", status, "business", metadata);
+  // Stripe's list leaves canceled subscriptions out
+  mocks.subscriptionsList.mockResolvedValue({ data: status === "canceled" ? [] : [sub], has_more: false });
+  return sub;
 }
 
-const orgNoTrial = { id: "org-1", login: "acme", trialStartedAt: null, trialConvertedAt: null };
+const orgNoTrial = { id: "org-1", login: "acme", plan: "free", trialStartedAt: null, trialConvertedAt: null };
 const orgOnTrial = {
   id: "org-1",
   login: "acme",
+  plan: "business",
   trialStartedAt: new Date(Date.now() - 3 * DAY),
   trialEndsAt: new Date(Date.now() + 12 * DAY),
   trialConvertedAt: null,
@@ -111,8 +88,7 @@ const orgOnTrial = {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mocks.selectQueue.length = 0;
-  mocks.userUpdates.length = 0;
+  billingDb.reset();
   mocks.getOrganizationById.mockResolvedValue(orgNoTrial);
   mocks.convertTrial.mockResolvedValue({ success: true });
 });
@@ -123,6 +99,14 @@ describe("handleOrgSubscriptionChange", () => {
 
     expect(mocks.updateOrganizationPlan).not.toHaveBeenCalledWith("org-1", "business");
     expect(mocks.convertTrial).not.toHaveBeenCalled();
+  });
+
+  it("leaves a Keyway trial's plan alone while the first payment is incomplete", async () => {
+    mocks.getOrganizationById.mockResolvedValue(orgOnTrial);
+
+    await handleOrgSubscriptionChange(subscription("incomplete", { keyway_org_id: "org-1" }));
+
+    expect(mocks.updateOrganizationPlan).not.toHaveBeenCalled();
   });
 
   it.each(["unpaid", "incomplete_expired", "canceled", "paused"])(
@@ -151,44 +135,45 @@ describe("handleOrgSubscriptionChange", () => {
     );
     expect(mocks.updateOrganizationPlan).toHaveBeenCalledWith("org-1", "business");
   });
+
+  it("attributes a webhook trial conversion to no user (activity_logs.user_id references users)", async () => {
+    mocks.getOrganizationById.mockResolvedValue(orgOnTrial);
+
+    await handleOrgSubscriptionChange(subscription("active", { keyway_org_id: "org-1" }));
+
+    expect(mocks.convertTrial).toHaveBeenCalledWith(expect.objectContaining({ userId: null }));
+  });
 });
 
 describe("user subscription webhook", () => {
-  function event(status: string) {
-    return {
-      id: `evt_${status}`,
-      type: "customer.subscription.updated",
-      data: { object: subscription(status, { keyway_user_id: "u-1" }) },
-    } as any;
-  }
+  const event = (status: string) =>
+    stripeEvent("customer.subscription.updated", subscription(status, { keyway_user_id: "u-1" }));
+  const planWrites = () => billingDb.updates.filter((u) => u.table === "users" && "plan" in u.values);
 
   it("drops the user to free when the subscription becomes unpaid", async () => {
-    // not yet processed, stored current subscription (this one), current plan
-    mocks.selectQueue.push([], [{ stripeSubscriptionId: "sub_1" }], [{ plan: "business" }]);
+    billingDb.users.push({ id: "u-1", plan: "business", billingStatus: "active" });
+    billingDb.subscriptions.push({ userId: "u-1", stripeSubscriptionId: "sub_1", status: "active" });
 
     await handleWebhookEvent(event("unpaid"));
 
-    const planWrites = mocks.userUpdates.filter((u) => "plan" in u);
-    expect(planWrites).toHaveLength(1);
-    expect(planWrites[0].plan).toBe("free");
+    expect(planWrites()).toHaveLength(1);
+    expect(planWrites()[0].values.plan).toBe("free");
   });
 
   it("does not grant the plan while the first payment is incomplete", async () => {
-    mocks.selectQueue.push([], [], [{ plan: "free" }]); // first event: no stored subscription
+    billingDb.users.push({ id: "u-1", plan: "free", billingStatus: "active" }); // first event: no stored subscription
 
     await handleWebhookEvent(event("incomplete"));
 
-    const planWrites = mocks.userUpdates.filter((u) => "plan" in u);
-    expect(planWrites.every((u) => u.plan !== "business")).toBe(true);
+    expect(planWrites().every((u) => u.values.plan !== "business")).toBe(true);
   });
 
   it("grants the plan for an active subscription", async () => {
-    mocks.selectQueue.push([], [], [{ plan: "free" }]);
+    billingDb.users.push({ id: "u-1", plan: "free", billingStatus: "active" });
 
     await handleWebhookEvent(event("active"));
 
-    const planWrites = mocks.userUpdates.filter((u) => "plan" in u);
-    expect(planWrites).toHaveLength(1);
-    expect(planWrites[0].plan).toBe("business");
+    expect(planWrites()).toHaveLength(1);
+    expect(planWrites()[0].values.plan).toBe("business");
   });
 });

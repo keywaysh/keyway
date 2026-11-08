@@ -108,7 +108,8 @@ ENCRYPTION_KEY=    # openssl rand -hex 32
 # JWT secret
 JWT_SECRET=        # openssl rand -base64 32
 
-# Password of the bundled PostgreSQL service (required by docker-compose)
+# Password of the bundled PostgreSQL service (required by docker-compose).
+# Letters, digits and - _ . ~ only: it goes as-is into the default DATABASE_URL.
 POSTGRES_PASSWORD= # openssl rand -hex 24
 
 # GitHub App credentials (from Step 2)
@@ -372,7 +373,13 @@ docker compose exec backend node dist/scripts/backfill-forge-repo-ids.js        
 docker compose exec backend node dist/scripts/backfill-forge-repo-ids.js --apply
 ```
 
-A vault is only bound to a repository that existed before the vault. The script lists the vaults it skipped (repository deleted, App not installed, or a newer repository now holds the name); check those by hand. It is safe to re-run.
+A vault is only bound automatically to a repository that existed before the vault and is owned by the vault's organization (or by its creator, for a personal vault). The script lists the vaults it skipped (repository deleted, App not installed, a newer repository now holds the name, or another account owns it); check those by hand, then bind a reviewed vault explicitly:
+
+```bash
+docker compose exec backend node dist/scripts/backfill-forge-repo-ids.js --apply --bind <vault id>=<GitHub repository id>
+```
+
+It is safe to re-run.
 :::
 
 :::caution Installs created before November 2026
