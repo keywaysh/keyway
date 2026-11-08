@@ -23,7 +23,7 @@ cd keyway
 
 # 2. Configure
 cp .env.example .env
-# Edit .env — fill in DOMAIN, ENCRYPTION_KEY, JWT_SECRET, and GitHub App values
+# Edit .env — fill in DOMAIN, ENCRYPTION_KEY, JWT_SECRET, POSTGRES_PASSWORD and GitHub App values
 
 # 3. Deploy
 docker compose up --build -d
@@ -108,6 +108,9 @@ ENCRYPTION_KEY=    # openssl rand -hex 32
 # JWT secret
 JWT_SECRET=        # openssl rand -base64 32
 
+# Password of the bundled PostgreSQL service (required by docker-compose)
+POSTGRES_PASSWORD= # openssl rand -hex 24
+
 # GitHub App credentials (from Step 2)
 GITHUB_APP_ID=123456
 GITHUB_APP_CLIENT_ID=Iv1.abc123
@@ -145,7 +148,7 @@ This starts all services:
 
 | Service | Description | Port |
 |---------|-------------|------|
-| **db** | PostgreSQL 16 | 5432 |
+| **db** | PostgreSQL 16 | 5432 (compose network only, not published on the host) |
 | **crypto** | AES-256-GCM encryption gRPC service | 50051 |
 | **backend** | Fastify API | 8080 |
 | **dashboard** | Next.js dashboard | 3000 |
@@ -360,6 +363,30 @@ docker compose up --build -d
 ```
 
 Database migrations run automatically on backend startup.
+
+:::caution Vaults created before repository IDs were recorded
+Access to a vault is bound to the immutable ID of its GitHub repository, so a repository re-created later under the same name never inherits its secrets. Vaults created before that ID was recorded can't be accessed until they are bound. After upgrading, run:
+
+```bash
+docker compose exec backend node dist/scripts/backfill-forge-repo-ids.js          # dry run
+docker compose exec backend node dist/scripts/backfill-forge-repo-ids.js --apply
+```
+
+A vault is only bound to a repository that existed before the vault. The script lists the vaults it skipped (repository deleted, App not installed, or a newer repository now holds the name); check those by hand. It is safe to re-run.
+:::
+
+:::caution Installs created before November 2026
+Older versions published PostgreSQL on port 5432 of the host with the fixed password `keyway`. The port is no longer published, and `POSTGRES_PASSWORD` is now required. Your existing database still has the old password, so:
+
+1. Add `POSTGRES_PASSWORD=keyway` to `.env` and remove any `DATABASE_URL` line that points at `db:5432`.
+2. Run `docker compose up --build -d`.
+3. Rotate the password, then put the new value in `.env` and restart:
+   ```bash
+   docker compose exec db psql -U keyway -c "ALTER USER keyway PASSWORD '<new-password>'"
+   ```
+
+If port 5432 was reachable from the internet, treat the database as compromised: rotate `JWT_SECRET`, revoke API keys, and check `api_keys` and `users` for rows you did not create.
+:::
 
 ---
 

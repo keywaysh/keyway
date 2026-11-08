@@ -7,24 +7,22 @@ title: CI/CD
 
 ## Authentication
 
-### API Keys (Recommended)
+### API Keys
 
-Keyway API keys are the recommended authentication method for CI/CD:
+CI/CD authenticates with a Keyway API key (`kw_live_…`):
 
 1. Create an API key in your [Dashboard](https://app.keyway.sh/api-keys)
-2. Select `read:secrets` scope (least privilege for pulling)
+2. Select `read:secrets` scope (least privilege for pulling); add `write:secrets` only if the job pushes
 3. Set an expiration date (up to 1 year)
 4. Add as a CI secret named `KEYWAY_TOKEN`
 
-**Benefits over PATs:**
-- Scoped permissions (read-only possible)
-- Keyway-specific (no GitHub access)
-- Easily revocable
-- Expiration dates
+API keys have scoped permissions (read-only possible), grant no GitHub access, can be revoked at any time, and expire. See [API Keys](./api#api-keys) for scopes and IP restrictions.
 
-### GitHub PAT (Legacy)
+### GitHub tokens are not accepted
 
-You can still use a [fine-grained PAT](https://github.com/settings/tokens?type=beta) with `Contents: Read`, but API keys are preferred.
+GitHub personal access tokens (`ghp_…`, `github_pat_…`) and other GitHub tokens are rejected with `401`. Keyway checks repository access with its own GitHub App and your GitHub username, so accepting any GitHub token would let a token you gave another tool, or one with no permissions at all, read every secret you can reach.
+
+If your pipeline still sets `KEYWAY_TOKEN` to a GitHub token, create an API key as described above and replace the value of the `KEYWAY_TOKEN` secret with it. No workflow change is needed. See [Security](./security#github-tokens-are-not-accepted) for details.
 
 ---
 
@@ -56,7 +54,7 @@ The action pulls secrets, exports them as env vars, and masks values in logs.
 
 | Input | Default | Description |
 |-------|---------|-------------|
-| `token` | required | Keyway API key or PAT |
+| `token` | required | Keyway API key (`kw_live_…`) |
 | `environment` | `cicd` | Vault environment |
 | `export-env` | `true` | Export as env vars |
 | `env-file` | - | Write to .env file |
@@ -257,7 +255,7 @@ Coming soon: Native ESO integration.
 
 ## Best Practices
 
-1. **Use API keys** - More secure than PATs, with scoped permissions
+1. **Use API keys** - Scoped, revocable, and expiring
 2. **Least privilege** - Use `read:secrets` scope for pulling
 3. **Set expiration** - API keys should expire within 1 year
 4. **Separate environments** - Different secrets for staging/production
@@ -272,6 +270,10 @@ Coming soon: Native ESO integration.
 ### "API key missing required scope"
 
 Your API key doesn't have the required scope. Create a new key with `read:secrets` for pulling or `write:secrets` for pushing.
+
+### "GitHub tokens are not accepted"
+
+`KEYWAY_TOKEN` holds a GitHub token (`ghp_…`, `github_pat_…`). Replace it with a Keyway API key: see [GitHub tokens are not accepted](#github-tokens-are-not-accepted).
 
 ### "Vault not found"
 

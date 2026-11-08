@@ -219,8 +219,9 @@ Authenticate with GitHub.
 
 ```bash
 keyway login           # OAuth (opens browser)
-keyway login --token   # Use fine-grained PAT
 ```
+
+For CI and other non-interactive use, skip `keyway login` and set `KEYWAY_TOKEN` to a Keyway [API key](./api#api-keys) (`kw_live_…`). GitHub personal access tokens are not accepted, and `keyway login --token` was removed: see [GitHub tokens are not accepted](./security#github-tokens-are-not-accepted).
 
 Token stored securely in the system keyring (macOS Keychain, Linux Secret Service, Windows Credential Manager).
 
@@ -326,13 +327,15 @@ keyway sync vercel --allow-delete -y            # Full sync
 
 | Variable | Description |
 |----------|-------------|
-| `KEYWAY_TOKEN` | Override stored token |
+| `KEYWAY_TOKEN` | Keyway [API key](./api#api-keys) (`kw_live_…`), used instead of the stored login (CI/CD) |
 | `KEYWAY_API_URL` | API URL (default: `https://api.keyway.sh`) |
 | `KEYWAY_DISABLE_TELEMETRY` | Set `1` to disable analytics |
 
 ```bash
-KEYWAY_TOKEN=ghp_xxx keyway pull
+KEYWAY_TOKEN=kw_live_xxx keyway pull
 ```
+
+The CLI refuses a GitHub token (`ghp_…`, `github_pat_…`) in `KEYWAY_TOKEN` before calling the API.
 
 ---
 
