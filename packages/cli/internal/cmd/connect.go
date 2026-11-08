@@ -205,13 +205,17 @@ func connectWithTokenFlow(client *api.Client, ctx context.Context, provider, dis
 }
 
 func connectWithOAuthFlow(client *api.Client, ctx context.Context, provider, displayName string) (bool, error) {
-	authURL := client.GetProviderAuthURL(provider)
+	authURL, err := client.CreateProviderAuthURL(ctx, provider)
+	if err != nil {
+		ui.Error(fmt.Sprintf("Could not start the %s authorization: %v", displayName, err))
+		return false, nil
+	}
 	startTime := time.Now()
 
 	_ = browser.OpenURL(authURL)
 
 	var connected bool
-	err := ui.Spin("Waiting for authorization...", func() error {
+	err = ui.Spin("Waiting for authorization...", func() error {
 		maxAttempts := 60 // 5 minutes max
 		for i := 0; i < maxAttempts; i++ {
 			time.Sleep(5 * time.Second)

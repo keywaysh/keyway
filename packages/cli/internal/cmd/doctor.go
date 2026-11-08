@@ -163,6 +163,16 @@ func checkAuthWithDeps(deps *Dependencies) checkResult {
 		}
 	}
 
+	// GitHub tokens from an old `keyway login --token` must not reach the API
+	if isGitHubToken(storedAuth.KeywayToken) {
+		return checkResult{
+			ID:     "auth",
+			Name:   "Authentication",
+			Status: "fail",
+			Detail: "Signed in with a GitHub personal access token, which Keyway no longer accepts. Run: keyway login",
+		}
+	}
+
 	// Validate token
 	client := deps.APIFactory.NewClient(storedAuth.KeywayToken)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

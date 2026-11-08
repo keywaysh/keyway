@@ -2,14 +2,15 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
-	"os"
 	"strings"
 	"time"
 
 	"github.com/keywaysh/cli/internal/analytics"
 	"github.com/keywaysh/cli/internal/api"
 	"github.com/keywaysh/cli/internal/auth"
+	"github.com/keywaysh/cli/internal/config"
 	"github.com/keywaysh/cli/internal/git"
 	"github.com/keywaysh/cli/internal/ui"
 	"github.com/pkg/browser"
@@ -19,8 +20,10 @@ import (
 var loginCmd = &cobra.Command{
 	Use:   "login",
 	Short: "Authenticate with GitHub via Keyway",
-	Long:  `Authenticate with GitHub using the device flow or a personal access token.`,
-	RunE:  runLogin,
+	Long: `Authenticate with GitHub in your browser (device flow).
+
+In CI, set KEYWAY_TOKEN to a Keyway API key (kw_live_…) created in the dashboard.`,
+	RunE: runLogin,
 }
 
 var logoutCmd = &cobra.Command{
@@ -30,22 +33,21 @@ var logoutCmd = &cobra.Command{
 }
 
 func init() {
-	loginCmd.Flags().Bool("token", false, "Authenticate using a GitHub fine-grained PAT")
+	// Kept so scripts that still pass --token get an explanation instead of "unknown flag"
+	loginCmd.Flags().Bool("token", false, "Removed: GitHub personal access tokens are no longer supported")
+	_ = loginCmd.Flags().MarkHidden("token")
 }
 
 func runLogin(cmd *cobra.Command, args []string) error {
 	ui.Intro("login")
 
-	useToken, _ := cmd.Flags().GetBool("token")
-
-	var err error
-	if useToken {
-		err = runTokenLogin()
-	} else {
-		_, err = RunDeviceLogin()
+	if useToken, _ := cmd.Flags().GetBool("token"); useToken {
+		err := tokenLoginRemovedError()
+		ui.Error(err.Error())
+		return err
 	}
 
-	if err != nil {
+	if _, err := RunDeviceLogin(); err != nil {
 		ui.Error(err.Error())
 		return err
 	}
@@ -187,74 +189,6 @@ func RunDeviceLogin() (string, error) {
 	return token, nil
 }
 
-func runTokenLogin() error {
-	repo, _ := git.DetectRepo()
-	if repo != "" {
-		ui.Step(fmt.Sprintf("Detected repository: %s", ui.Value(repo)))
-	}
-
-	// Build URL for creating PAT
-	description := "Keyway CLI"
-	if repo != "" {
-		description = fmt.Sprintf("Keyway CLI for %s", repo)
-	}
-	url := fmt.Sprintf("https://github.com/settings/personal-access-tokens/new?description=%s", description)
-
-	ui.Message(ui.Dim("Opening GitHub to create a fine-grained PAT..."))
-	ui.Info("Select the detected repo (or scope manually).")
-	ui.Message(ui.Dim("Permissions: Metadata -> Read-only; Account permissions: None."))
-
-	_ = browser.OpenURL(url)
-
-	token, err := ui.Password("Paste your GitHub PAT:")
-	if err != nil {
-		return err
-	}
-
-	token = trimSpace(token)
-	if token == "" {
-		return fmt.Errorf("token is required")
-	}
-
-	if !hasPrefix(token, "github_pat_") {
-		return fmt.Errorf("token must start with github_pat_")
-	}
-
-	var validation *api.ValidateTokenResponse
-	err = ui.Spin("Validating token...", func() error {
-		client := api.NewClient(token)
-		var err error
-		validation, err = client.ValidateToken(context.Background())
-		return err
-	})
-
-	if err != nil {
-		return fmt.Errorf("token validation failed: %w", err)
-	}
-
-	store := auth.NewStore()
-	if err := store.SaveAuth(token, validation.Username, ""); err != nil {
-		return fmt.Errorf("failed to save credentials: %w", err)
-	}
-
-	// Track login event
-	analytics.Track(analytics.EventLogin, map[string]interface{}{
-		"method": "pat",
-		"repo":   repo,
-	})
-
-	// Identify user with plan info
-	analytics.Identify(validation.Username, map[string]interface{}{
-		"github_username": validation.Username,
-		"login_method":    "pat",
-		"plan":            validation.Plan,
-		"created_at":      validation.CreatedAt,
-	})
-
-	ui.Success(fmt.Sprintf("Logged in as %s", ui.Value("@"+validation.Username)))
-	return nil
-}
-
 func runLogout(cmd *cobra.Command, args []string) error {
 	ui.Intro("logout")
 
@@ -272,16 +206,9 @@ func runLogout(cmd *cobra.Command, args []string) error {
 
 // EnsureLogin ensures the user is logged in, prompting if necessary
 func EnsureLogin() (string, error) {
-	// Check env var first
-	if token := os.Getenv("KEYWAY_TOKEN"); token != "" {
-		return token, nil
-	}
-
-	// Check stored auth
-	store := auth.NewStore()
-	storedAuth, err := store.GetAuth()
-	if err == nil && storedAuth != nil && storedAuth.KeywayToken != "" {
-		return storedAuth.KeywayToken, nil
+	token, err := resolveToken(defaultDeps.AuthStore)
+	if err != nil || token != "" {
+		return token, err
 	}
 
 	// Need to login
@@ -297,19 +224,55 @@ func EnsureLogin() (string, error) {
 	return RunDeviceLogin()
 }
 
-// Helper functions to avoid importing strings package
-func trimSpace(s string) string {
-	start := 0
-	end := len(s)
-	for start < end && (s[start] == ' ' || s[start] == '\t' || s[start] == '\n' || s[start] == '\r') {
-		start++
+// resolveToken returns the token commands authenticate with: KEYWAY_TOKEN, else the stored
+// credentials, or "" when there is neither. It refuses GitHub tokens before they reach the API.
+func resolveToken(store AuthStore) (string, error) {
+	if token := config.GetToken(); token != "" {
+		if isGitHubToken(token) {
+			return "", envGitHubTokenError()
+		}
+		return token, nil
 	}
-	for end > start && (s[end-1] == ' ' || s[end-1] == '\t' || s[end-1] == '\n' || s[end-1] == '\r') {
-		end--
+
+	storedAuth, err := store.GetAuth()
+	if err != nil || storedAuth == nil || storedAuth.KeywayToken == "" {
+		return "", nil
 	}
-	return s[start:end]
+	if isGitHubToken(storedAuth.KeywayToken) {
+		return "", storedGitHubTokenError()
+	}
+	return storedAuth.KeywayToken, nil
 }
 
-func hasPrefix(s, prefix string) bool {
-	return len(s) >= len(prefix) && s[:len(prefix)] == prefix
+// githubTokenPrefixes: classic and fine-grained PATs, OAuth, user-to-server, installation and
+// refresh tokens. The API does not accept GitHub tokens as an identity: it checks repo access
+// with the Keyway GitHub App and the username, so any GitHub token (another app's OAuth token, a
+// PAT without permissions) would otherwise unlock every vault its owner can reach.
+var githubTokenPrefixes = []string{"ghp_", "github_pat_", "gho_", "ghu_", "ghs_", "ghr_"}
+
+func isGitHubToken(token string) bool {
+	token = strings.TrimSpace(token)
+	for _, prefix := range githubTokenPrefixes {
+		if strings.HasPrefix(token, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+func apiKeysURL() string {
+	return strings.TrimSuffix(config.GetDashboardURL(), "/") + "/api-keys"
+}
+
+// tokenLoginRemovedError is returned by `keyway login --token`.
+func tokenLoginRemovedError() error {
+	return fmt.Errorf("GitHub personal access tokens are no longer supported: run `keyway login` to sign in with your browser, or create an API key at %s and set KEYWAY_TOKEN=kw_live_…", apiKeysURL())
+}
+
+func envGitHubTokenError() error {
+	return fmt.Errorf("KEYWAY_TOKEN holds a GitHub token, which Keyway no longer accepts: create an API key at %s and set KEYWAY_TOKEN=kw_live_…, or unset KEYWAY_TOKEN and run `keyway login`", apiKeysURL())
+}
+
+func storedGitHubTokenError() error {
+	return errors.New("GitHub personal access tokens are no longer supported and you are signed in with one: run `keyway login` again to sign in with your browser")
 }

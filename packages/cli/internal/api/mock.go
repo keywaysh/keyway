@@ -28,7 +28,7 @@ type MockClient struct {
 	GetProvidersFn           func(ctx context.Context) ([]Provider, error)
 	GetConnectionsFn         func(ctx context.Context) ([]Connection, error)
 	DeleteConnectionFn       func(ctx context.Context, connectionID string) error
-	GetProviderAuthURLFn     func(provider string) string
+	CreateProviderAuthURLFn  func(ctx context.Context, provider string) (string, error)
 	ConnectWithTokenFn       func(ctx context.Context, provider, providerToken string) (*ConnectTokenResponse, error)
 	GetAllProviderProjectsFn func(ctx context.Context, provider string) ([]ProviderProject, []Connection, error)
 
@@ -216,12 +216,12 @@ func (m *MockClient) DeleteConnection(ctx context.Context, connectionID string) 
 	return nil
 }
 
-func (m *MockClient) GetProviderAuthURL(provider string) string {
-	m.track("GetProviderAuthURL")
-	if m.GetProviderAuthURLFn != nil {
-		return m.GetProviderAuthURLFn(provider)
+func (m *MockClient) CreateProviderAuthURL(ctx context.Context, provider string) (string, error) {
+	m.track("CreateProviderAuthURL")
+	if m.CreateProviderAuthURLFn != nil {
+		return m.CreateProviderAuthURLFn(ctx, provider)
 	}
-	return fmt.Sprintf("https://api.keyway.sh/v1/auth/%s", provider)
+	return fmt.Sprintf("https://api.keyway.sh/v1/integrations/%s/authorize?ticket=mock-ticket", provider), nil
 }
 
 func (m *MockClient) ConnectWithToken(ctx context.Context, provider, providerToken string) (*ConnectTokenResponse, error) {

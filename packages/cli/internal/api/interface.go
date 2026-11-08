@@ -29,7 +29,7 @@ type APIClient interface {
 	GetProviders(ctx context.Context) ([]Provider, error)
 	GetConnections(ctx context.Context) ([]Connection, error)
 	DeleteConnection(ctx context.Context, connectionID string) error
-	GetProviderAuthURL(provider string) string
+	CreateProviderAuthURL(ctx context.Context, provider string) (string, error)
 	ConnectWithToken(ctx context.Context, provider, providerToken string) (*ConnectTokenResponse, error)
 	GetAllProviderProjects(ctx context.Context, provider string) ([]ProviderProject, []Connection, error)
 
