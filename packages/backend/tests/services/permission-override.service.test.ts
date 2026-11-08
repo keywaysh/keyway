@@ -218,7 +218,7 @@ describe('PermissionOverrideService', () => {
         }),
       });
 
-      const result = await updateOverride('override-123', { canWrite: true });
+      const result = await updateOverride('override-123', 'vault-123', { canWrite: true });
 
       expect(result.canWrite).toBe(true);
     });
@@ -234,7 +234,7 @@ describe('PermissionOverrideService', () => {
         }),
       });
 
-      const result = await updateOverride('override-123', { canRead: false });
+      const result = await updateOverride('override-123', 'vault-123', { canRead: false });
 
       expect(result.canRead).toBe(false);
     });
@@ -250,7 +250,7 @@ describe('PermissionOverrideService', () => {
         where: vi.fn().mockResolvedValue(undefined),
       });
 
-      await deleteOverride('override-123');
+      await deleteOverride('override-123', 'vault-123');
 
       expect(db.delete).toHaveBeenCalled();
     });
@@ -307,7 +307,7 @@ describe('PermissionOverrideService', () => {
         },
       });
 
-      const result = await getOverrideById('override-123');
+      const result = await getOverrideById('override-123', 'vault-123');
 
       expect(result).not.toBeNull();
       expect(result?.id).toBe('override-123');
@@ -333,7 +333,7 @@ describe('PermissionOverrideService', () => {
         },
       });
 
-      const result = await getOverrideById('override-456');
+      const result = await getOverrideById('override-456', 'vault-123');
 
       expect(result).not.toBeNull();
       expect(result?.targetType).toBe('role');
@@ -344,7 +344,7 @@ describe('PermissionOverrideService', () => {
     it('should return null for non-existent override', async () => {
       (db.query.permissionOverrides.findFirst as any).mockResolvedValue(null);
 
-      const result = await getOverrideById('nonexistent');
+      const result = await getOverrideById('nonexistent', 'vault-123');
 
       expect(result).toBeNull();
     });
@@ -417,86 +417,55 @@ describe('PermissionOverrideService', () => {
   // ==========================================================================
 
   describe('findApplicableOverride', () => {
+    const userExact = () => ({ ...mockOverride, environment: 'production' });
+    const userWildcard = () => ({ ...mockOverride, environment: '*' });
+    const roleExact = () => ({ ...mockRoleOverride, environment: 'production' });
+    const roleWildcard = () => ({ ...mockRoleOverride, environment: '*' });
+    const find = () => findApplicableOverride(mockVault.id, 'production', mockUser.id, 'write');
+
     it('should prioritize user-specific exact environment override', async () => {
-      const userOverride = { ...mockOverride };
-
-      (db.query.permissionOverrides.findFirst as any).mockResolvedValue(userOverride);
-
-      const result = await findApplicableOverride(
-        mockVault.id,
-        'production',
-        mockUser.id,
-        'write'
-      );
-
-      expect(result).toEqual(userOverride);
+      const expected = userExact();
+      (db.query.permissionOverrides.findMany as any).mockResolvedValue([
+        roleWildcard(),
+        roleExact(),
+        userWildcard(),
+        expected,
+      ]);
+      expect(await find()).toEqual(expected);
     });
 
     it('should fall back to user-specific wildcard override', async () => {
-      const wildcardUserOverride = { ...mockOverride, environment: '*' };
-
-      (db.query.permissionOverrides.findFirst as any)
-        .mockResolvedValueOnce(null) // No exact user override
-        .mockResolvedValueOnce(wildcardUserOverride); // Wildcard user override
-
-      const result = await findApplicableOverride(
-        mockVault.id,
-        'production',
-        mockUser.id,
-        'write'
-      );
-
-      expect(result).toEqual(wildcardUserOverride);
+      const expected = userWildcard();
+      (db.query.permissionOverrides.findMany as any).mockResolvedValue([
+        roleWildcard(),
+        roleExact(),
+        expected,
+      ]);
+      expect(await find()).toEqual(expected);
     });
 
     it('should fall back to role-specific exact environment override', async () => {
-      const roleOverride = { ...mockRoleOverride };
-
-      (db.query.permissionOverrides.findFirst as any)
-        .mockResolvedValueOnce(null) // No exact user override
-        .mockResolvedValueOnce(null) // No wildcard user override
-        .mockResolvedValueOnce(roleOverride); // Exact role override
-
-      const result = await findApplicableOverride(
-        mockVault.id,
-        'production',
-        mockUser.id,
-        'write'
-      );
-
-      expect(result).toEqual(roleOverride);
+      const expected = roleExact();
+      (db.query.permissionOverrides.findMany as any).mockResolvedValue([roleWildcard(), expected]);
+      expect(await find()).toEqual(expected);
     });
 
     it('should fall back to role-specific wildcard override', async () => {
-      const wildcardRoleOverride = { ...mockRoleOverride, environment: '*' };
-
-      (db.query.permissionOverrides.findFirst as any)
-        .mockResolvedValueOnce(null) // No exact user override
-        .mockResolvedValueOnce(null) // No wildcard user override
-        .mockResolvedValueOnce(null) // No exact role override
-        .mockResolvedValueOnce(wildcardRoleOverride); // Wildcard role override
-
-      const result = await findApplicableOverride(
-        mockVault.id,
-        'production',
-        mockUser.id,
-        'write'
-      );
-
-      expect(result).toEqual(wildcardRoleOverride);
+      const expected = roleWildcard();
+      (db.query.permissionOverrides.findMany as any).mockResolvedValue([expected]);
+      expect(await find()).toEqual(expected);
     });
 
     it('should return null when no applicable override found', async () => {
-      (db.query.permissionOverrides.findFirst as any).mockResolvedValue(null);
+      (db.query.permissionOverrides.findMany as any).mockResolvedValue([]);
+      expect(await find()).toBeNull();
+    });
 
-      const result = await findApplicableOverride(
-        mockVault.id,
-        'production',
-        mockUser.id,
-        'write'
-      );
-
-      expect(result).toBeNull();
+    it('loads all candidates in a single query', async () => {
+      (db.query.permissionOverrides.findMany as any).mockResolvedValue([]);
+      await find();
+      expect(db.query.permissionOverrides.findMany).toHaveBeenCalledTimes(1);
+      expect(db.query.permissionOverrides.findFirst).not.toHaveBeenCalled();
     });
   });
 
@@ -513,7 +482,7 @@ describe('PermissionOverrideService', () => {
         createdByUser: null,
       });
 
-      const result = await getOverrideById('override-123');
+      const result = await getOverrideById('override-123', 'vault-123');
 
       expect(result?.createdBy).toBeNull();
     });
@@ -529,7 +498,7 @@ describe('PermissionOverrideService', () => {
         createdByUser: null,
       });
 
-      const result = await getOverrideById('override-123');
+      const result = await getOverrideById('override-123', 'vault-123');
 
       expect(result?.createdAt).toBe('2024-01-15T10:00:00.000Z');
       expect(result?.updatedAt).toBe('2024-01-15T10:00:00.000Z');

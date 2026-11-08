@@ -6,6 +6,7 @@ import {
   getEffectivePlanWithTrial,
   getTrialInfo,
   hasHadTrial,
+  hasPaidOrgSubscription,
   TRIAL_DURATION_DAYS,
   type TrialInfo,
 } from "./trial.service";
@@ -672,8 +673,9 @@ export async function ensureOrganizationExists(
 export function getTrialEligibility(org: Organization): TrialEligibility {
   const trialInfo = getTrialInfo(org);
 
-  // Already on a paid plan (Team or Business)
-  if (org.stripeCustomerId && (org.plan === "team" || org.plan === "business")) {
+  // Already on a paid plan (Team or Business) — from a subscription, not merely
+  // a Stripe customer created by an abandoned checkout.
+  if (hasPaidOrgSubscription(org)) {
     return {
       eligible: false,
       daysAvailable: 0,

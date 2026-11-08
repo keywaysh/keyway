@@ -220,6 +220,9 @@ vi.mock('../../src/utils/permissions', () => ({
   getVaultPermissions: vi.fn().mockResolvedValue([]),
   getDefaultPermission: vi.fn().mockReturnValue('read'),
   resolveEffectivePermission: vi.fn().mockResolvedValue(true),
+  resolveEffectivePermissions: vi.fn().mockImplementation(
+    async (_v: string, envs: string[]) => Object.fromEntries(envs.map((e) => [e, true]))
+  ),
   getEffectivePermissions: vi.fn().mockResolvedValue({ development: { read: true, write: true } }),
   requireEnvironmentPermission: vi.fn().mockResolvedValue(undefined), // Resolves without throwing = permission granted
   inferEnvironmentType: vi.fn().mockImplementation((env: string) => {
@@ -294,6 +297,9 @@ vi.mock('../../src/services', () => ({
     { name: 'production', type: 'protected', displayOrder: 2 },
   ]),
   getVaultEnvironmentNames: vi.fn().mockResolvedValue(['development', 'staging', 'production']),
+  getSecretEnvironments: vi.fn().mockResolvedValue([]),
+  getTrashedSecrets: vi.fn().mockResolvedValue([]),
+  getTrashedSecretsCount: vi.fn().mockResolvedValue(0),
 }));
 
 describe('Vaults Routes', () => {
@@ -343,6 +349,60 @@ describe('Vaults Routes', () => {
       const body = JSON.parse(response.body);
       expect(body.data).toHaveProperty('vaultId');
       expect(body.data).toHaveProperty('repoFullName');
+    });
+
+    it("stores GitHub's canonical repo name, not the casing or alias the caller sent", async () => {
+      const { db } = await import('../../src/db');
+      const { getRepoInfoWithApp } = await import('../../src/utils/github');
+      (getRepoInfoWithApp as any).mockResolvedValue({
+        repoId: '4242',
+        fullName: 'testuser/new-repo',
+        isPrivate: false,
+        isOrganization: false,
+      });
+      (db.query.vaults.findFirst as any).mockResolvedValue(null);
+      const values = vi.fn().mockReturnValue({
+        returning: vi.fn().mockResolvedValue([{ ...mockVault, repoFullName: 'testuser/new-repo' }]),
+      });
+      (db.insert as any).mockReturnValue({ values });
+
+      const response = await app.inject({
+        method: 'POST',
+        url: '/v1/vaults',
+        headers: { authorization: 'Bearer mock-keyway-token' },
+        payload: { repoFullName: 'TestUser/New-Repo' },
+      });
+
+      expect(response.statusCode).toBe(201);
+      expect(values).toHaveBeenCalledWith(
+        expect.objectContaining({ repoFullName: 'testuser/new-repo', forgeRepoId: '4242' })
+      );
+    });
+
+    it('explains how to free a name still held by a vault of a previous repository', async () => {
+      const { db } = await import('../../src/db');
+      const { getRepoInfoWithApp } = await import('../../src/utils/github');
+      (getRepoInfoWithApp as any).mockResolvedValue({
+        repoId: '4242',
+        fullName: 'testuser/new-repo',
+        isPrivate: false,
+        isOrganization: false,
+      });
+      (db.query.vaults.findFirst as any).mockResolvedValue({
+        ...mockVault,
+        repoFullName: 'testuser/new-repo',
+        forgeRepoId: '1111',
+      });
+
+      const response = await app.inject({
+        method: 'POST',
+        url: '/v1/vaults',
+        headers: { authorization: 'Bearer mock-keyway-token' },
+        payload: { repoFullName: 'testuser/new-repo' },
+      });
+
+      expect(response.statusCode).toBe(409);
+      expect(response.body).toMatch(/previous repository/);
     });
 
     it('should create a vault for a private repository', async () => {
@@ -807,5 +867,110 @@ describe('Secret lastModifiedBy', () => {
         userId: mockUser.id,
       })
     );
+  });
+});
+
+describe('Vault routes — authorization hardening', () => {
+  let app: FastifyInstance;
+
+  beforeEach(async () => {
+    vi.clearAllMocks();
+    app = Fastify({ logger: false });
+    await app.register(formbody);
+    await app.register(cookie);
+    const { vaultsRoutes } = await import('../../src/api/v1/routes/vaults.routes');
+    await app.register(vaultsRoutes, { prefix: '/v1/vaults' });
+    await app.ready();
+  });
+
+  afterEach(async () => {
+    await app.close();
+  });
+
+  it("binds every role check to the vault's immutable repo id", async () => {
+    const { getUserRoleWithApp } = await import('../../src/utils/github');
+    (getUserRoleWithApp as any).mockResolvedValue('read');
+
+    await app.inject({
+      method: 'GET',
+      url: '/v1/vaults/testuser/test-repo/secrets/secret-123/value',
+      headers: { authorization: 'Bearer mock-keyway-token' },
+    });
+
+    expect(getUserRoleWithApp).toHaveBeenCalledWith('testuser/test-repo', 'testuser', {
+      expectedRepoId: mockVault.forgeRepoId,
+    });
+  });
+
+  it('lists only secrets from environments the caller may read', async () => {
+    const { getUserRoleWithApp } = await import('../../src/utils/github');
+    const services = await import('../../src/services');
+    const { resolveEffectivePermissions } = await import('../../src/utils/permissions');
+    (getUserRoleWithApp as any).mockResolvedValue('read');
+    (services as any).getSecretEnvironments.mockResolvedValue(['development', 'production']);
+    (resolveEffectivePermissions as any).mockImplementation(
+      async (_vaultId: string, envs: string[]) =>
+        Object.fromEntries(envs.map((env) => [env, env !== 'production']))
+    );
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/v1/vaults/testuser/test-repo/secrets',
+      headers: { authorization: 'Bearer mock-keyway-token' },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(services.getSecretsForVault).toHaveBeenCalledWith(
+      mockVault.id,
+      expect.objectContaining({ environments: ['development'] })
+    );
+    expect(services.getSecretsCount).toHaveBeenCalledWith(mockVault.id, {
+      environments: ['development'],
+    });
+    expect(resolveEffectivePermissions).toHaveBeenCalledTimes(1);
+  });
+
+  it('refuses the legacy per-environment permission rules that access checks ignore', async () => {
+    const { getUserRoleWithApp } = await import('../../src/utils/github');
+    const { db } = await import('../../src/db');
+    (getUserRoleWithApp as any).mockResolvedValue('admin');
+
+    const res = await app.inject({
+      method: 'PUT',
+      url: '/v1/vaults/testuser/test-repo/permissions/production',
+      headers: { authorization: 'Bearer mock-keyway-token' },
+      payload: { permissions: { read: 'admin', write: 'admin' } },
+    });
+
+    expect(res.statusCode).toBe(410);
+    expect(res.body).toMatch(/permissions\/overrides/);
+    expect(db.insert).not.toHaveBeenCalled();
+  });
+
+  it('lists only trashed secrets from environments the caller may read', async () => {
+    const { getUserRoleWithApp } = await import('../../src/utils/github');
+    const services = await import('../../src/services');
+    const { resolveEffectivePermissions } = await import('../../src/utils/permissions');
+    (getUserRoleWithApp as any).mockResolvedValue('read');
+    (services as any).getSecretEnvironments.mockResolvedValue(['staging', 'production']);
+    (resolveEffectivePermissions as any).mockImplementation(
+      async (_vaultId: string, envs: string[]) =>
+        Object.fromEntries(envs.map((env) => [env, env !== 'production']))
+    );
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/v1/vaults/testuser/test-repo/trash',
+      headers: { authorization: 'Bearer mock-keyway-token' },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect((services as any).getTrashedSecrets).toHaveBeenCalledWith(
+      mockVault.id,
+      expect.objectContaining({ environments: ['staging'] })
+    );
+    expect((services as any).getTrashedSecretsCount).toHaveBeenCalledWith(mockVault.id, {
+      environments: ['staging'],
+    });
   });
 });

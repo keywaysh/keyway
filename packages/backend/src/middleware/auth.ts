@@ -1,11 +1,11 @@
 import { FastifyRequest, FastifyReply } from "fastify";
 import { UnauthorizedError, ForbiddenError } from "../lib";
-import { getUserFromToken, getUserRoleWithApp } from "../utils/github";
+import { getRepoInfoWithApp, getUserRoleWithApp } from "../utils/github";
 import { verifyKeywayToken } from "../utils/jwt";
 import { decryptAccessToken } from "../utils/tokenEncryption";
 import { db, users, vaults, apiKeys } from "../db";
 import { eq, and, isNull } from "drizzle-orm";
-import { hasEnvironmentPermission, resolveEffectivePermission } from "../utils/permissions";
+import { resolveEffectivePermission } from "../utils/permissions";
 import type { PermissionType, ForgeType } from "../db/schema";
 import { config } from "../config";
 import {
@@ -85,9 +85,31 @@ declare module "fastify" {
   }
 }
 
+const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
+
+/** GitHub token prefixes (classic PAT, fine-grained PAT, OAuth, user-to-server, installation). */
+const GITHUB_TOKEN_PREFIXES = ["ghp_", "github_pat_", "gho_", "ghu_", "ghs_", "ghr_"];
+
+/**
+ * Cookie sessions are sent by the browser automatically, so a state-changing request
+ * authenticated by cookie must come from an allowed front-end origin (CSRF guard).
+ * Bearer tokens (CLI, CI, API keys) are never sent automatically and are not checked.
+ */
+function assertCookieRequestOrigin(request: FastifyRequest) {
+  if (SAFE_METHODS.has(request.method) || config.cors.allowAll) {
+    return;
+  }
+  const origin = request.headers.origin;
+  if (!origin || !config.cors.allowedOrigins.includes(origin)) {
+    request.log.warn({ origin, method: request.method }, "Auth middleware: cookie request from disallowed origin");
+    throw new ForbiddenError("Cross-site request rejected");
+  }
+}
+
 /**
  * Extract and validate authentication token
- * Supports: Authorization header (Bearer), session cookie, or GitHub access tokens
+ * Supports: Authorization header (Bearer: Keyway JWT or API key) or the dashboard session cookie.
+ * Tokens are never read from the query string: URLs end up in logs and analytics.
  */
 export async function authenticateGitHub(request: FastifyRequest, reply: FastifyReply) {
   let token: string | undefined;
@@ -98,14 +120,6 @@ export async function authenticateGitHub(request: FastifyRequest, reply: Fastify
     token = authHeader.substring(7);
   }
 
-  // Fall back to query param (for CLI OAuth flows opened in browser)
-  if (!token) {
-    const query = request.query as { token?: string };
-    if (query.token) {
-      token = query.token;
-    }
-  }
-
   // Fall back to session cookie (for web dashboard)
   if (!token) {
     const cookieHeader = request.headers.cookie;
@@ -114,6 +128,9 @@ export async function authenticateGitHub(request: FastifyRequest, reply: Fastify
       const sessionCookie = cookies.find((c) => c.trim().startsWith("keyway_session="));
       if (sessionCookie) {
         token = sessionCookie.split("=")[1]?.trim();
+        if (token) {
+          assertCookieRequestOrigin(request);
+        }
       }
     }
   }
@@ -123,8 +140,19 @@ export async function authenticateGitHub(request: FastifyRequest, reply: Fastify
   }
 
   // Log token type and length only — never log token content (OWASP Logging Cheat Sheet)
-  const tokenType = isKeywayApiKey(token) ? "api_key" : token.startsWith("ghu_") || token.startsWith("ghp_") ? "github_pat" : "jwt";
+  const isGitHubToken = GITHUB_TOKEN_PREFIXES.some((prefix) => token.startsWith(prefix));
+  const tokenType = isKeywayApiKey(token) ? "api_key" : isGitHubToken ? "github_token" : "jwt";
   request.log.info({ tokenType, tokenLength: token.length }, "Auth middleware: received token");
+
+  // Raw GitHub tokens are deliberately NOT accepted as an identity: repo access is
+  // checked with the Keyway GitHub App + username, so any GitHub token (another
+  // app's OAuth token, a zero-permission PAT) would otherwise unlock every secret
+  // its owner can reach.
+  if (isGitHubToken) {
+    throw new UnauthorizedError(
+      "GitHub tokens are not accepted. Use `keyway login` or a Keyway API key (kw_live_…)."
+    );
+  }
 
   // Step 0: Check if it's a Keyway API key (kw_live_* or kw_test_*)
   if (isKeywayApiKey(token)) {
@@ -148,37 +176,8 @@ export async function authenticateGitHub(request: FastifyRequest, reply: Fastify
       "Auth middleware: JWT verification failed"
     );
 
-    // If not a valid JWT, try as GitHub access token
-    if (jwtError instanceof Error && jwtError.message.includes("Token")) {
-      request.log.info({ tokenType }, "Auth middleware: trying as GitHub token");
-      try {
-        const githubUser = await getUserFromToken(token);
-        request.log.info(
-          { forgeUserId: githubUser.forgeUserId, username: githubUser.username },
-          "Auth middleware: GitHub token valid"
-        );
-
-        // Attach to request for use in route handlers
-        request.accessToken = token;
-        const vcsUser = {
-          forgeType: "github" as ForgeType,
-          forgeUserId: githubUser.forgeUserId,
-          username: githubUser.username,
-          email: githubUser.email,
-          avatarUrl: githubUser.avatarUrl,
-        };
-        request.vcsUser = vcsUser;
-        request.githubUser = vcsUser; // Backward compatibility
-        return;
-      } catch (githubError) {
-        const ghErrorMsg = githubError instanceof Error ? githubError.message : "Unknown error";
-        request.log.warn({ error: ghErrorMsg }, "Auth middleware: GitHub token also invalid");
-        clearSessionCookies(request, reply);
-        throw new UnauthorizedError("Invalid access token");
-      }
-    }
-
-    // JWT error (expired, malformed, wrong secret)
+    // JWT error (expired, malformed, wrong secret). Never fall back to treating the
+    // token as a GitHub token (see the GitHub token check above).
     request.log.warn({ error: errorMessage }, "Auth middleware: JWT error, clearing cookie");
     clearSessionCookies(request, reply);
     throw new UnauthorizedError("Invalid or expired token");
@@ -330,6 +329,18 @@ async function authenticateWithApiKey(request: FastifyRequest, token: string) {
 }
 
 /**
+ * Repo id binding for the vault stored under this exact name: its forgeRepoId,
+ * `null` when the vault exists but is unbound (grants nothing), or `undefined`
+ * when there is no vault (e.g. creating one: nothing to bind to).
+ */
+async function getVaultForgeRepoId(repoFullName: string): Promise<string | null | undefined> {
+  const vault = await db.query.vaults.findFirst({
+    where: eq(vaults.repoFullName, repoFullName),
+  });
+  return vault ? vault.forgeRepoId : undefined;
+}
+
+/**
  * Verify user has admin access to a repository
  * Uses GitHub App installation token to check permissions
  * Requires authenticateGitHub to be called first
@@ -340,19 +351,24 @@ export async function requireAdminAccess(request: FastifyRequest, _reply: Fastif
     throw new UnauthorizedError("Authentication required");
   }
 
-  // Get repo name from params (owner/repo) or body
+  // Repo from the route params when the route has them, otherwise from the body
+  // (never mix: the check must cover the repo the handler acts on)
   const params = request.params as { owner?: string; repo?: string };
   const body = request.body as { repoFullName?: string };
 
   const repoFullName =
-    params.owner && params.repo ? `${params.owner}/${params.repo}` : body?.repoFullName;
+    "owner" in params || "repo" in params
+      ? `${params.owner}/${params.repo}`
+      : body?.repoFullName;
 
   if (!repoFullName) {
     throw new ForbiddenError("Repository name required");
   }
 
-  // Use GitHub App to check user's role on the repo
-  const role = await getUserRoleWithApp(repoFullName, vcsUser.username);
+  // Use GitHub App to check user's role on the repo the vault is bound to
+  const role = await getUserRoleWithApp(repoFullName, vcsUser.username, {
+    expectedRepoId: await getVaultForgeRepoId(repoFullName),
+  });
   const isAdmin = role === "admin";
 
   if (!isAdmin) {
@@ -361,8 +377,9 @@ export async function requireAdminAccess(request: FastifyRequest, _reply: Fastif
 }
 
 /**
- * Like requireAdminAccess, but falls back to vault ownership check
- * when the repo is inaccessible (deleted or app uninstalled).
+ * Like requireAdminAccess, but lets the vault's owner act on an orphaned vault:
+ * the repo is inaccessible (deleted, App uninstalled), the vault is not bound to a
+ * repository id, or its name now points to a different repository.
  * Use only for destructive operations like vault deletion.
  */
 export async function requireAdminOrOwnerAccess(request: FastifyRequest, _reply: FastifyReply) {
@@ -379,25 +396,49 @@ export async function requireAdminOrOwnerAccess(request: FastifyRequest, _reply:
     throw new ForbiddenError("Repository name required");
   }
 
-  try {
-    const role = await getUserRoleWithApp(repoFullName, vcsUser.username);
-    if (role !== "admin") {
-      throw new ForbiddenError("Only repository admins can perform this action");
-    }
-  } catch (err) {
-    if (err instanceof ForbiddenError && err.message.includes("GitHub App not installed")) {
-      const vault = await db.query.vaults.findFirst({
-        where: eq(vaults.repoFullName, repoFullName),
-        with: { owner: true },
-      });
+  // Compare the immutable forge identity: usernames can be released and re-registered
+  const isVaultOwner = async () => {
+    const vault = await db.query.vaults.findFirst({
+      where: eq(vaults.repoFullName, repoFullName),
+      with: { owner: true },
+    });
+    return (
+      !!vault &&
+      vault.owner.forgeType === vcsUser.forgeType &&
+      vault.owner.forgeUserId === vcsUser.forgeUserId
+    );
+  };
 
-      if (!vault || vault.owner.username !== vcsUser.username) {
-        throw new ForbiddenError("Only the vault owner can delete a vault when the repo is inaccessible");
+  const expectedRepoId = await getVaultForgeRepoId(repoFullName);
+  let role;
+  try {
+    role = await getUserRoleWithApp(repoFullName, vcsUser.username, { expectedRepoId });
+  } catch (err) {
+    // App not installed, or vault not bound to a repository id: the repo can't vouch
+    // for anyone, only the vault owner may clean the vault up.
+    if (err instanceof ForbiddenError) {
+      if (await isVaultOwner()) {
+        return;
       }
-    } else {
-      throw err;
+      throw new ForbiddenError("Only the vault owner can delete a vault when the repo is inaccessible");
+    }
+    throw err;
+  }
+
+  if (role === "admin") {
+    return;
+  }
+
+  // The name now points to another repository (deleted and re-created, or reused):
+  // nobody is admin of the vault's repository any more, its owner may delete it.
+  if (typeof expectedRepoId === "string") {
+    const current = await getRepoInfoWithApp(repoFullName).catch(() => null);
+    if (current?.repoId && current.repoId !== expectedRepoId && (await isVaultOwner())) {
+      return;
     }
   }
+
+  throw new ForbiddenError("Only repository admins can perform this action");
 }
 
 /**
@@ -411,14 +452,12 @@ export function requireEnvironmentAccess(permissionType: PermissionType) {
       throw new UnauthorizedError("Authentication required");
     }
 
-    // Get repo and environment from params, query, or body
-    const params = request.params as { repo?: string; env?: string };
+    // Get repo (query or body, validated by the v1 router) and environment
+    const params = request.params as { env?: string };
     const query = request.query as { repo?: string; environment?: string };
     const body = request.body as { repoFullName?: string; environment?: string };
 
-    const repoFullName = params.repo
-      ? decodeURIComponent(params.repo)
-      : query.repo || body?.repoFullName;
+    const repoFullName = query.repo || body?.repoFullName;
 
     const environment = params.env || query.environment || body?.environment;
 
@@ -430,8 +469,15 @@ export function requireEnvironmentAccess(permissionType: PermissionType) {
       throw new ForbiddenError("Environment name required");
     }
 
-    // Get user's role for this repository using GitHub App
-    const userRole = await getUserRoleWithApp(repoFullName, vcsUser.username);
+    const vault = await db.query.vaults.findFirst({
+      where: eq(vaults.repoFullName, repoFullName),
+    });
+
+    // Role check bound to the vault's immutable repo id: a name that now points to
+    // another repository (rename, transfer, deleted and recreated) grants nothing.
+    const userRole = await getUserRoleWithApp(repoFullName, vcsUser.username, {
+      expectedRepoId: vault?.forgeRepoId,
+    });
 
     if (!userRole) {
       throw new ForbiddenError("You do not have access to this repository");
@@ -440,27 +486,29 @@ export function requireEnvironmentAccess(permissionType: PermissionType) {
     // Attach role to request for use in route handlers (e.g., exposure tracking)
     request.repoRole = userRole;
 
-    // Get vault for this repository
-    const vault = await db.query.vaults.findFirst({
-      where: eq(vaults.repoFullName, repoFullName),
-    });
-
     if (!vault) {
       throw new ForbiddenError("Vault not found for this repository");
     }
 
-    // Get user ID for override checking
+    // Overrides, org defaults and environment types are keyed by Keyway user:
+    // every caller must have one (JWT and API keys always do).
     const user = await db.query.users.findFirst({
       where: and(
         eq(users.forgeType, vcsUser.forgeType),
         eq(users.forgeUserId, vcsUser.forgeUserId)
       ),
     });
+    if (!user) {
+      throw new ForbiddenError("A Keyway account is required to access secrets");
+    }
 
-    // Check environment permission using the new override-aware system
-    const hasPermission = user
-      ? await resolveEffectivePermission(vault.id, environment, user.id, userRole, permissionType)
-      : await hasEnvironmentPermission(vault.id, environment, userRole, permissionType);
+    const hasPermission = await resolveEffectivePermission(
+      vault.id,
+      environment,
+      user.id,
+      userRole,
+      permissionType
+    );
 
     if (!hasPermission) {
       const action = permissionType === "read" ? "read from" : "write to";
@@ -487,6 +535,21 @@ export function requireApiKeyScope(...requiredScopes: ApiKeyScope[]) {
     // Check if API key has required scopes
     if (!hasRequiredScopes(request.apiKey.scopes, requiredScopes)) {
       throw new ForbiddenError(`API key missing required scope(s): ${requiredScopes.join(", ")}`);
+    }
+  };
+}
+
+/**
+ * Middleware for administrative actions (permissions, organizations, billing) that no
+ * API key scope covers: refuse API-key auth whatever its scopes, so a leaked CI key
+ * can't change who has access. Requires authenticateGitHub first.
+ */
+export function rejectApiKeyAuth(action: string) {
+  return async function (request: FastifyRequest, _reply: FastifyReply) {
+    if (request.apiKey) {
+      throw new ForbiddenError(
+        `API keys cannot ${action}. Sign in to Keyway with GitHub to do this.`
+      );
     }
   };
 }

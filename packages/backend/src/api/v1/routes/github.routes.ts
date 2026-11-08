@@ -12,12 +12,11 @@ import {
   getInstallationsForUser,
   getInstallationByGitHubId,
   logActivity,
-  getInstallationToken,
 } from "../../../services";
 import { db, users, vaults, vcsAppInstallations, vcsAppInstallationRepos } from "../../../db";
 import { eq, and } from "drizzle-orm";
 import { sendData } from "../../../lib/response";
-import { BadRequestError, ForbiddenError } from "../../../lib/errors";
+import { BadRequestError, UnauthorizedError } from "../../../lib/errors";
 import type { InstallationAccountType } from "../../../db/schema";
 import {
   getOrCreateOrganization,
@@ -26,6 +25,7 @@ import {
 } from "../../../services/organization.service";
 import { listOrgMembersWithApp, listUserOrganizations } from "../../../utils/github";
 import { decryptAccessToken } from "../../../utils/tokenEncryption";
+import { isValidRepoFullName } from "../../../utils/repoName";
 
 // Schemas
 const CheckInstallationSchema = z.object({
@@ -220,7 +220,8 @@ export async function githubRoutes(fastify: FastifyInstance) {
   /**
    * GET /repo-ids
    * Get GitHub repository IDs for deep linking during GitHub App installation
-   * Uses existing "all repos" installation token if available
+   * Only when an "all repos" installation exists, and only for repos the caller
+   * can see on GitHub (looked up with the caller's own token)
    */
   fastify.get("/repo-ids", {
     preHandler: [authenticateGitHub],
@@ -230,10 +231,11 @@ export async function githubRoutes(fastify: FastifyInstance) {
       throw new BadRequestError("repo parameter required");
     }
 
-    const [owner, repo] = query.repo.split("/");
-    if (!owner || !repo) {
+    // Exactly two GitHub name segments, so nothing can reshape the API path below.
+    if (!isValidRepoFullName(query.repo)) {
       throw new BadRequestError("Invalid repo format. Expected: owner/repo");
     }
+    const [owner, repo] = query.repo.split("/");
 
     // Chercher une installation "all repos" active pour cet owner
     const installation = await db.query.vcsAppInstallations.findFirst({
@@ -249,12 +251,20 @@ export async function githubRoutes(fastify: FastifyInstance) {
       return sendData(reply, { ownerId: null, repoId: null }, { requestId: request.id });
     }
 
+    // SECURITY: ask GitHub with the CALLER's token, never the installation token.
+    // An "all repositories" installation token sees every private repo of the
+    // owner, which made this route an existence/ID oracle for any logged-in user.
+    // GitHub answers 404 to a caller who can't see the repo, so an inaccessible
+    // repo gets the same null response as a nonexistent one.
+    const callerToken = request.accessToken;
+    if (!callerToken) {
+      return sendData(reply, { ownerId: null, repoId: null }, { requestId: request.id });
+    }
+
     try {
-      // Utiliser le token d'installation pour récupérer les IDs du repo
-      const token = await getInstallationToken(installation.installationId);
       const response = await fetch(`${config.github.apiBaseUrl}/repos/${owner}/${repo}`, {
         headers: {
-          Authorization: `Bearer ${token}`,
+          Authorization: `Bearer ${callerToken}`,
           Accept: "application/vnd.github.v3+json",
           "User-Agent": "Keyway-Backend",
         },
@@ -320,9 +330,17 @@ export async function githubRoutes(fastify: FastifyInstance) {
       .update(rawBody)
       .digest("hex")}`;
 
-    if (!crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expectedSignature))) {
+    // timingSafeEqual throws on a length mismatch: check the length first so a
+    // malformed signature is a plain 401, not a 500. The length is public
+    // ("sha256=" + 64 hex chars), so this leaks nothing.
+    const signatureBuffer = Buffer.from(signature);
+    const expectedBuffer = Buffer.from(expectedSignature);
+    if (
+      signatureBuffer.length !== expectedBuffer.length ||
+      !crypto.timingSafeEqual(signatureBuffer, expectedBuffer)
+    ) {
       fastify.log.warn({ deliveryId }, "Invalid GitHub webhook signature");
-      throw new ForbiddenError("Invalid webhook signature");
+      throw new UnauthorizedError("Invalid webhook signature");
     }
 
     // Parse payload

@@ -517,8 +517,9 @@ describe('TrialService', () => {
       expect(getEffectivePlanWithTrial(mockOrgPaid as any)).toBe('business');
     });
 
-    it('should prioritize paid status over trial', () => {
-      // Org with Stripe customer ID should be considered paid even if trial dates exist
+    it('does not treat a Stripe customer id as a paid plan after the trial expired', () => {
+      // A customer id is created when checkout opens, before any payment: an expired,
+      // never-converted trial is free even with one (abandoned checkout).
       const paidWithTrialDates = {
         ...mockOrganization,
         plan: 'business' as const,
@@ -528,7 +529,7 @@ describe('TrialService', () => {
         trialConvertedAt: null, // Not marked as converted
       };
 
-      expect(getEffectivePlanWithTrial(paidWithTrialDates as any)).toBe('business');
+      expect(getEffectivePlanWithTrial(paidWithTrialDates as any)).toBe('free');
     });
   });
 });

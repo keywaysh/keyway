@@ -117,7 +117,9 @@ describe('GitHub App Installation Flow (End-to-End)', () => {
   });
 
   describe('Device Flow with GitHub App Installation', () => {
-    it('should include githubAppInstallUrl with state in device/start response', async () => {
+    it('should not hand out a GitHub App install URL from device/start', async () => {
+      // The install callback only honours an install state bound to the browser that did
+      // the OAuth step, which /device/start (called by the CLI) cannot produce
       const response = await app.inject({
         method: 'POST',
         url: '/v1/auth/device/start',
@@ -127,13 +129,9 @@ describe('GitHub App Installation Flow (End-to-End)', () => {
       expect(response.statusCode).toBe(200);
 
       const body = JSON.parse(response.body);
-      expect(body).toHaveProperty('githubAppInstallUrl');
-      expect(body.githubAppInstallUrl).toContain('state=');
-
-      // Verify state is properly encoded
-      const url = new URL(body.githubAppInstallUrl);
-      const state = url.searchParams.get('state');
-      expect(state).toBeTruthy();
+      expect(body).not.toHaveProperty('githubAppInstallUrl');
+      expect(body.deviceCode).toBeTruthy();
+      expect(body.userCode).toBeTruthy();
     });
 
     it('should include suggested repository in device/start when provided', async () => {

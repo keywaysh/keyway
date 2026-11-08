@@ -13,6 +13,7 @@ import { config } from "../config";
 import { ForbiddenError, NotFoundError } from "../lib";
 import { getEncryptionService } from "../utils/encryption";
 import { logger } from "../utils/sharedLogger";
+import { isValidRepoSegment } from "../utils/repoName";
 
 const GITHUB_API_BASE = config.github?.apiBaseUrl || "https://api.github.com";
 
@@ -257,14 +258,23 @@ async function findInstallationViaGitHubAPI(
   repoOwner: string,
   repoName: string
 ): Promise<VcsAppInstallation | null> {
+  // The App JWT can read any installation: never let a crafted name ("..", "\")
+  // resolve to another account's repository.
+  if (!isValidRepoSegment(repoOwner) || !isValidRepoSegment(repoName)) {
+    logger.warn({ repoOwner, repoName }, "Refusing installation lookup for invalid repo name");
+    return null;
+  }
   try {
     const jwt = generateAppJWT();
-    const response = await fetch(`${GITHUB_API_BASE}/repos/${repoOwner}/${repoName}/installation`, {
-      headers: {
-        Authorization: `Bearer ${jwt}`,
-        Accept: "application/vnd.github.v3+json",
-      },
-    });
+    const response = await fetch(
+      `${GITHUB_API_BASE}/repos/${encodeURIComponent(repoOwner)}/${encodeURIComponent(repoName)}/installation`,
+      {
+        headers: {
+          Authorization: `Bearer ${jwt}`,
+          Accept: "application/vnd.github.v3+json",
+        },
+      }
+    );
 
     if (!response.ok) {
       logger.debug({ status: response.status, repoOwner, repoName }, "GitHub API response");

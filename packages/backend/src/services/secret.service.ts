@@ -6,6 +6,41 @@ import { saveSecretVersion } from "./secretVersion.service";
 // Trash retention period in days
 const TRASH_RETENTION_DAYS = 30;
 
+/**
+ * Restrict a listing to some environments. `undefined` means all environments;
+ * an empty list matches nothing (the caller may read no environment).
+ */
+export interface EnvironmentFilter {
+  environments?: string[];
+}
+
+function environmentCondition(filter?: EnvironmentFilter) {
+  return filter?.environments ? inArray(secrets.environment, filter.environments) : undefined;
+}
+
+function matchesNothing(filter?: EnvironmentFilter): boolean {
+  return filter?.environments !== undefined && filter.environments.length === 0;
+}
+
+/**
+ * Distinct environments that hold secrets in a vault (active or trashed)
+ */
+export async function getSecretEnvironments(
+  vaultId: string,
+  options: { trashed?: boolean } = {}
+): Promise<string[]> {
+  const rows = await db
+    .selectDistinct({ environment: secrets.environment })
+    .from(secrets)
+    .where(
+      and(
+        eq(secrets.vaultId, vaultId),
+        options.trashed ? isNotNull(secrets.deletedAt) : isNull(secrets.deletedAt)
+      )
+    );
+  return rows.map((r) => r.environment);
+}
+
 export interface SecretListItem {
   id: string;
   key: string;
@@ -37,10 +72,17 @@ export interface UpdateSecretInput {
  */
 export async function getSecretsForVault(
   vaultId: string,
-  options?: { limit?: number; offset?: number }
+  options?: { limit?: number; offset?: number } & EnvironmentFilter
 ): Promise<SecretListItem[]> {
+  if (matchesNothing(options)) {
+    return [];
+  }
   const vaultSecrets = await db.query.secrets.findMany({
-    where: and(eq(secrets.vaultId, vaultId), isNull(secrets.deletedAt)),
+    where: and(
+      eq(secrets.vaultId, vaultId),
+      isNull(secrets.deletedAt),
+      environmentCondition(options)
+    ),
     orderBy: [desc(secrets.updatedAt)],
     with: {
       lastModifiedBy: true,
@@ -316,11 +358,19 @@ export async function getSecretById(
 /**
  * Get total count of active secrets for a vault (excludes trashed)
  */
-export async function getSecretsCount(vaultId: string): Promise<number> {
+export async function getSecretsCount(
+  vaultId: string,
+  filter?: EnvironmentFilter
+): Promise<number> {
+  if (matchesNothing(filter)) {
+    return 0;
+  }
   const result = await db
     .select({ count: count() })
     .from(secrets)
-    .where(and(eq(secrets.vaultId, vaultId), isNull(secrets.deletedAt)));
+    .where(
+      and(eq(secrets.vaultId, vaultId), isNull(secrets.deletedAt), environmentCondition(filter))
+    );
 
   return result[0]?.count ?? 0;
 }
@@ -408,10 +458,17 @@ export interface TrashedSecretItem {
  */
 export async function getTrashedSecrets(
   vaultId: string,
-  options?: { limit?: number; offset?: number }
+  options?: { limit?: number; offset?: number } & EnvironmentFilter
 ): Promise<TrashedSecretItem[]> {
+  if (matchesNothing(options)) {
+    return [];
+  }
   const queryOptions: any = {
-    where: and(eq(secrets.vaultId, vaultId), isNotNull(secrets.deletedAt)),
+    where: and(
+      eq(secrets.vaultId, vaultId),
+      isNotNull(secrets.deletedAt),
+      environmentCondition(options)
+    ),
     orderBy: [desc(secrets.deletedAt)],
   };
 
@@ -446,11 +503,19 @@ export async function getTrashedSecrets(
 /**
  * Get count of trashed secrets for a vault
  */
-export async function getTrashedSecretsCount(vaultId: string): Promise<number> {
+export async function getTrashedSecretsCount(
+  vaultId: string,
+  filter?: EnvironmentFilter
+): Promise<number> {
+  if (matchesNothing(filter)) {
+    return 0;
+  }
   const result = await db
     .select({ count: count() })
     .from(secrets)
-    .where(and(eq(secrets.vaultId, vaultId), isNotNull(secrets.deletedAt)));
+    .where(
+      and(eq(secrets.vaultId, vaultId), isNotNull(secrets.deletedAt), environmentCondition(filter))
+    );
 
   return result[0]?.count ?? 0;
 }

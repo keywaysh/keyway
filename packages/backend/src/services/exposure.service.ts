@@ -317,10 +317,12 @@ export async function getExposureForOrg(
 }
 
 /**
- * Get access history for a specific secret
+ * Get access history for a specific secret of a vault.
+ * Scoped to vaultId so a secretId from another vault returns nothing.
  */
 export async function getSecretAccessHistory(
   secretId: string,
+  vaultId: string,
   options?: {
     limit?: number;
     offset?: number;
@@ -336,13 +338,15 @@ export async function getSecretAccessHistory(
   }>;
   total: number;
 }> {
-  const [countResult] = await db
-    .select({ count: count() })
-    .from(secretAccesses)
-    .where(eq(secretAccesses.secretId, secretId));
+  const whereClause = and(
+    eq(secretAccesses.secretId, secretId),
+    eq(secretAccesses.vaultId, vaultId)
+  );
+
+  const [countResult] = await db.select({ count: count() }).from(secretAccesses).where(whereClause);
 
   const accesses = await db.query.secretAccesses.findMany({
-    where: eq(secretAccesses.secretId, secretId),
+    where: whereClause,
     orderBy: [desc(secretAccesses.lastAccessedAt)],
     limit: options?.limit ?? 50,
     offset: options?.offset ?? 0,

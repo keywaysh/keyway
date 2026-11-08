@@ -93,6 +93,87 @@ export function sanitizeError(error: any): any {
 }
 
 /**
+ * Query parameters that carry credentials: API tokens (legacy `keyway connect`), the
+ * single-use authorize ticket, OAuth codes and states. Never logged, never sent to
+ * Sentry or PostHog.
+ */
+const SENSITIVE_QUERY_PARAMS = new Set([
+  "token",
+  "ticket",
+  "code",
+  "state",
+  "access_token",
+  "refresh_token",
+  "id_token",
+  "client_secret",
+]);
+
+const REDACTED = "[REDACTED]";
+
+export function isSensitiveQueryParam(name: string): boolean {
+  let decoded = name;
+  try {
+    // The query parser decodes names (%74oken is read as token)
+    decoded = decodeURIComponent(name.replace(/\+/g, " "));
+  } catch {
+    // keep the raw name
+  }
+  return SENSITIVE_QUERY_PARAMS.has(decoded.trim().toLowerCase());
+}
+
+/** Redacts the values of sensitive parameters in a query string (without the `?`). */
+export function redactQueryString(query: string): string {
+  return query
+    .split("&")
+    .map((pair) => {
+      const eq = pair.indexOf("=");
+      if (eq === -1) {
+        return pair;
+      }
+      const name = pair.slice(0, eq);
+      return isSensitiveQueryParam(name) ? `${name}=${REDACTED}` : pair;
+    })
+    .join("&");
+}
+
+/** Redacts the values of sensitive query parameters in a URL (path or absolute). */
+export function redactUrl(url: string): string {
+  const queryStart = url.indexOf("?");
+  if (queryStart === -1) {
+    return url;
+  }
+  const hashStart = url.indexOf("#", queryStart);
+  const queryEnd = hashStart === -1 ? url.length : hashStart;
+  return (
+    url.slice(0, queryStart + 1) +
+    redactQueryString(url.slice(queryStart + 1, queryEnd)) +
+    url.slice(queryEnd)
+  );
+}
+
+/**
+ * Pino `req` serializer: Fastify's default one, with the URL redacted.
+ * Used for the "incoming request" / "request completed" lines of every request.
+ */
+export function serializeRequestForLog(request: {
+  method: string;
+  url: string;
+  headers?: Record<string, unknown>;
+  host?: string;
+  ip?: string;
+  socket?: { remotePort?: number };
+}) {
+  return {
+    method: request.method,
+    url: redactUrl(request.url),
+    version: request.headers?.["accept-version"] as string | undefined,
+    host: request.host,
+    remoteAddress: request.ip,
+    remotePort: request.socket ? request.socket.remotePort : undefined,
+  };
+}
+
+/**
  * Sanitize request object for safe logging
  * @param request - Fastify request object
  * @returns Sanitized request data
@@ -100,7 +181,7 @@ export function sanitizeError(error: any): any {
 export function sanitizeRequest(request: any): any {
   return {
     method: request.method,
-    url: request.url,
+    url: redactUrl(request.url),
     id: request.id,
     ip: request.ip,
     headers: sanitizeHeaders(request.headers || {}),

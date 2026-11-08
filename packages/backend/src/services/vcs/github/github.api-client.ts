@@ -9,6 +9,7 @@ import { config } from "../../../config";
 import { logger } from "../../../utils/sharedLogger";
 import { maskToken } from "../../../utils/logger";
 import type { CollaboratorRole } from "../../../db/schema";
+import { isValidRepoSegment } from "../../../utils/repoName";
 
 const GITHUB_API_BASE = config.github?.apiBaseUrl || "https://api.github.com";
 
@@ -232,7 +233,10 @@ export class GitHubApiClient {
     owner: string,
     repo: string
   ): Promise<GitHubRepo | null> {
-    return this.request<GitHubRepo>(`/repos/${owner}/${repo}`, accessToken);
+    return this.request<GitHubRepo>(
+      `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`,
+      accessToken
+    );
   }
 
   /**
@@ -245,7 +249,7 @@ export class GitHubApiClient {
     username: string
   ): Promise<GitHubPermissionResponse | null> {
     return this.request<GitHubPermissionResponse>(
-      `/repos/${owner}/${repo}/collaborators/${username}/permission`,
+      `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/collaborators/${encodeURIComponent(username)}/permission`,
       accessToken
     );
   }
@@ -262,6 +266,11 @@ export class GitHubApiClient {
   ): Promise<CollaboratorRole | null> {
     logger.debug({ username, owner, repo }, "Getting GitHub user role");
 
+    if (!isValidRepoSegment(owner) || !isValidRepoSegment(repo)) {
+      logger.warn({ owner, repo }, "Rejected invalid repository name in role check");
+      return null;
+    }
+
     // First, get basic repo info
     const repoData = await this.getRepository(accessToken, owner, repo);
     if (!repoData) {
@@ -269,8 +278,8 @@ export class GitHubApiClient {
       return null;
     }
 
-    // Check if user is the repository owner
-    if (repoData.owner.login === username || owner === username) {
+    // Check if user is the repository owner (canonical owner from GitHub, never the requested name)
+    if (repoData.owner.login === username) {
       logger.debug({ username, reason: "repo_owner" }, "User is repo owner");
       return "admin";
     }
@@ -283,7 +292,7 @@ export class GitHubApiClient {
 
     // For org repos, check org membership
     if (repoData.owner.type === "Organization") {
-      const membership = await this.getOrgMembership(accessToken, owner, username);
+      const membership = await this.getOrgMembership(accessToken, repoData.owner.login, username);
       if (membership?.role === "admin" && membership?.state === "active") {
         logger.debug({ username, reason: "org_owner" }, "User is org owner");
         return "admin";

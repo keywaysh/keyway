@@ -284,6 +284,30 @@ describe('GitHubApiClient', () => {
       expect(result).toBe('admin');
     });
 
+    it('does not grant admin just because the requested owner equals the username', async () => {
+      // GitHub answered for a repo owned by someone else (redirect after a rename)
+      mockFetch
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({
+            owner: { login: 'victim-org', type: 'User' },
+            permissions: { pull: true, push: false, admin: false },
+          }),
+        })
+        .mockResolvedValueOnce({ ok: false, status: 404, text: async () => '', json: async () => ({}) });
+
+      const result = await client.getUserRole(accessToken, 'testuser', 'repo', 'testuser');
+
+      expect(result).not.toBe('admin');
+    });
+
+    it('never queries GitHub for a crafted owner or repo name', async () => {
+      const result = await client.getUserRole(accessToken, 'attacker', '..\\victim\\api', 'attacker');
+
+      expect(result).toBeNull();
+      expect(mockFetch).not.toHaveBeenCalled();
+    });
+
     it('should return admin for user with admin permission', async () => {
       mockFetch.mockResolvedValueOnce({
         ok: true,

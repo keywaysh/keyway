@@ -3,7 +3,8 @@
  * Handles OAuth flows and sync operations with external providers (Vercel, Netlify, etc.)
  */
 
-import { FastifyInstance } from "fastify";
+import { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
+import cookie from "@fastify/cookie";
 import { z } from "zod";
 import { authenticateGitHub, requireApiKeyScope } from "../../../middleware/auth";
 import { hasRequiredScopes } from "../../../utils/apiKeys";
@@ -20,11 +21,29 @@ import {
   getSyncPreview,
   executeSync,
 } from "../../../services/integration.service";
-import { signState, verifyState } from "../../../utils/state";
+import {
+  signState,
+  verifyState,
+  createStateNonce,
+  stateNonceMatches,
+  signTicket,
+  peekTicket,
+  redeemTicket,
+  STATE_NONCE_MAX_AGE_SECONDS,
+} from "../../../utils/state";
+import { verifyKeywayToken } from "../../../utils/jwt";
+import { escapeHtml } from "../../../utils/html";
 import { config } from "../../../config";
 import { db, vaults, users } from "../../../db";
 import { eq } from "drizzle-orm";
-import { NotFoundError, ForbiddenError, BadRequestError, PlanLimitError } from "../../../lib";
+import {
+  NotFoundError,
+  ForbiddenError,
+  BadRequestError,
+  PlanLimitError,
+  UnauthorizedError,
+} from "../../../lib";
+import type { ForgeType } from "../../../db/schema";
 import { getUserRoleWithApp } from "../../../utils/github";
 import { requireSyncPermission, requireEnvironmentPermission } from "../../../utils/permissions";
 import { logger } from "../../../utils/sharedLogger";
@@ -103,25 +122,219 @@ const SyncDiffQuerySchema = z.object({
   providerEnvironment: z.string().optional().default("production"),
 });
 
+// Helper to build absolute URLs on this API (same host the request came to)
+function buildApiUrl(
+  request: { headers: { "x-forwarded-proto"?: string; host?: string }; hostname: string },
+  path: string
+): string {
+  const protocol =
+    request.headers["x-forwarded-proto"] || (config.server.isDevelopment ? "http" : "https");
+  const host = request.headers.host || request.hostname;
+  return `${protocol}://${host}${path}`;
+}
+
 // Helper to build callback URL
 function buildCallbackUrl(
   request: { headers: { "x-forwarded-proto"?: string; host?: string }; hostname: string },
   provider: string
 ): string {
-  const protocol =
-    request.headers["x-forwarded-proto"] || (config.server.isDevelopment ? "http" : "https");
-  const host = request.headers.host || request.hostname;
-  return `${protocol}://${host}/v1/integrations/${provider}/callback`;
+  return buildApiUrl(request, `/v1/integrations/${provider}/callback`);
+}
+
+/**
+ * Nonce cookie binding the provider OAuth state to the browser that started it:
+ * a state, or a provider consent URL carrying it, sent to someone else cannot attach
+ * their provider account to the initiator's Keyway account.
+ */
+const PROVIDER_NONCE_COOKIE = "keyway_provider_oauth_nonce";
+
+function providerNonceCookieOptions(provider: string) {
+  return {
+    path: `/v1/integrations/${provider}/callback`,
+    httpOnly: true,
+    secure: config.server.isProduction,
+    sameSite: "lax" as const,
+  };
+}
+
+/**
+ * Single-use ticket for GET /:provider/authorize: the CLI gets a URL to open in the
+ * browser without its long-lived token in it. It only starts this provider's OAuth flow,
+ * and only in a browser signed in to Keyway as the ticket's owner, so its 10 minutes
+ * (time for a GitHub sign-in round trip) give nothing to anyone who copies it.
+ * One redemption per API instance (see redeemTicket).
+ */
+const AUTHORIZE_TICKET_TYPE = "provider_authorize_ticket";
+const AUTHORIZE_TICKET_TTL_SECONDS = 10 * 60;
+
+/** Calls a Fastify preHandler outside the hook chain, async or callback style. */
+function runPreHandler(hook: unknown, request: FastifyRequest, reply: FastifyReply): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const done = (err?: Error) => (err ? reject(err) : resolve());
+    const result = (hook as (r: FastifyRequest, p: FastifyReply, d: typeof done) => unknown)(
+      request,
+      reply,
+      done
+    );
+    if (result instanceof Promise) {
+      result.then(() => resolve(), reject);
+    }
+  });
+}
+
+const SESSION_COOKIE = "keyway_session";
+// The web login, which binds its state to the browser; same API host (auth.routes.ts)
+const WEB_LOGIN_PATH = "/v1/auth/github/start";
+
+type ForgeIdentity = { forgeType: ForgeType; forgeUserId: string; username: string };
+
+const INVALID_TICKET_MESSAGE =
+  "This authorization link is invalid, expired or already used. Run the command again.";
+
+/** The owner named by a valid authorize ticket for this provider, or null. */
+function ticketOwner(
+  ticket: Record<string, unknown> | null,
+  provider: string
+): ForgeIdentity | null {
+  if (
+    !ticket ||
+    ticket.provider !== provider ||
+    typeof ticket.forgeType !== "string" ||
+    typeof ticket.forgeUserId !== "string" ||
+    typeof ticket.username !== "string"
+  ) {
+    return null;
+  }
+  return {
+    forgeType: ticket.forgeType as ForgeType,
+    forgeUserId: ticket.forgeUserId,
+    username: ticket.username,
+  };
+}
+
+/**
+ * The Keyway user of this browser's dashboard session cookie, verified like
+ * authenticateGitHub verifies it (Keyway JWT, user still in the database); null if the
+ * browser has no valid session.
+ */
+async function getBrowserSessionUser(request: FastifyRequest) {
+  const token = request.cookies?.[SESSION_COOKIE];
+  if (!token) {
+    return null;
+  }
+  let payload;
+  try {
+    payload = verifyKeywayToken(token);
+  } catch {
+    return null;
+  }
+  const user = await db.query.users.findFirst({ where: eq(users.id, payload.userId) });
+  return user ?? null;
+}
+
+function isSameForgeUser(a: Omit<ForgeIdentity, "username">, b: Omit<ForgeIdentity, "username">) {
+  return a.forgeType === b.forgeType && a.forgeUserId === b.forgeUserId;
+}
+
+/** HTML page: this browser must be signed in to Keyway as the owner of the link. */
+function sendSignInRequiredPage(
+  reply: FastifyReply,
+  provider: string,
+  ownerUsername: string,
+  sessionUsername: string | null
+) {
+  const providerName = provider.charAt(0).toUpperCase() + provider.slice(1);
+  const message = sessionUsername
+    ? `This browser is signed in to Keyway as @${sessionUsername}, but this link was created for @${ownerUsername}. ` +
+      `Sign in to Keyway in this browser as @${ownerUsername}, then run the command again to connect ${providerName}.`
+    : `To connect ${providerName}, sign in to Keyway in this browser as @${ownerUsername}, then run the command again.`;
+  return reply
+    .status(sessionUsername ? 403 : 401)
+    .type("text/html")
+    .send(renderErrorPage("Sign in to Keyway", message));
+}
+
+/**
+ * Authentication of GET /:provider/authorize, which a browser opens:
+ * - `?ticket=` from POST /:provider/authorize-ticket (current CLI);
+ * - `?token=` from CLI versions before the ticket: accepted on this route only, by moving
+ *   it into the Authorization header (the middleware no longer reads it from the URL);
+ * - otherwise the usual Bearer header or session cookie.
+ *
+ * A ticket or query token is a link anyone can be sent: it starts the provider OAuth only
+ * in a browser signed in to Keyway (session cookie) as its owner. Otherwise the victim's
+ * browser would get a valid nonce cookie for a state naming the link's owner, and the
+ * victim's provider account would be connected to the owner's Keyway account.
+ */
+async function authenticateAuthorizeRequest(request: FastifyRequest, reply: FastifyReply) {
+  const query = request.query as { ticket?: unknown; token?: unknown; after_login?: unknown };
+  const { provider } = request.params as { provider: string };
+
+  if (query.ticket !== undefined) {
+    const ticket = typeof query.ticket === "string" ? query.ticket : "";
+    // Checked, not spent: the owner may have to sign in first and come back with it
+    const owner = ticketOwner(peekTicket(ticket, AUTHORIZE_TICKET_TYPE), provider);
+    if (!owner) {
+      throw new UnauthorizedError(INVALID_TICKET_MESSAGE);
+    }
+
+    const sessionUser = await getBrowserSessionUser(request);
+    if (!sessionUser || !isSameForgeUser(sessionUser, owner)) {
+      if (!sessionUser && query.after_login === undefined) {
+        // Sign in through the web login and come back here (once: after_login stops a loop)
+        const returnTo =
+          `/v1/integrations/${encodeURIComponent(provider)}/authorize` +
+          `?ticket=${encodeURIComponent(ticket)}&after_login=1`;
+        return reply.redirect(`${WEB_LOGIN_PATH}?redirect_uri=${encodeURIComponent(returnTo)}`);
+      }
+      return sendSignInRequiredPage(reply, provider, owner.username, sessionUser?.username ?? null);
+    }
+
+    if (!redeemTicket(ticket, AUTHORIZE_TICKET_TYPE)) {
+      throw new UnauthorizedError(INVALID_TICKET_MESSAGE);
+    }
+    const vcsUser = { ...owner, email: null, avatarUrl: null };
+    request.vcsUser = vcsUser;
+    request.githubUser = vcsUser;
+    return;
+  }
+
+  if (typeof query.token === "string" && query.token && !request.headers.authorization) {
+    request.headers.authorization = `Bearer ${query.token}`;
+    await runPreHandler(authenticateGitHub, request, reply);
+
+    const owner = request.vcsUser ?? request.githubUser;
+    if (!owner) {
+      throw new UnauthorizedError("Authentication required");
+    }
+    const sessionUser = await getBrowserSessionUser(request);
+    if (!sessionUser || !isSameForgeUser(sessionUser, owner)) {
+      // No sign-in round trip here: the return URL would carry the long-lived token
+      return sendSignInRequiredPage(reply, provider, owner.username, sessionUser?.username ?? null);
+    }
+    return;
+  }
+
+  await runPreHandler(authenticateGitHub, request, reply);
 }
 
 // Helper to verify vault access
-// Uses GitHub App to check permissions (consistent with other access checks)
+// Uses GitHub App to check permissions (consistent with other access checks).
+// Returns the role it checked: environment permission checks must use that role, never a
+// second lookup that could come back null (rate limit, outage) and be skipped.
 async function verifyVaultAccess(username: string, owner: string, repo: string) {
   const repoFullName = `${owner}/${repo}`;
   logger.debug({ username, repoFullName }, "Verifying vault access");
 
-  // Use GitHub App to check user's role (same as requireEnvironmentAccess middleware)
-  const role = await getUserRoleWithApp(repoFullName, username);
+  const vault = await db.query.vaults.findFirst({
+    where: eq(vaults.repoFullName, repoFullName),
+  });
+
+  // Use GitHub App to check user's role (same as requireEnvironmentAccess middleware),
+  // bound to the vault's immutable repo id
+  const role = await getUserRoleWithApp(repoFullName, username, {
+    expectedRepoId: vault?.forgeRepoId,
+  });
 
   if (!role) {
     logger.warn({ username, repoFullName }, "Access denied: user has no role on repository");
@@ -130,20 +343,21 @@ async function verifyVaultAccess(username: string, owner: string, repo: string) 
 
   logger.debug({ username, role, repoFullName }, "Access granted");
 
-  const vault = await db.query.vaults.findFirst({
-    where: eq(vaults.repoFullName, repoFullName),
-  });
-
   if (!vault) {
     logger.warn({ repoFullName }, "Vault not found for repository");
     throw new NotFoundError("Vault not found");
   }
 
   logger.debug({ vaultId: vault.id, repoFullName }, "Vault found");
-  return vault;
+  return { vault, role };
 }
 
 export async function integrationsRoutes(fastify: FastifyInstance) {
+  // The OAuth flow needs cookies (state nonce); index.ts registers the plugin globally
+  if (!fastify.hasReplyDecorator("setCookie")) {
+    await fastify.register(cookie);
+  }
+
   /**
    * GET /integrations
    * List available providers
@@ -329,13 +543,55 @@ export async function integrationsRoutes(fastify: FastifyInstance) {
   );
 
   /**
+   * POST /integrations/:provider/authorize-ticket
+   * Returns the URL the CLI opens in the browser to start the provider OAuth flow:
+   * GET /:provider/authorize with a single-use ticket instead of the CLI's token
+   */
+  fastify.post(
+    "/:provider/authorize-ticket",
+    {
+      preHandler: [authenticateGitHub, requireApiKeyScope("write:secrets")],
+    },
+    async (request, reply) => {
+      const { provider: providerName } = request.params as { provider: string };
+
+      if (!getProvider(providerName)) {
+        throw new NotFoundError(`Provider ${providerName} not found`);
+      }
+
+      const vcsUser = request.vcsUser || request.githubUser!;
+      const ticket = signTicket(
+        {
+          type: AUTHORIZE_TICKET_TYPE,
+          provider: providerName,
+          forgeType: vcsUser.forgeType,
+          forgeUserId: vcsUser.forgeUserId,
+          username: vcsUser.username,
+        },
+        AUTHORIZE_TICKET_TTL_SECONDS * 1000
+      );
+
+      const url = buildApiUrl(
+        request,
+        `/v1/integrations/${encodeURIComponent(providerName)}/authorize?ticket=${encodeURIComponent(ticket)}`
+      );
+
+      return sendData(
+        reply,
+        { url, expiresIn: AUTHORIZE_TICKET_TTL_SECONDS },
+        { requestId: request.id }
+      );
+    }
+  );
+
+  /**
    * GET /integrations/:provider/authorize
    * Start OAuth flow for a provider
    */
   fastify.get(
     "/:provider/authorize",
     {
-      preHandler: [authenticateGitHub, requireApiKeyScope("write:secrets")],
+      preHandler: [authenticateAuthorizeRequest, requireApiKeyScope("write:secrets")],
     },
     async (request, reply) => {
       const { provider: providerName } = request.params as { provider: string };
@@ -382,6 +638,13 @@ export async function integrationsRoutes(fastify: FastifyInstance) {
       const callbackUri = buildCallbackUrl(request, providerName);
       const { url: authUrl, codeVerifier } = provider.getAuthorizationUrl("", callbackUri);
 
+      // Bind the flow to this browser: the callback requires this nonce
+      const { nonce, nonceHash } = createStateNonce();
+      reply.setCookie(PROVIDER_NONCE_COOKIE, nonce, {
+        ...providerNonceCookieOptions(providerName),
+        maxAge: STATE_NONCE_MAX_AGE_SECONDS,
+      });
+
       // Sign state to prevent CSRF (include codeVerifier for PKCE)
       const vcsUser = request.vcsUser || request.githubUser!;
       const state = signState({
@@ -391,6 +654,7 @@ export async function integrationsRoutes(fastify: FastifyInstance) {
         forgeUserId: vcsUser.forgeUserId,
         redirectUri: validatedRedirectUri,
         codeVerifier, // Store for token exchange
+        nonceHash,
       });
 
       // Replace empty state in URL with signed state
@@ -437,6 +701,10 @@ export async function integrationsRoutes(fastify: FastifyInstance) {
       throw new NotFoundError(`Provider ${providerName} not found`);
     }
 
+    // The nonce is single-use whatever the outcome
+    const browserNonce = request.cookies?.[PROVIDER_NONCE_COOKIE];
+    reply.clearCookie(PROVIDER_NONCE_COOKIE, providerNonceCookieOptions(providerName));
+
     try {
       // Verify state
       const stateData = verifyState(query.state);
@@ -446,6 +714,10 @@ export async function integrationsRoutes(fastify: FastifyInstance) {
         stateData.provider !== providerName
       ) {
         throw new BadRequestError("Invalid or tampered state parameter");
+      }
+      // ...and that it comes back to the browser that started the flow
+      if (!stateNonceMatches(stateData, browserNonce)) {
+        throw new BadRequestError("OAuth state was not started in this browser");
       }
 
       // Exchange code for token (include codeVerifier for PKCE if present)
@@ -481,7 +753,8 @@ export async function integrationsRoutes(fastify: FastifyInstance) {
           .send(
             renderErrorPage(
               "Provider Limit Reached",
-              `${providerCheck.reason} <a href="${config.app?.frontendUrl || ""}/upgrade">Upgrade your plan</a> to connect more providers.`
+              providerCheck.reason || "Provider limit reached.",
+              `${config.app?.frontendUrl || ""}/upgrade`
             )
           );
       }
@@ -636,7 +909,7 @@ export async function integrationsRoutes(fastify: FastifyInstance) {
         })
         .parse(request.body);
 
-      const vault = await verifyVaultAccess(
+      const { vault } = await verifyVaultAccess(
         (request.vcsUser || request.githubUser!).username,
         owner,
         repo
@@ -679,7 +952,7 @@ export async function integrationsRoutes(fastify: FastifyInstance) {
       const { owner, repo } = request.params as { owner: string; repo: string };
       const query = SyncStatusQuerySchema.parse(request.query);
 
-      const vault = await verifyVaultAccess(
+      const { vault } = await verifyVaultAccess(
         (request.vcsUser || request.githubUser!).username,
         owner,
         repo
@@ -739,27 +1012,15 @@ export async function integrationsRoutes(fastify: FastifyInstance) {
         throw new NotFoundError("User not found");
       }
 
-      const vault = await verifyVaultAccess(
+      const { vault, role } = await verifyVaultAccess(
         (request.vcsUser || request.githubUser!).username,
         owner,
         repo
       );
 
-      // Check environment-level read permission for the Keyway environment
-      // Diff is read-only, so we only check read permission (no cross-env check needed)
-      const role = await getUserRoleWithApp(
-        `${owner}/${repo}`,
-        (request.vcsUser || request.githubUser!).username
-      );
-      if (role) {
-        await requireEnvironmentPermission(
-          vault.id,
-          query.keywayEnvironment,
-          user.id,
-          role,
-          "read"
-        );
-      }
+      // Check environment-level read permission for the Keyway environment, with the role
+      // verifyVaultAccess checked. Diff is read-only: read permission, no cross-env check
+      await requireEnvironmentPermission(vault.id, query.keywayEnvironment, user.id, role, "read");
 
       // For Railway: append serviceId to providerEnvironment (format: "production:serviceId")
       const providerEnv = query.serviceId
@@ -804,37 +1065,27 @@ export async function integrationsRoutes(fastify: FastifyInstance) {
         throw new NotFoundError("User not found");
       }
 
-      const vault = await verifyVaultAccess(
+      const { vault, role } = await verifyVaultAccess(
         (request.vcsUser || request.githubUser!).username,
         owner,
         repo
       );
 
-      // Check environment-level permission and cross-environment protection
-      const role = await getUserRoleWithApp(
-        `${owner}/${repo}`,
-        (request.vcsUser || request.githubUser!).username
-      );
-      if (role) {
-        // For Railway: append serviceId to providerEnvironment (format: "production:serviceId")
-        const providerEnv = query.serviceId
-          ? `${query.providerEnvironment}:${query.serviceId}`
-          : query.providerEnvironment;
-
-        await requireSyncPermission(
-          vault.id,
-          query.keywayEnvironment,
-          providerEnv,
-          query.direction,
-          user.id,
-          role
-        );
-      }
-
       // For Railway: append serviceId to providerEnvironment (format: "production:serviceId")
       const providerEnv = query.serviceId
         ? `${query.providerEnvironment}:${query.serviceId}`
         : query.providerEnvironment;
+
+      // Environment-level permission and cross-environment protection, with the role
+      // verifyVaultAccess checked
+      await requireSyncPermission(
+        vault.id,
+        query.keywayEnvironment,
+        providerEnv,
+        query.direction,
+        user.id,
+        role
+      );
 
       const preview = await getSyncPreview(
         vault.id,
@@ -886,32 +1137,27 @@ export async function integrationsRoutes(fastify: FastifyInstance) {
       }
 
       // Verify vault access first
-      const vault = await verifyVaultAccess(
+      const { vault, role } = await verifyVaultAccess(
         (request.vcsUser || request.githubUser!).username,
         owner,
         repo
       );
 
-      // Check environment-level permission and cross-environment protection
-      const role = await getUserRoleWithApp(
-        `${owner}/${repo}`,
-        (request.vcsUser || request.githubUser!).username
-      );
-      if (role) {
-        // For Railway: append serviceId to providerEnvironment (format: "production:serviceId")
-        const providerEnvForCheck = body.serviceId
-          ? `${body.providerEnvironment}:${body.serviceId}`
-          : body.providerEnvironment;
+      // For Railway: append serviceId to providerEnvironment (format: "production:serviceId")
+      const providerEnv = body.serviceId
+        ? `${body.providerEnvironment}:${body.serviceId}`
+        : body.providerEnvironment;
 
-        await requireSyncPermission(
-          vault.id,
-          body.keywayEnvironment,
-          providerEnvForCheck,
-          body.direction,
-          user.id,
-          role
-        );
-      }
+      // Environment-level permission and cross-environment protection, with the role
+      // verifyVaultAccess checked
+      await requireSyncPermission(
+        vault.id,
+        body.keywayEnvironment,
+        providerEnv,
+        body.direction,
+        user.id,
+        role
+      );
 
       // Verify the connection belongs to the authenticated user
       const connection = await db.query.providerConnections.findFirst({
@@ -924,11 +1170,6 @@ export async function integrationsRoutes(fastify: FastifyInstance) {
       if (!connection) {
         throw new ForbiddenError("Connection not found or does not belong to you");
       }
-
-      // For Railway: append serviceId to providerEnvironment (format: "production:serviceId")
-      const providerEnv = body.serviceId
-        ? `${body.providerEnvironment}:${body.serviceId}`
-        : body.providerEnvironment;
 
       const result = await executeSync(
         vault.id,
@@ -990,8 +1231,13 @@ const providerIcons: Record<string, string> = {
   vercel: `<svg viewBox="0 0 76 65" fill="currentColor" class="provider-icon"><path d="M37.5274 0L75.0548 65H0L37.5274 0Z"/></svg>`,
 };
 
-// HTML template helpers
-function renderErrorPage(title: string, message: string): string {
+// HTML template helpers: every interpolated value goes through escapeHtml
+function renderErrorPage(rawTitle: string, rawMessage: string, upgradeHref?: string): string {
+  const title = escapeHtml(rawTitle);
+  const upgradeLink = upgradeHref
+    ? ` <a href="${escapeHtml(upgradeHref)}">Upgrade your plan</a> to connect more providers.`
+    : "";
+  const message = `${escapeHtml(rawMessage)}${upgradeLink}`;
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -1093,7 +1339,7 @@ function renderErrorPage(title: string, message: string): string {
     <h1>${title}</h1>
     <p>${message}</p>
     <div class="help-link">
-      <a href="${config.app?.frontendUrl || "/"}">Return to Keyway</a>
+      <a href="${escapeHtml(config.app?.frontendUrl || "/")}">Return to Keyway</a>
     </div>
   </div>
 </body>
@@ -1101,8 +1347,10 @@ function renderErrorPage(title: string, message: string): string {
 }
 
 function renderSuccessPage(provider: string, username: string): string {
-  const providerName = provider.charAt(0).toUpperCase() + provider.slice(1);
-  const providerIcon = providerIcons[provider] || "";
+  // Escaped once here: used in the title, the badge and the text below
+  const providerName = escapeHtml(provider.charAt(0).toUpperCase() + provider.slice(1));
+  // Static SVG markup from the table above, never user input
+  const providerIcon = Object.hasOwn(providerIcons, provider) ? providerIcons[provider] : "";
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -1255,10 +1503,10 @@ function renderSuccessPage(provider: string, username: string): string {
     <h1>You're all set!</h1>
     <p>Your ${providerName} account is now connected to Keyway. You can close this window and return to your terminal.</p>
     <div class="user-info">
-      <strong>Connected as:</strong> ${username}
+      <strong>Connected as:</strong> ${escapeHtml(username)}
     </div>
     <div class="terminal-hint">
-      <span class="prompt">$</span> <span class="command">keyway sync ${provider}</span>
+      <span class="prompt">$</span> <span class="command">keyway sync ${escapeHtml(provider)}</span>
     </div>
   </div>
 </body>

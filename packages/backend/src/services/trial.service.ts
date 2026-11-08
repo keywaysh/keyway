@@ -105,6 +105,23 @@ export function hasHadTrial(org: Organization): boolean {
   return org.trialStartedAt !== null;
 }
 
+/**
+ * True when the org's Team/Business plan comes from a Stripe subscription.
+ *
+ * `org.plan` is written by two things: startTrial ("business" for the trial) and
+ * the subscription webhook (only while the subscription is active/trialing/
+ * past_due). Outside a trial, or once a live subscription converted it, the plan
+ * is the webhook's. `stripeCustomerId` is NOT evidence of payment: the customer
+ * is created when checkout opens, before anything is paid.
+ */
+export function hasPaidOrgSubscription(org: Organization): boolean {
+  const status = getTrialInfo(org).status;
+  return (
+    (status === "none" || status === "converted") &&
+    (org.plan === "team" || org.plan === "business")
+  );
+}
+
 // ============================================================================
 // Trial Operations
 // ============================================================================
@@ -142,7 +159,7 @@ export async function startTrial(input: StartTrialInput): Promise<StartTrialResu
   }
 
   // Check if already on a paid plan (Team or Business)
-  if (org.stripeCustomerId && (org.plan === "team" || org.plan === "business")) {
+  if (hasPaidOrgSubscription(org)) {
     return { success: false, error: "Organization already has a paid plan" };
   }
 
@@ -311,29 +328,26 @@ export async function expireTrial(input: ExpireTrialInput): Promise<StartTrialRe
 // ============================================================================
 
 /**
- * Get the effective plan for an organization considering trial status
+ * Get the effective plan for an organization considering trial status.
+ * Evaluated at read time, so it holds whether or not expireTrial() ever ran.
  *
  * Logic:
- * - If org has Stripe customer ID (paid) -> return actual plan
- * - If trial is active -> return 'business'
- * - If trial is expired (not converted) -> return 'free'
- * - Otherwise -> return actual plan
+ * - Trial active -> 'business'
+ * - Trial expired and never converted -> 'free', whatever org.plan says (it
+ *   still holds the trial's "business"). A subscription that went live converts
+ *   the trial (billing webhook), so a paying org is never in this state.
+ * - No trial, or trial converted -> org.plan, which the subscription webhook
+ *   keeps in sync with the Stripe subscription (paid tier only while entitled).
+ *
+ * `stripeCustomerId` is deliberately ignored: it is set when checkout opens,
+ * before any payment, so "customer id + business plan" proved nothing.
  */
 export function getEffectivePlanWithTrial(org: Organization): UserPlan {
-  // Paid customer takes precedence
-  if (org.stripeCustomerId && (org.plan === "team" || org.plan === "business")) {
-    return org.plan;
-  }
-
-  const trialInfo = getTrialInfo(org);
-
-  switch (trialInfo.status) {
+  switch (getTrialInfo(org).status) {
     case "active":
       return "business";
     case "expired":
       return "free";
-    case "converted":
-      return org.plan;
     default:
       return org.plan;
   }

@@ -219,6 +219,9 @@ vi.mock('../../src/utils/permissions', () => ({
   getVaultPermissions: vi.fn().mockResolvedValue([]),
   getDefaultPermission: vi.fn().mockReturnValue('read'),
   resolveEffectivePermission: vi.fn().mockResolvedValue(true),
+  resolveEffectivePermissions: vi.fn().mockImplementation(
+    async (_v: string, envs: string[]) => Object.fromEntries(envs.map((e) => [e, true]))
+  ),
   getEffectivePermissions: vi.fn().mockResolvedValue({ development: { read: true, write: true } }),
   requireEnvironmentPermission: vi.fn().mockResolvedValue(undefined), // Resolves without throwing = permission granted
 }));
@@ -316,6 +319,7 @@ vi.mock('../../src/services', () => ({
   canWriteToVault: vi.fn().mockImplementation(() => Promise.resolve({ allowed: true })),
   getSecretsForVault: vi.fn().mockResolvedValue([]),
   getSecretsCount: vi.fn().mockResolvedValue(0),
+  getSecretEnvironments: vi.fn().mockResolvedValue(['development']),
   upsertSecret: vi.fn().mockResolvedValue({ id: 'secret-id' }),
   updateSecret: vi.fn().mockResolvedValue({ id: 'secret-id' }),
   deleteSecret: vi.fn().mockResolvedValue(undefined),

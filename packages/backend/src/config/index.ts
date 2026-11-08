@@ -1,5 +1,6 @@
 import * as dotenv from "dotenv";
 import * as fs from "fs";
+import * as net from "net";
 import * as path from "path";
 import { z } from "zod";
 
@@ -17,6 +18,57 @@ const emptyToUndefined = (v: unknown) => (v === "" ? undefined : v);
 
 // Optional URL field that accepts empty strings gracefully
 const optionalUrl = () => z.preprocess(emptyToUndefined, z.string().url().optional());
+
+/** Fastify's `trustProxy`: which proxies' X-Forwarded-* headers to believe. */
+export type TrustProxy = boolean | number | string[];
+
+// Named ranges understood by proxy-addr (Fastify's trustProxy implementation)
+const PROXY_ADDR_PRESETS = new Set(["loopback", "linklocal", "uniquelocal"]);
+
+function isAddressOrCidr(entry: string): boolean {
+  if (PROXY_ADDR_PRESETS.has(entry)) {
+    return true;
+  }
+  const [address, prefix, ...rest] = entry.split("/");
+  const version = net.isIP(address);
+  if (version === 0 || rest.length > 0) {
+    return false;
+  }
+  if (prefix === undefined) {
+    return true;
+  }
+  const max = version === 4 ? 32 : 128;
+  return /^\d{1,3}$/.test(prefix) && Number(prefix) <= max;
+}
+
+/**
+ * TRUST_PROXY: "true" | "false" | number of proxy hops | comma-separated addresses/CIDRs.
+ * Unset: one hop on Railway (its edge proxy sets X-Forwarded-For), no proxy elsewhere.
+ * Without it, request.ip behind a proxy is the proxy's address and per-IP rate limits
+ * lump every client together.
+ */
+export function parseTrustProxy(raw: string | undefined, onRailway: boolean): TrustProxy {
+  const value = raw?.trim() ?? "";
+  if (value === "") {
+    return onRailway ? 1 : false;
+  }
+  if (/^(true|false)$/i.test(value)) {
+    return value.toLowerCase() === "true";
+  }
+  if (/^\d+$/.test(value)) {
+    return Number(value);
+  }
+  const entries = value.split(",").map((entry) => entry.trim());
+  const invalid = entries.filter((entry) => !isAddressOrCidr(entry));
+  if (invalid.length > 0) {
+    throw new Error(
+      `TRUST_PROXY must be true, false, a number of hops or a comma-separated list of IP addresses/CIDRs (invalid: ${invalid
+        .map((entry) => JSON.stringify(entry))
+        .join(", ")})`
+    );
+  }
+  return entries;
+}
 
 // Environment schema with validation
 const envSchema = z
@@ -97,14 +149,30 @@ const envSchema = z
     GITHUB_URL: optionalUrl(), // GitHub web URL for OAuth (e.g., https://github.com or https://github.example.com)
     GITHUB_APP_INSTALL_URL: optionalUrl(),
 
-    // Rate limiting
+    // Rate limiting (global, per client IP: needs TRUST_PROXY behind a proxy)
     RATE_LIMIT_MAX: z
       .string()
       .optional()
-      .transform((val) => (val ? Number(val) : 100)),
+      .transform((val) => (val ? Number(val) : 1000)),
     RATE_LIMIT_WINDOW: z.string().optional().default("15 minutes"),
+
+    // Reverse proxy in front of the API (see parseTrustProxy)
+    TRUST_PROXY: z.preprocess(emptyToUndefined, z.string().optional()),
+    // Set by Railway in every deployment
+    RAILWAY_ENVIRONMENT: z.preprocess(emptyToUndefined, z.string().optional()),
+    RAILWAY_ENVIRONMENT_NAME: z.preprocess(emptyToUndefined, z.string().optional()),
   })
   .superRefine((data, ctx) => {
+    try {
+      parseTrustProxy(data.TRUST_PROXY, false);
+    } catch (error) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: error instanceof Error ? error.message : "Invalid TRUST_PROXY",
+        path: ["TRUST_PROXY"],
+      });
+    }
+
     // SECURITY: Webhook secret is required in production to prevent forged webhook attacks
     if (data.NODE_ENV === "production" && !data.GITHUB_APP_WEBHOOK_SECRET) {
       ctx.addIssue({
@@ -136,6 +204,10 @@ export const config = {
     isDevelopment: env.NODE_ENV === "development",
     isProduction: env.NODE_ENV === "production",
     isTest: env.NODE_ENV === "test",
+    trustProxy: parseTrustProxy(
+      env.TRUST_PROXY,
+      Boolean(env.RAILWAY_ENVIRONMENT || env.RAILWAY_ENVIRONMENT_NAME)
+    ),
   },
 
   app: {
