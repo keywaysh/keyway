@@ -51,6 +51,19 @@ setup:
 	@echo ""
 	@KEYWAY_SUCCESS=false; \
 	KEYWAY_CMD=""; \
+	ensure_pg_password() { \
+		if grep -q "^POSTGRES_PASSWORD=." .env 2>/dev/null; then \
+			echo -e "  $(GREEN)✓$(NC) POSTGRES_PASSWORD (already set)"; \
+			return; \
+		fi; \
+		pw=$$(openssl rand -hex 24); \
+		if grep -q "^POSTGRES_PASSWORD=" .env 2>/dev/null; then \
+			perl -pi -e "s/^POSTGRES_PASSWORD=.*/POSTGRES_PASSWORD=$$pw/" .env; \
+		else \
+			printf '\nPOSTGRES_PASSWORD=%s\n' "$$pw" >> .env; \
+		fi; \
+		echo -e "  $(GREEN)✓$(NC) POSTGRES_PASSWORD (generated)"; \
+	}; \
 	if command -v keyway > /dev/null 2>&1; then \
 		KEYWAY_CMD="keyway"; \
 		echo -e "  $(GREEN)✓$(NC) Keyway CLI found"; \
@@ -66,6 +79,7 @@ setup:
 		if $$KEYWAY_CMD pull --yes --file .env 2>/dev/null; then \
 			echo -e "  $(GREEN)✓$(NC) Secrets pulled"; \
 			KEYWAY_SUCCESS=true; \
+			ensure_pg_password; \
 		else \
 			echo -e "  $(YELLOW)!$(NC) Could not pull secrets"; \
 			echo ""; \
@@ -99,6 +113,7 @@ setup:
 		else \
 			echo -e "  $(GREEN)✓$(NC) JWT_SECRET (already set)"; \
 		fi; \
+		ensure_pg_password; \
 		echo ""; \
 		echo -e "$(BLUE)Step 4: Checking GitHub App configuration...$(NC)"; \
 		echo ""; \
