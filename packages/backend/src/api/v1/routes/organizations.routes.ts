@@ -1,8 +1,17 @@
 import { FastifyInstance } from "fastify";
 import { z } from "zod";
-import { authenticateGitHub } from "../../../middleware/auth";
+import { authenticateGitHub, rejectApiKeyAuth } from "../../../middleware/auth";
+import { config } from "../../../config";
 import { db, users, vcsAppInstallations } from "../../../db";
-import { sendData, NotFoundError, ForbiddenError, BadRequestError } from "../../../lib";
+import {
+  sendData,
+  NotFoundError,
+  ForbiddenError,
+  BadRequestError,
+  ConflictError,
+  ServiceUnavailableError,
+  type ApiError,
+} from "../../../lib";
 import {
   getOrganizationsForUser,
   getOrganizationByLogin,
@@ -13,22 +22,33 @@ import {
   getOrganizationMembership,
   ensureOrganizationExists,
   upsertOrganizationMember,
+  removeOrganizationMember,
 } from "../../../services/organization.service";
-import { keywayRoleFromGitHub } from "../../../utils/orgRole";
-import type { OrgRole } from "../../../db/schema";
-import { startTrial, getTrialInfo, TRIAL_DURATION_DAYS } from "../../../services/trial.service";
+import type {
+  OrgRole,
+  Organization,
+  OrganizationMember,
+  VcsAppInstallation,
+} from "../../../db/schema";
+import {
+  startTrial,
+  getTrialInfo,
+  hasPaidOrgSubscription,
+  TRIAL_DURATION_DAYS,
+} from "../../../services/trial.service";
 import { detectPlatform } from "../../../services/activity.service";
 import { sendTrialStartedEmail } from "../../../utils/email";
+import { listOrgMembers, listUserOrganizations } from "../../../utils/github";
 import {
-  listOrgMembers,
-  listUserOrganizations,
-  getOrgMembership,
-} from "../../../utils/github";
-import {
-  getInstallationToken,
   findOrgInstallationViaGitHubAPI,
   syncInstallationFromAPI,
 } from "../../../services/github-app.service";
+import {
+  getOrgInstallationToken,
+  readLiveOrgMembership,
+  type OrgIdentity,
+  type UnverifiableReason,
+} from "../../../utils/orgAdmin";
 import { eq, and } from "drizzle-orm";
 import {
   isStripeEnabled,
@@ -65,102 +85,159 @@ function toOrgTierPrices(
 type WarnLogger = { warn: (obj: object, msg: string) => void };
 
 /**
- * Get an App installation token for an org (DB first, then GitHub API fallback).
- * Returns null if the Keyway App isn't installed on the org.
+ * Mutating org routes (connect, settings, member sync, trial, billing) act with
+ * the caller's full GitHub identity, and no API key scope covers them (scopes
+ * only cover secrets and API-key management), so a leaked CI key must not be
+ * able to rewrite org defaultPermissions or open a billing portal: require an
+ * interactive (JWT/session) login.
  */
-async function getOrgInstallationToken(orgLogin: string): Promise<string | null> {
-  let installation = await db.query.vcsAppInstallations.findFirst({
+const rejectApiKeys = rejectApiKeyAuth("manage organizations");
+
+const NOT_A_MEMBER = "You are not a member of this organization";
+
+/** Actionable refusal for when GitHub can't confirm a membership either way. */
+function membershipUnverifiedError(orgLogin: string, reason: UnverifiableReason): ApiError {
+  const prefix = `Keyway can't verify your membership of ${orgLogin}`;
+  switch (reason) {
+    case "missing_permission":
+      return new ForbiddenError(
+        `${prefix}: the Keyway GitHub App needs the "Members: read" organization permission on ${orgLogin}. ` +
+          "Ask an organization owner to approve it in the App's installation settings, then retry."
+      );
+    case "app_not_installed":
+      return new ForbiddenError(
+        `${prefix}: the Keyway GitHub App is not installed on this GitHub organization. ` +
+          "Ask an organization owner to install it, then retry."
+      );
+    case "unavailable":
+      return new ServiceUnavailableError(`${prefix}: GitHub is unreachable right now. Please retry.`);
+  }
+}
+
+/**
+ * The single membership gate for org routes: member-only data (details with
+ * member emails, the roster, billing, trial), joining via /connect, and — via
+ * requireLiveOrgAdmin — owner actions. `organization_members` is only a mirror
+ * of GitHub, so the caller's membership is re-read LIVE (installation token,
+ * bound to the org's immutable GitHub id — see utils/orgAdmin):
+ *  - active member → self-heal the cached role (if a row exists) and return
+ *    the live role;
+ *  - GitHub definitively says not a member (404, invitation pending) → delete
+ *    the cached row (if any) and refuse;
+ *  - GitHub can't answer (App not installed or lacking Members: read, outage)
+ *    → keep the row but refuse with an actionable error. Never serve from the
+ *    cached row.
+ */
+async function requireVerifiedOrgMembership(
+  org: OrgIdentity,
+  user: { id: string; username: string },
+  cached: Pick<OrganizationMember, "orgId" | "orgRole"> | null,
+  log: WarnLogger,
+  notMemberMessage = NOT_A_MEMBER
+): Promise<OrgRole> {
+  const live = await readLiveOrgMembership(org, user.username);
+  if (live.status === "unverifiable") {
+    throw membershipUnverifiedError(org.login, live.reason);
+  }
+  if (live.status === "not_member") {
+    if (cached) {
+      try {
+        await removeOrganizationMember(cached.orgId, user.id);
+      } catch (err) {
+        log.warn({ err, orgId: cached.orgId, userId: user.id }, "removing stale org member row failed");
+      }
+    }
+    throw new ForbiddenError(notMemberMessage);
+  }
+  if (cached && cached.orgRole !== live.role) {
+    try {
+      await upsertOrganizationMember(cached.orgId, user.id, live.role);
+    } catch (err) {
+      log.warn({ err, orgId: cached.orgId, userId: user.id }, "self-heal org role upsert failed");
+    }
+  }
+  return live.role;
+}
+
+/**
+ * Member-only org reads: the caller needs a cached member row AND a live,
+ * positively verified GitHub membership (see requireVerifiedOrgMembership).
+ * Returns the live role.
+ */
+async function requireOrgMember(
+  org: Organization,
+  user: { id: string; username: string },
+  log: WarnLogger
+): Promise<OrgRole> {
+  const membership = await getOrganizationMembership(org.id, user.id);
+  if (!membership) {
+    throw new ForbiddenError(NOT_A_MEMBER);
+  }
+  return requireVerifiedOrgMembership(org, user, membership, log);
+}
+
+/**
+ * The Keyway App installation on a GitHub org that has no Keyway row yet, so
+ * no stored GitHub org id to bind to: found by login (DB first, then the GitHub
+ * API in case the installation webhook was missed). Its account id becomes the
+ * org's identity.
+ */
+async function findInstallationForNewOrg(orgLogin: string): Promise<VcsAppInstallation | null> {
+  const stored = await db.query.vcsAppInstallations.findFirst({
     where: and(
       eq(vcsAppInstallations.accountLogin, orgLogin),
       eq(vcsAppInstallations.accountType, "organization"),
       eq(vcsAppInstallations.status, "active")
     ),
   });
-  if (!installation) {
-    const apiInstallation = await findOrgInstallationViaGitHubAPI(orgLogin);
-    if (apiInstallation) {
-      await syncInstallationFromAPI(apiInstallation);
-      installation = apiInstallation;
-    }
+  if (stored) {
+    return stored;
   }
-  if (!installation) {
-    return null;
+  const fromApi = await findOrgInstallationViaGitHubAPI(orgLogin);
+  if (fromApi) {
+    await syncInstallationFromAPI(fromApi);
   }
-  try {
-    return await getInstallationToken(installation.installationId);
-  } catch {
-    return null;
+  return fromApi;
+}
+
+/** Stripe redirect targets must be on our own origins (same rule as user billing). */
+function assertAllowedRedirectUrls(...urls: string[]): void {
+  const allowedOrigins = config.cors.allowedOrigins;
+  if (allowedOrigins.length === 0) {
+    return;
+  }
+  if (urls.some((url) => !allowedOrigins.includes(new URL(url).origin))) {
+    throw new BadRequestError("Redirect URLs must be from allowed origins");
   }
 }
 
 /**
- * Refresh the caller's cached org_role from LIVE GitHub — the single primitive
- * for the "GitHub is the source of truth, `organization_members.org_role` is a
- * mirror" invariant.
- *
- * The role is read via the App INSTALLATION token (Members: Read), NOT the user's
- * user-to-server token: the latter does not reliably report the admin role (it
- * returns "member"/none for real org owners), which would wrongly deny admins in
- * production. The username comes from the authenticated session, so it cannot be
- * spoofed by the caller.
- *
- * Returns the live role, or null when it can't be determined (App not installed,
- * caller not an active member, or GitHub unreachable). Self-heals the DB row when
- * it differs from `cachedRole`; the write is non-fatal.
- *
- * Intentionally uncached — one GitHub round-trip per call. Do NOT call on hot paths.
- */
-async function refreshCachedOrgRole(
-  orgLogin: string,
-  orgId: string,
-  userId: string,
-  username: string,
-  cachedRole: OrgRole | undefined,
-  log: WarnLogger
-): Promise<OrgRole | null> {
-  const installToken = await getOrgInstallationToken(orgLogin);
-  if (!installToken) {
-    return null;
-  }
-  let live;
-  try {
-    live = await getOrgMembership(installToken, orgLogin, username);
-  } catch {
-    return null;
-  }
-  if (!live || live.state !== "active") {
-    return null;
-  }
-  const role = keywayRoleFromGitHub(live.role);
-  if (role !== cachedRole) {
-    try {
-      await upsertOrganizationMember(orgId, userId, role);
-    } catch (err) {
-      log.warn({ err, orgId, userId }, "self-heal org role upsert failed");
-    }
-  }
-  return role;
-}
-
-/**
- * The single gate for owner-gated org actions: re-check LIVE GitHub admin (via
- * refreshCachedOrgRole, using the installation token). A stale/forged DB owner
- * row must not grant, and a member mis-recorded at connect time must not be
- * wrongly denied (the bootstrap deadlock). Fails closed: not an active admin or
- * GitHub unreachable → ForbiddenError. Keep PUT/sync/billing/trial routed through
+ * The single gate for owner-gated org actions: re-check LIVE GitHub admin
+ * through requireVerifiedOrgMembership (installation token bound to the org's
+ * GitHub id). A stale/forged DB owner row must not grant, and a member
+ * mis-recorded at connect time must not be wrongly denied (the bootstrap
+ * deadlock): the cached row self-heals to the live role, and a live admin with
+ * no row yet gets one. Fails closed. Keep PUT/sync/billing/trial routed through
  * here so the boundary lives in one place.
  */
 async function requireLiveOrgAdmin(
-  orgLogin: string,
-  orgId: string,
-  userId: string,
-  username: string,
+  org: Organization,
+  user: { id: string; username: string },
   action: string,
   log: WarnLogger
 ): Promise<void> {
-  const role = await refreshCachedOrgRole(orgLogin, orgId, userId, username, undefined, log);
+  const notAdmin = `Only organization admins can ${action}`;
+  const membership = await getOrganizationMembership(org.id, user.id);
+  const role = await requireVerifiedOrgMembership(org, user, membership, log, notAdmin);
   if (role !== "owner") {
-    throw new ForbiddenError(`Only organization admins can ${action}`);
+    throw new ForbiddenError(notAdmin);
+  }
+  if (!membership) {
+    try {
+      await upsertOrganizationMember(org.id, user.id, role);
+    } catch (err) {
+      log.warn({ err, orgId: org.id, userId: user.id }, "self-heal org role upsert failed");
+    }
   }
 }
 
@@ -204,7 +281,7 @@ export async function organizationsRoutes(fastify: FastifyInstance) {
   }>(
     "/connect",
     {
-      preHandler: [authenticateGitHub],
+      preHandler: [authenticateGitHub, rejectApiKeys],
     },
     async (request, reply) => {
       const { orgLogin } = request.body;
@@ -229,10 +306,10 @@ export async function organizationsRoutes(fastify: FastifyInstance) {
         throw new ForbiddenError("User not found");
       }
 
-      // SECURITY: Verify user has access to this organization via GitHub App installations
-      // The /user/installations endpoint only returns orgs where:
-      // 1. The GitHub App is installed
-      // 2. The user has authorized the app and has access to the org
+      // Pre-filter via the caller's GitHub App installations. NOT proof of org
+      // membership: /user/installations also lists installations covering repos
+      // where the caller is only an outside collaborator (membership is checked
+      // below with the installation token).
       const accessToken = request.accessToken;
       if (!accessToken) {
         throw new ForbiddenError("Access token required");
@@ -246,93 +323,80 @@ export async function organizationsRoutes(fastify: FastifyInstance) {
         );
       }
 
-      // Check if org is already connected
+      // SECURITY: a Keyway org member can read other members' emails, the full
+      // roster (incl. concealed members), and billing details, so membership must
+      // mirror an ACTIVE GitHub org membership, read with the installation token
+      // (Members: Read) — the user-token role from listUserOrganizations()
+      // defaults to "member" for outside collaborators. Same rule as every
+      // member-gated route, already-connected members included: positively
+      // verified, or refused (requireVerifiedOrgMembership).
+      const connectRefused =
+        "You must be an active member of this GitHub organization to connect it to Keyway";
+
       const existingOrg = await getOrganizationByLogin(orgLogin);
       if (existingOrg) {
-        // Check if user is already a member
+        // Bound to the GitHub org this row was created for (its immutable id):
+        // after a rename, whoever re-registers the old login is a different org.
         const membership = await getOrganizationMembership(existingOrg.id, user.id);
-        if (membership) {
-          // Already connected, just return the org details
-          const details = await getOrganizationDetails(existingOrg.id);
-          return sendData(
-            reply,
-            {
-              organization: details,
-              message: "Organization already connected",
-            },
-            { requestId: request.id }
-          );
+        const role = await requireVerifiedOrgMembership(
+          existingOrg,
+          user,
+          membership,
+          request.log,
+          connectRefused
+        );
+        if (!membership) {
+          await upsertOrganizationMember(existingOrg.id, user.id, role);
         }
-        // Org exists but the caller isn't a member yet — they're added below,
-        // after resolving the authoritative role (shared with the create path).
+        const details = await getOrganizationDetails(existingOrg.id);
+        return sendData(
+          reply,
+          {
+            organization: details,
+            message: membership ? "Organization already connected" : "Connected to organization",
+          },
+          { requestId: request.id }
+        );
       }
 
-      // Check if GitHub App is installed on this org (check DB first, then GitHub API)
-      let installation = await db.query.vcsAppInstallations.findFirst({
-        where: and(
-          eq(vcsAppInstallations.accountLogin, orgLogin),
-          eq(vcsAppInstallations.accountType, "organization"),
-          eq(vcsAppInstallations.status, "active")
-        ),
-      });
-
-      // If not in DB, try to find via GitHub API (installation webhook may have been missed)
-      if (!installation) {
-        const apiInstallation = await findOrgInstallationViaGitHubAPI(orgLogin);
-        if (apiInstallation) {
-          // Sync to DB for future use
-          await syncInstallationFromAPI(apiInstallation);
-          installation = apiInstallation;
-        }
-      }
-
+      // Not connected yet: the org's identity is the GitHub org the Keyway App
+      // installation on that login belongs to.
+      const installation = await findInstallationForNewOrg(orgLogin);
       if (!installation) {
         throw new BadRequestError(
           "GitHub App is not installed on this organization. " +
             "Please install the Keyway GitHub App first."
         );
       }
+      const newOrg: OrgIdentity = { login: orgLogin, forgeOrgId: String(installation.accountId) };
+      const keywayRole = await requireVerifiedOrgMembership(
+        newOrg,
+        user,
+        null,
+        request.log,
+        connectRefused
+      );
 
-      // Get installation token to fetch org info
-      const installToken = await getInstallationToken(installation.installationId);
-
-      // Resolve the caller's role authoritatively via the installation token
-      // (Members: Read) for BOTH the add-to-existing and create paths, rather
-      // than trusting targetOrg.role from the user-to-server token — that read
-      // can silently fail and demote a real owner to "member". Fall back to the
-      // user-token-derived role on failure.
-      let keywayRole: OrgRole = keywayRoleFromGitHub(targetOrg.role);
-      try {
-        const authoritative = await getOrgMembership(installToken, orgLogin, user.username);
-        if (authoritative?.role) {
-          keywayRole = keywayRoleFromGitHub(authoritative.role);
-        }
-      } catch {
-        // Keep the user-token-derived role if the authoritative read fails.
+      const installToken = await getOrgInstallationToken(newOrg);
+      if (!installToken) {
+        throw membershipUnverifiedError(orgLogin, "unavailable");
       }
-
-      // Existing org the caller isn't a member of yet → add them with the role.
-      if (existingOrg) {
-        await upsertOrganizationMember(existingOrg.id, user.id, keywayRole);
-        const details = await getOrganizationDetails(existingOrg.id);
-        return sendData(
-          reply,
-          { organization: details, message: "Connected to organization" },
-          { requestId: request.id }
-        );
-      }
-
-      // New org → create it with the resolved role.
-      const org = await ensureOrganizationExists(orgLogin, installToken, {
-        userId: user.id,
-        keywayRole,
-      });
+      // Created without a member: the caller is added only once the row is
+      // confirmed to be the installation's GitHub org.
+      const org = await ensureOrganizationExists(orgLogin, installToken);
 
       if (!org) {
         throw new BadRequestError(
           "Could not connect to organization. Please ensure it is a valid GitHub organization."
         );
       }
+      if (org.forgeOrgId !== newOrg.forgeOrgId) {
+        throw new ConflictError(
+          `The GitHub organization named ${orgLogin} is not the one Keyway knows under that name. ` +
+            "Contact support to connect it."
+        );
+      }
+      await upsertOrganizationMember(org.id, user.id, keywayRole);
 
       // Get full details
       const details = await getOrganizationDetails(org.id);
@@ -381,25 +445,11 @@ export async function organizationsRoutes(fastify: FastifyInstance) {
         throw new NotFoundError("Organization not found");
       }
 
-      // Check if user is a member
-      const membership = await getOrganizationMembership(org.id, user.id);
-      if (!membership) {
-        throw new ForbiddenError("You are not a member of this organization");
-      }
-
-      // Self-heal the caller's role from live GitHub. The cached org_role can go
-      // stale — e.g. it's set to "member" at connect time if the App didn't yet
-      // have the org Members permission to read the real role. GitHub is the
-      // source of truth, so refresh the cache on access. Non-fatal on failure.
-      const role =
-        (await refreshCachedOrgRole(
-          orgLogin,
-          org.id,
-          user.id,
-          user.username,
-          membership.orgRole,
-          request.log
-        )) ?? membership.orgRole;
+      // Member emails: live, positively verified members only. GitHub is the
+      // source of truth: the cached role self-heals (it can go stale, e.g.
+      // "member" recorded before the App had the Members permission) and the
+      // row is dropped if GitHub says the caller is no longer an org member.
+      const role = await requireOrgMember(org, user, request.log);
 
       // Get full details
       const details = await getOrganizationDetails(org.id);
@@ -425,7 +475,7 @@ export async function organizationsRoutes(fastify: FastifyInstance) {
   }>(
     "/:org",
     {
-      preHandler: [authenticateGitHub],
+      preHandler: [authenticateGitHub, rejectApiKeys],
     },
     async (request, reply) => {
       const { org: orgLogin } = request.params;
@@ -461,14 +511,7 @@ export async function organizationsRoutes(fastify: FastifyInstance) {
       // Authorization: require live GitHub admin. defaultPermissions can grant
       // write to every vault in the org, so a stale/forged DB owner row must not
       // suffice. Fails closed if GitHub is unreachable; legitimate admins retry.
-      await requireLiveOrgAdmin(
-        orgLogin,
-        org.id,
-        user.id,
-        user.username,
-        "update settings",
-        request.log
-      );
+      await requireLiveOrgAdmin(org, user, "update settings", request.log);
 
       // Update organization
       const updated = await updateOrganization(org.id, validatedBody);
@@ -519,14 +562,11 @@ export async function organizationsRoutes(fastify: FastifyInstance) {
         throw new NotFoundError("Organization not found");
       }
 
-      // Check if user is a member
-      const membership = await getOrganizationMembership(org.id, user.id);
-      if (!membership) {
-        throw new ForbiddenError("You are not a member of this organization");
-      }
+      // The roster includes concealed members: only live org members may read it.
+      await requireOrgMember(org, user, request.log);
 
       // Installation token returns the full roster; the user token under-reports in prod.
-      const installToken = await getOrgInstallationToken(orgLogin);
+      const installToken = await getOrgInstallationToken(org);
       const members = await getOrganizationMembersWithGitHub(
         { id: org.id, login: org.login },
         installToken ?? request.accessToken
@@ -544,7 +584,7 @@ export async function organizationsRoutes(fastify: FastifyInstance) {
   }>(
     "/:org/members/sync",
     {
-      preHandler: [authenticateGitHub],
+      preHandler: [authenticateGitHub, rejectApiKeys],
     },
     async (request, reply) => {
       const { org: orgLogin } = request.params;
@@ -568,10 +608,10 @@ export async function organizationsRoutes(fastify: FastifyInstance) {
         throw new NotFoundError("Organization not found");
       }
 
-      await requireLiveOrgAdmin(orgLogin, org.id, user.id, user.username, "sync members", request.log);
+      await requireLiveOrgAdmin(org, user, "sync members", request.log);
 
       // Sync against the installation-token roster (full + reliable), not the user token.
-      const installToken = await getOrgInstallationToken(orgLogin);
+      const installToken = await getOrgInstallationToken(org);
       if (!installToken) {
         throw new ForbiddenError("Keyway App is not installed on this organization");
       }
@@ -640,11 +680,8 @@ export async function organizationsRoutes(fastify: FastifyInstance) {
         throw new NotFoundError("Organization not found");
       }
 
-      // Check if user is a member
-      const membership = await getOrganizationMembership(org.id, user.id);
-      if (!membership) {
-        throw new ForbiddenError("You are not a member of this organization");
-      }
+      // Billing details (Stripe customer id): live, verified members only.
+      await requireOrgMember(org, user, request.log);
 
       // Get full org details for trial info and effective plan
       const orgDetails = await getOrganizationDetails(org.id);
@@ -691,7 +728,7 @@ export async function organizationsRoutes(fastify: FastifyInstance) {
   }>(
     "/:org/billing/checkout",
     {
-      preHandler: [authenticateGitHub],
+      preHandler: [authenticateGitHub, rejectApiKeys],
     },
     async (request, reply) => {
       const { org: orgLogin } = request.params;
@@ -710,6 +747,7 @@ export async function organizationsRoutes(fastify: FastifyInstance) {
       });
 
       bodySchema.parse({ priceId, successUrl, cancelUrl });
+      assertAllowedRedirectUrls(successUrl, cancelUrl);
 
       // Get user from database
       const user = await db.query.users.findFirst({
@@ -729,13 +767,12 @@ export async function organizationsRoutes(fastify: FastifyInstance) {
         throw new NotFoundError("Organization not found");
       }
 
-      await requireLiveOrgAdmin(orgLogin, org.id, user.id, user.username, "manage billing", request.log);
+      await requireLiveOrgAdmin(org, user, "manage billing", request.log);
 
-      if (
-        org.stripeCustomerId &&
-        (org.plan === "team" || org.plan === "business") &&
-        getTrialInfo(org).status !== "active"
-      ) {
+      // Already subscribed = a paid plan written by the subscription webhook. A
+      // Stripe customer id alone only means a checkout was opened once: an
+      // expired, abandoned trial must still be able to pay.
+      if (hasPaidOrgSubscription(org)) {
         throw new BadRequestError(
           "Organization already has an active subscription. Use the billing portal to change plans."
         );
@@ -765,7 +802,7 @@ export async function organizationsRoutes(fastify: FastifyInstance) {
   }>(
     "/:org/billing/portal",
     {
-      preHandler: [authenticateGitHub],
+      preHandler: [authenticateGitHub, rejectApiKeys],
     },
     async (request, reply) => {
       const { org: orgLogin } = request.params;
@@ -782,6 +819,7 @@ export async function organizationsRoutes(fastify: FastifyInstance) {
       });
 
       bodySchema.parse({ returnUrl });
+      assertAllowedRedirectUrls(returnUrl);
 
       // Get user from database
       const user = await db.query.users.findFirst({
@@ -801,7 +839,7 @@ export async function organizationsRoutes(fastify: FastifyInstance) {
         throw new NotFoundError("Organization not found");
       }
 
-      await requireLiveOrgAdmin(orgLogin, org.id, user.id, user.username, "manage billing", request.log);
+      await requireLiveOrgAdmin(org, user, "manage billing", request.log);
 
       // Create portal session
       const portalUrl = await createOrgPortalSession(org.id, returnUrl);
@@ -847,11 +885,7 @@ export async function organizationsRoutes(fastify: FastifyInstance) {
         throw new NotFoundError("Organization not found");
       }
 
-      // Check if user is a member
-      const membership = await getOrganizationMembership(org.id, user.id);
-      if (!membership) {
-        throw new ForbiddenError("You are not a member of this organization");
-      }
+      await requireOrgMember(org, user, request.log);
 
       const trialInfo = getTrialInfo(org);
 
@@ -878,7 +912,7 @@ export async function organizationsRoutes(fastify: FastifyInstance) {
   }>(
     "/:org/trial/start",
     {
-      preHandler: [authenticateGitHub],
+      preHandler: [authenticateGitHub, rejectApiKeys],
     },
     async (request, reply) => {
       const { org: orgLogin } = request.params;
@@ -902,7 +936,7 @@ export async function organizationsRoutes(fastify: FastifyInstance) {
         throw new NotFoundError("Organization not found");
       }
 
-      await requireLiveOrgAdmin(orgLogin, org.id, user.id, user.username, "start a trial", request.log);
+      await requireLiveOrgAdmin(org, user, "start a trial", request.log);
 
       // Start the trial
       const result = await startTrial({

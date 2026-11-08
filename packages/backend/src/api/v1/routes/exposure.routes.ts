@@ -1,5 +1,5 @@
 import { FastifyInstance } from "fastify";
-import { authenticateGitHub } from "../../../middleware/auth";
+import { authenticateGitHub, requireApiKeyScope } from "../../../middleware/auth";
 import { db, users, vaults, type UserPlan } from "../../../db";
 import { sendData, NotFoundError, ForbiddenError } from "../../../lib";
 import { eq, and } from "drizzle-orm";
@@ -11,8 +11,9 @@ import {
 import {
   getOrganizationByLogin,
   getOrganizationById,
-  isOrganizationOwner,
 } from "../../../services/organization.service";
+import { isLiveOrgAdmin } from "../../../utils/orgAdmin";
+import { getUserRoleWithApp } from "../../../utils/github";
 import { getEffectivePlanWithTrial, getEffectivePlanForUser } from "../../../services/trial.service";
 import { hasExposureAccess } from "../../../config/plans";
 import { PlanLimitError } from "../../../lib";
@@ -42,7 +43,7 @@ export async function exposureRoutes(fastify: FastifyInstance) {
   }>(
     "/orgs/:org/exposure",
     {
-      preHandler: [authenticateGitHub],
+      preHandler: [authenticateGitHub, requireApiKeyScope("read:secrets")],
     },
     async (request, reply) => {
       const { org: orgLogin } = request.params;
@@ -67,8 +68,10 @@ export async function exposureRoutes(fastify: FastifyInstance) {
         throw new NotFoundError("Organization not found");
       }
 
-      // Only org owners can view exposure reports
-      const isOwner = await isOrganizationOwner(org.id, user.id);
+      // Only org owners can view exposure reports. Checked LIVE on GitHub (the
+      // cached org_role isn't refreshed when an admin is demoted), bound to the
+      // org's immutable GitHub id (its login can be re-registered after a rename).
+      const isOwner = await isLiveOrgAdmin(org, vcsUser.username);
       if (!isOwner) {
         throw new ForbiddenError("Only organization owners can view exposure reports");
       }
@@ -104,7 +107,7 @@ export async function exposureRoutes(fastify: FastifyInstance) {
   }>(
     "/orgs/:org/exposure/:username",
     {
-      preHandler: [authenticateGitHub],
+      preHandler: [authenticateGitHub, requireApiKeyScope("read:secrets")],
     },
     async (request, reply) => {
       const { org: orgLogin, username } = request.params;
@@ -128,8 +131,10 @@ export async function exposureRoutes(fastify: FastifyInstance) {
         throw new NotFoundError("Organization not found");
       }
 
-      // Only org owners can view exposure reports
-      const isOwner = await isOrganizationOwner(org.id, user.id);
+      // Only org owners can view exposure reports. Checked LIVE on GitHub (the
+      // cached org_role isn't refreshed when an admin is demoted), bound to the
+      // org's immutable GitHub id (its login can be re-registered after a rename).
+      const isOwner = await isLiveOrgAdmin(org, vcsUser.username);
       if (!isOwner) {
         throw new ForbiddenError("Only organization owners can view exposure reports");
       }
@@ -166,7 +171,7 @@ export async function exposureRoutes(fastify: FastifyInstance) {
   }>(
     "/vaults/:owner/:repo/secrets/:secretId/access-history",
     {
-      preHandler: [authenticateGitHub],
+      preHandler: [authenticateGitHub, requireApiKeyScope("read:secrets")],
     },
     async (request, reply) => {
       const { owner, repo, secretId } = request.params;
@@ -195,23 +200,26 @@ export async function exposureRoutes(fastify: FastifyInstance) {
         throw new NotFoundError("Vault not found");
       }
 
-      // For now, require the user to be the vault owner
-      // TODO: Use getUserRoleWithApp to check if user is admin
-      if (vault.ownerId !== user.id) {
-        // Check if this is an org vault and user is org owner
-        if (vault.orgId) {
-          const isOwner = await isOrganizationOwner(vault.orgId, user.id);
-          if (!isOwner) {
-            throw new ForbiddenError("Only vault/organization owners can view access history");
-          }
-        } else {
-          throw new ForbiddenError("Only vault owners can view access history");
+      const org = vault.orgId ? await getOrganizationById(vault.orgId) : null;
+
+      // Access history is for CURRENT admins, checked live: having created the vault
+      // doesn't count once the user lost admin on the repo, and the cached org_role
+      // isn't refreshed when an org admin is demoted.
+      const repoRole = await getUserRoleWithApp(vault.repoFullName, vcsUser.username, {
+        expectedRepoId: vault.forgeRepoId,
+      }).catch(() => null);
+      if (repoRole !== "admin") {
+        const isOrgAdmin =
+          vault.orgId && org ? await isLiveOrgAdmin(org, vcsUser.username) : false;
+        if (!isOrgAdmin) {
+          throw new ForbiddenError(
+            "Only repository or organization admins can view access history"
+          );
         }
       }
 
       let effectivePlan: UserPlan = "free";
       if (vault.orgId) {
-        const org = await getOrganizationById(vault.orgId);
         if (org) {
           effectivePlan = getEffectivePlanWithTrial(org);
         }
@@ -224,7 +232,8 @@ export async function exposureRoutes(fastify: FastifyInstance) {
         );
       }
 
-      const accessHistory = await getSecretAccessHistory(secretId, {
+      // Scoped to this vault: a secretId from another vault returns nothing
+      const accessHistory = await getSecretAccessHistory(secretId, vault.id, {
         limit: Math.min(Math.max(parseInt(limit ?? "", 10) || 50, 1), 200),
         offset: Math.max(parseInt(offset ?? "", 10) || 0, 0),
       });

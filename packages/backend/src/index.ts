@@ -2,7 +2,6 @@ import Fastify from "fastify";
 import cors from "@fastify/cors";
 import helmet from "@fastify/helmet";
 import rateLimit from "@fastify/rate-limit";
-import formbody from "@fastify/formbody";
 import cookie from "@fastify/cookie";
 import { ZodError } from "zod";
 import { config } from "./config";
@@ -10,7 +9,7 @@ import { ApiError, ValidationError } from "./lib";
 import { apiV1Routes } from "./api/v1";
 import { initAnalytics, shutdownAnalytics, trackEvent, AnalyticsEvents } from "./utils/analytics";
 import { sql as dbConnection } from "./db";
-import { sanitizeError, sanitizeHeaders } from "./utils/logger";
+import { sanitizeError, sanitizeHeaders, redactUrl, serializeRequestForLog } from "./utils/logger";
 import { checkCryptoService } from "./utils/remoteEncryption";
 import { initSentry, captureError, closeSentry } from "./utils/sentry";
 
@@ -21,7 +20,11 @@ initSentry();
 const fastify = Fastify({
   logger: {
     level: config.server.logLevel,
+    // Request lines without token / ticket / OAuth code and state in the URL
+    serializers: { req: serializeRequestForLog },
   },
+  // Real client IP behind Railway's proxy (TRUST_PROXY), so per-IP rate limits work
+  trustProxy: config.server.trustProxy,
   requestIdHeader: "x-request-id",
   requestIdLogLabel: "reqId",
 });
@@ -79,8 +82,8 @@ fastify.register(cors, {
   methods: ["GET", "HEAD", "PUT", "PATCH", "POST", "DELETE", "OPTIONS"],
 });
 
-// Register form body parser (for HTML forms)
-fastify.register(formbody);
+// No global form body parser: only POST /v1/auth/device/verify takes an HTML form and
+// registers its own (auth.routes.ts); every other route answers 415 to a form body.
 
 // Register cookie parser
 fastify.register(cookie);
@@ -170,7 +173,7 @@ fastify.setErrorHandler(
     fastify.log.error(
       {
         err: sanitizeError(error),
-        url: request.url,
+        url: redactUrl(request.url),
         method: request.method,
         reqId: request.id,
         headers: sanitizeHeaders(request.headers),
@@ -183,7 +186,7 @@ fastify.setErrorHandler(
       const vcsUser = (request as any).vcsUser || (request as any).githubUser;
       captureError(error, {
         requestId: request.id,
-        url: request.url,
+        url: redactUrl(request.url),
         method: request.method,
         userId: vcsUser?.forgeUserId,
         username: vcsUser?.username,
@@ -199,7 +202,8 @@ fastify.setErrorHandler(
       error instanceof ApiError ? error.type.split("/").pop() || error.name : error.name;
 
     trackEvent((request as any).user?.id || "anonymous", AnalyticsEvents.API_ERROR, {
-      endpoint: request.url,
+      // Route pattern (/v1/vaults/:owner/:repo), never the URL and its query string
+      endpoint: request.routeOptions?.url ?? "unmatched",
       method: request.method,
       errorCode,
       errorType: error.constructor.name,

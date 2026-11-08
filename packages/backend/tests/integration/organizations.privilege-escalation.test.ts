@@ -51,7 +51,11 @@ const mocks = vi.hoisted(() => ({
 
 // ----- module mocks (must precede route imports) ------------------------
 
-vi.mock("../../src/middleware/auth", () => ({
+vi.mock("../../src/middleware/auth", async () => ({
+  // The real shared API-key refusal; only authentication is stubbed.
+  rejectApiKeyAuth: (
+    await vi.importActual<typeof import("../../src/middleware/auth")>("../../src/middleware/auth")
+  ).rejectApiKeyAuth,
   authenticateGitHub: async (request: any) => {
     // Stub auth: tests set request.vcsUser via headers
     request.vcsUser = {
@@ -120,6 +124,7 @@ vi.mock("../../src/services/organization.service", () => ({
 vi.mock("../../src/services/trial.service", () => ({
   startTrial: vi.fn(),
   getTrialInfo: vi.fn().mockReturnValue({ status: "none" }),
+  hasPaidOrgSubscription: vi.fn().mockReturnValue(false),
   TRIAL_DURATION_DAYS: 15,
   getEffectivePlanWithTrial: mocks.getEffectivePlanWithTrial,
 }));
@@ -223,13 +228,20 @@ function resetAll() {
   mocks.vaultEnvironmentsFindMany.mockResolvedValue([]);
   mocks.vcsAppInstallationsFindFirst.mockResolvedValue({
     installationId: "install-1",
+    accountId: 98765,
     accountLogin: "acme-corp",
     accountType: "organization",
     status: "active",
   });
   mocks.getOrThrowUser.mockResolvedValue(bobUser);
   mocks.findOrgInstallationViaGitHubAPI.mockResolvedValue(null);
+  // Behind a null membership read, GitHub answers a definitive 404.
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("{}", { status: 404 })));
 }
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
 // ============================================================================
 // POST /v1/orgs/connect
@@ -249,13 +261,15 @@ describe("POST /v1/orgs/connect — privilege escalation regression", () => {
     await app.close();
   });
 
-  it("forwards keywayRole='member' to ensureOrganizationExists when caller is GitHub member", async () => {
+  it("adds a GitHub member to a new org as 'member', never 'owner'", async () => {
     // Caller is a non-admin member of acme-corp on GitHub
     mocks.listUserOrganizations.mockResolvedValue([
       { id: 98765, login: "acme-corp", role: "member", avatar_url: null, description: null },
     ]);
     // Org not yet in DB → triggers create-org branch
     mocks.getOrganizationByLogin.mockResolvedValue(null);
+    // Live GitHub membership (checked with the installation token)
+    mocks.getOrgMembership.mockResolvedValue({ role: "member", state: "active" });
 
     const response = await app.inject({
       method: "POST",
@@ -265,16 +279,20 @@ describe("POST /v1/orgs/connect — privilege escalation regression", () => {
 
     expect(response.statusCode).toBe(200);
     expect(mocks.ensureOrganizationExists).toHaveBeenCalledTimes(1);
-    const [, , currentUser] = mocks.ensureOrganizationExists.mock.calls[0];
-    expect(currentUser).toEqual({ userId: bobUser.id, keywayRole: "member" });
-    expect(currentUser.keywayRole).not.toBe("owner"); // the bug
+    // The org is created without a member; the caller is added only once the
+    // created org is confirmed to be the installation's GitHub org.
+    expect(mocks.ensureOrganizationExists.mock.calls[0][2]).toBeUndefined();
+    expect(mocks.upsertOrganizationMember).toHaveBeenCalledTimes(1);
+    expect(mocks.upsertOrganizationMember).toHaveBeenCalledWith("org-acme", bobUser.id, "member");
+    expect(mocks.upsertOrganizationMember).not.toHaveBeenCalledWith("org-acme", bobUser.id, "owner"); // the bug
   });
 
-  it("forwards keywayRole='owner' to ensureOrganizationExists when caller is GitHub admin", async () => {
+  it("adds a GitHub admin to a new org as 'owner'", async () => {
     mocks.listUserOrganizations.mockResolvedValue([
       { id: 98765, login: "acme-corp", role: "admin", avatar_url: null, description: null },
     ]);
     mocks.getOrganizationByLogin.mockResolvedValue(null);
+    mocks.getOrgMembership.mockResolvedValue({ role: "admin", state: "active" });
 
     const response = await app.inject({
       method: "POST",
@@ -283,8 +301,7 @@ describe("POST /v1/orgs/connect — privilege escalation regression", () => {
     });
 
     expect(response.statusCode).toBe(200);
-    const [, , currentUser] = mocks.ensureOrganizationExists.mock.calls[0];
-    expect(currentUser).toEqual({ userId: bobUser.id, keywayRole: "owner" });
+    expect(mocks.upsertOrganizationMember).toHaveBeenCalledWith("org-acme", bobUser.id, "owner");
   });
 
   it("prefers the authoritative installation-token role over the user-token role", async () => {
@@ -308,9 +325,8 @@ describe("POST /v1/orgs/connect — privilege escalation regression", () => {
 
     expect(response.statusCode).toBe(200);
     expect(mocks.getOrgMembership).toHaveBeenCalledWith("install-token", "acme-corp", bobUser.username);
-    const [, , currentUser] = mocks.ensureOrganizationExists.mock.calls[0];
     // Authoritative read wins → owner, not the user-token "member".
-    expect(currentUser.keywayRole).toBe("owner");
+    expect(mocks.upsertOrganizationMember).toHaveBeenCalledWith("org-acme", bobUser.id, "owner");
   });
 
   it("uses the authoritative role when adding the caller to an already-connected org", async () => {
@@ -319,7 +335,11 @@ describe("POST /v1/orgs/connect — privilege escalation regression", () => {
       { id: 98765, login: "acme-corp", role: "member", avatar_url: null, description: null },
     ]);
     // ...the org already exists in Keyway and the caller isn't a member yet...
-    mocks.getOrganizationByLogin.mockResolvedValue({ id: "org-existing", login: "acme-corp" });
+    mocks.getOrganizationByLogin.mockResolvedValue({
+      id: "org-existing",
+      login: "acme-corp",
+      forgeOrgId: "98765",
+    });
     mocks.getOrganizationMembership.mockResolvedValue(null);
     mocks.getOrganizationDetails.mockResolvedValue({ id: "org-existing", login: "acme-corp" });
     // ...but the authoritative installation-token read says admin.
@@ -445,6 +465,7 @@ describe("PUT /v1/orgs/:org — fail-closed authorization", () => {
     mocks.getOrganizationByLogin.mockResolvedValue({
       id: "org-acme",
       login: "acme-corp",
+      forgeOrgId: "98765",
     });
     mocks.updateOrganization.mockResolvedValue({
       id: "org-acme",

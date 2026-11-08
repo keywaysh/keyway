@@ -32,6 +32,80 @@ const LOOKUP_KEY_TO_PLAN: Record<string, UserPlan> = Object.fromEntries(
   )
 );
 
+/**
+ * Stripe statuses under which a subscription grants its plan. past_due is the
+ * dunning grace period: Stripe moves it on to canceled/unpaid if retries fail.
+ */
+const ENTITLED_SUBSCRIPTION_STATUSES: ReadonlySet<Stripe.Subscription.Status> = new Set([
+  "active",
+  "trialing",
+  "past_due",
+]);
+
+/**
+ * The plan a subscription event entitles the account to: the price's plan while
+ * the subscription is entitled, "free" once it is unpaid/expired/canceled/paused
+ * (Stripe does not always follow those with customer.subscription.deleted),
+ * and `currentPlan` unchanged while the first payment is still "incomplete" —
+ * nothing has been paid yet, and a late-delivered "incomplete" event must not
+ * downgrade a subscription that has since become active.
+ */
+function planForSubscriptionStatus(
+  status: Stripe.Subscription.Status,
+  pricePlan: UserPlan,
+  currentPlan: UserPlan
+): UserPlan {
+  if (ENTITLED_SUBSCRIPTION_STATUSES.has(status)) {
+    return pricePlan;
+  }
+  return status === "incomplete" ? currentPlan : "free";
+}
+
+function isEntitled(status: Stripe.Subscription.Status): boolean {
+  return ENTITLED_SUBSCRIPTION_STATUSES.has(status);
+}
+
+/**
+ * True when the org has ANOTHER subscription (not `subscription`) on the same
+ * Stripe customer that entitles it right now. Organizations store no current
+ * subscription id, so before an event about one subscription lowers the org's
+ * plan, Stripe is asked whether a different subscription still pays for it
+ * (e.g. subscription A abandoned `incomplete`, the org paid with B, then A
+ * expires). Only subscriptions carrying this org's keyway_org_id count: those
+ * are the ones whose events maintain the org plan.
+ *
+ * If Stripe can't be asked, returns false (the downgrade is applied): a
+ * webhook is not retried once recorded, and keeping a paid plan on an
+ * unverified assumption could grant it indefinitely, whereas a wrongly
+ * downgraded org is restored by the next event of its live subscription.
+ */
+async function orgHasOtherEntitledSubscription(
+  subscription: Stripe.Subscription,
+  orgId: string
+): Promise<boolean> {
+  const customerId =
+    typeof subscription.customer === "string" ? subscription.customer : subscription.customer?.id;
+  if (!customerId) {
+    return false;
+  }
+  try {
+    // Without a status filter, Stripe lists every subscription that is not canceled.
+    const { data } = await getStripe().subscriptions.list({ customer: customerId, limit: 100 });
+    return data.some(
+      (other) =>
+        other.id !== subscription.id &&
+        isEntitled(other.status) &&
+        other.metadata?.keyway_org_id === orgId
+    );
+  } catch (err) {
+    logger.error(
+      { err, orgId, subscriptionId: subscription.id },
+      "Could not list the org's Stripe subscriptions; applying the plan change"
+    );
+    return false;
+  }
+}
+
 export interface ResolvedPrice {
   id: string;
   amount: number;
@@ -292,9 +366,31 @@ async function handleSubscriptionChange(subscription: Stripe.Subscription): Prom
   }
   const priceId = price.id;
 
-  const plan = await getPlanFromPrice(price);
-  if (!plan) {
+  const pricePlan = await getPlanFromPrice(price);
+  if (!pricePlan) {
     logger.warn({ priceId }, "Unknown price ID");
+    return;
+  }
+
+  // Only the user's current subscription (the stored row) may take the plan
+  // down: a late "incomplete_expired"/"canceled" for a subscription the user has
+  // since replaced must not touch the plan, the billing status, or the row. An
+  // entitled subscription becomes the current one.
+  const current = await getUserSubscription(userId);
+  if (
+    current &&
+    current.stripeSubscriptionId !== subscription.id &&
+    !isEntitled(subscription.status)
+  ) {
+    logger.info(
+      {
+        userId,
+        subscriptionId: subscription.id,
+        currentSubscriptionId: current.stripeSubscriptionId,
+        status: subscription.status,
+      },
+      "Ignoring status change of a subscription that is not the user's current one"
+    );
     return;
   }
 
@@ -338,6 +434,7 @@ async function handleSubscriptionChange(subscription: Stripe.Subscription): Prom
     .limit(1);
 
   const previousPlan = currentUser?.plan || "free";
+  const plan = planForSubscriptionStatus(subscription.status, pricePlan, previousPlan);
 
   // Update user plan and billing status
   await db
@@ -388,6 +485,17 @@ async function handleSubscriptionDeleted(subscription: Stripe.Subscription): Pro
   const userId = subscription.metadata.keyway_user_id;
   if (!userId) {
     logger.warn({ subscriptionId: subscription.id }, "Deleted subscription missing keyway_user_id");
+    return;
+  }
+
+  // Deleting a subscription the user has since replaced changes nothing (and
+  // must not delete the current subscription's row, which is keyed by user).
+  const current = await getUserSubscription(userId);
+  if (current && current.stripeSubscriptionId !== subscription.id) {
+    logger.info(
+      { userId, subscriptionId: subscription.id, currentSubscriptionId: current.stripeSubscriptionId },
+      "Ignoring deletion of a subscription that is not the user's current one"
+    );
     return;
   }
 
@@ -749,15 +857,18 @@ export async function handleOrgSubscriptionChange(
   }
   const priceId = price.id;
 
-  const plan = await getPlanFromPrice(price);
-  if (!plan) {
+  const pricePlan = await getPlanFromPrice(price);
+  if (!pricePlan) {
     logger.warn({ priceId }, "Unknown price ID for org");
     return;
   }
 
-  // Check if org was on trial and convert it
   const org = await getOrganizationById(orgId);
-  if (org && hasHadTrial(org) && !org.trialConvertedAt && subscription.status === "active") {
+  const entitled = isEntitled(subscription.status);
+
+  // A subscription that is actually live converts the trial: from then on the
+  // org's plan is the one this webhook maintains (see getEffectivePlanWithTrial).
+  if (org && hasHadTrial(org) && !org.trialConvertedAt && entitled) {
     await convertTrial({
       orgId,
       userId: orgId, // System action - use org ID as actor
@@ -767,9 +878,23 @@ export async function handleOrgSubscriptionChange(
     logger.info({ orgId }, "Converted trial to paid subscription");
   }
 
-  // Update organization plan
+  // Only an entitled subscription grants its plan (an abandoned or failed
+  // checkout must not). While a Keyway trial is active the effective plan comes
+  // from the trial dates, whatever is written here.
+  const currentPlan = org?.plan ?? "free";
+  const plan = planForSubscriptionStatus(subscription.status, pricePlan, currentPlan);
+  if (
+    planRank(plan) < planRank(currentPlan) &&
+    (await orgHasOtherEntitledSubscription(subscription, orgId))
+  ) {
+    logger.info(
+      { orgId, subscriptionId: subscription.id, status: subscription.status, plan: currentPlan },
+      "Keeping organization plan: another subscription of the org is still entitled"
+    );
+    return;
+  }
   await updateOrganizationPlan(orgId, plan);
-  logger.info({ orgId, plan }, "Updated organization plan");
+  logger.info({ orgId, plan, status: subscription.status }, "Updated organization plan");
 }
 
 /**
@@ -781,6 +906,16 @@ export async function handleOrgSubscriptionDeleted(
   const orgId = subscription.metadata.keyway_org_id;
   if (!orgId) {
     // Not an org subscription
+    return;
+  }
+
+  // An old subscription's deletion must not downgrade an org another
+  // subscription still pays for.
+  if (await orgHasOtherEntitledSubscription(subscription, orgId)) {
+    logger.info(
+      { orgId, subscriptionId: subscription.id },
+      "Keeping organization plan: deleted subscription is not the org's only entitled one"
+    );
     return;
   }
 

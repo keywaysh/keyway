@@ -195,8 +195,10 @@ vi.mock('../../src/config', () => ({
   },
 }));
 
-// Mock state utils
-vi.mock('../../src/utils/state', () => ({
+// Mock state utils (the browser binding of the state is tested in integrations.security.test.ts)
+vi.mock('../../src/utils/state', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../src/utils/state')>()),
+  stateNonceMatches: vi.fn().mockReturnValue(true),
   signState: vi.fn().mockReturnValue('signed-state-token'),
   verifyState: vi.fn().mockReturnValue({
     type: 'provider_oauth',
@@ -426,6 +428,23 @@ describe('Integration Routes', () => {
       expect(body).toHaveProperty('meta');
       expect(body.data.projects).toBeInstanceOf(Array);
       expect(body.data.projects[0]).toHaveProperty('id', 'prj_123');
+    });
+  });
+
+  describe('vault access binding', () => {
+    it("checks the caller's role against the vault's immutable repo id", async () => {
+      const { db } = await import('../../src/db');
+      const { getUserRoleWithApp } = await import('../../src/utils/github');
+      (db.query.vaults.findFirst as any).mockResolvedValueOnce({ ...mockVault, forgeRepoId: '777' });
+
+      await app.inject({
+        method: 'GET',
+        url: '/v1/integrations/vaults/testuser/test-repo/sync/status?connectionId=11111111-1111-4111-8111-111111111111&projectId=p1',
+      });
+
+      expect(getUserRoleWithApp).toHaveBeenCalledWith('testuser/test-repo', mockUser.username, {
+        expectedRepoId: '777',
+      });
     });
   });
 

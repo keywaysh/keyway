@@ -11,12 +11,16 @@ import { apiKeysRoutes } from "./routes/api-keys.routes";
 import { organizationsRoutes } from "./routes/organizations.routes";
 import { permissionOverridesRoutes } from "./routes/permission-overrides.routes";
 import { exposureRoutes } from "./routes/exposure.routes";
+import { validateRepoInput } from "../../middleware/repoInput";
 
 /**
  * API v1 Router
  * All routes are prefixed with /v1
  */
 export async function apiV1Routes(fastify: FastifyInstance) {
+  // Reject crafted owner/repo/org/user names before any route sees them
+  fastify.addHook("preValidation", validateRepoInput);
+
   // Register route modules
   fastify.register(authRoutes, { prefix: "/auth" });
   fastify.register(usersRoutes, { prefix: "/users" });

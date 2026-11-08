@@ -159,7 +159,7 @@ describe('Exposure Routes Authorization', () => {
       };
       vi.mocked(getSecretAccessHistory).mockResolvedValue(mockHistory);
 
-      const result = await getSecretAccessHistory('secret-123');
+      const result = await getSecretAccessHistory('secret-123', 'vault-123');
 
       expect(result.accesses).toHaveLength(1);
       expect(result.total).toBe(1);

@@ -59,10 +59,17 @@ GET /v1/integrations/connections
 ### Connect Provider
 
 ```http
-GET /v1/integrations/:provider/authorize
+POST /v1/integrations/:provider/authorize-ticket
+Authorization: Bearer <token>
 ```
 
-Redirects to provider OAuth.
+Returns `{ url, expiresIn }`. Open `url` in the browser that will complete the provider OAuth: it carries a single-use ticket valid for 10 minutes, never your token. The flow only starts in a browser signed in to Keyway as the same user (you are sent through the GitHub sign-in first if needed).
+
+```http
+GET /v1/integrations/:provider/authorize?ticket=...
+```
+
+Redirects to provider OAuth. The flow is bound to the browser that opened it, so the callback must complete in that same browser.
 
 ### List Projects
 

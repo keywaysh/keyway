@@ -1,6 +1,6 @@
 import * as Sentry from "@sentry/node";
 import { config } from "../config";
-import { withoutQueryParams } from "./logger";
+import { withoutQueryParams, redactUrl, redactQueryString, isSensitiveQueryParam } from "./logger";
 
 let isInitialized = false;
 
@@ -41,19 +41,12 @@ export function initSentry(): void {
         }
       }
 
-      return scrubQueryParams(event);
+      return scrubSensitiveRequestData(scrubQueryParams(event));
     },
 
-    // Sanitize sensitive data
+    // Sanitize sensitive data (headers, credentials in URLs)
     beforeSendTransaction(event) {
-      // Remove authorization headers from transaction data
-      if (event.request?.headers) {
-        const sanitizedHeaders = { ...event.request.headers };
-        delete sanitizedHeaders["authorization"];
-        delete sanitizedHeaders["cookie"];
-        event.request.headers = sanitizedHeaders;
-      }
-      return event;
+      return scrubSensitiveRequestData(event);
     },
   });
 
@@ -92,7 +85,7 @@ export function captureError(
     if (context?.requestId || context?.url || context?.method) {
       scope.setContext("request", {
         requestId: context.requestId,
-        url: context.url,
+        url: context.url ? redactUrl(context.url) : context.url,
         method: context.method,
       });
     }
@@ -123,7 +116,7 @@ export function setSentryRequestContext(
 
   Sentry.setContext("request", {
     requestId: request.id,
-    url: request.url,
+    url: redactUrl(request.url),
     method: request.method,
   });
 
@@ -148,6 +141,84 @@ export async function closeSentry(timeoutMs = 2000): Promise<void> {
 }
 
 export { Sentry };
+
+type QueryString = string | Record<string, string> | Array<[string, string]>;
+
+function redactQuery(query: QueryString): QueryString {
+  if (typeof query === "string") {
+    return redactQueryString(query);
+  }
+  if (Array.isArray(query)) {
+    return query.map(([name, value]): [string, string] => [
+      name,
+      isSensitiveQueryParam(name) ? "[REDACTED]" : value,
+    ]);
+  }
+  return Object.fromEntries(
+    Object.entries(query).map(([name, value]) => [
+      name,
+      isSensitiveQueryParam(name) ? "[REDACTED]" : value,
+    ])
+  );
+}
+
+/** Redacts every string value of a flat record (span data, breadcrumb data, contexts). */
+function redactUrlsIn(data: Record<string, unknown> | undefined): void {
+  if (!data) {
+    return;
+  }
+  for (const [key, value] of Object.entries(data)) {
+    if (typeof value === "string") {
+      data[key] = redactUrl(value);
+    }
+  }
+}
+
+/**
+ * Removes credentials from what Sentry records about the incoming request: session
+ * headers and cookies, and token / ticket / OAuth code / state in URLs and query strings
+ * (request data, our "request" context, transaction name, span and breadcrumb data).
+ */
+export function scrubSensitiveRequestData<T extends Sentry.Event>(event: T): T {
+  if (event.transaction) {
+    event.transaction = redactUrl(event.transaction);
+  }
+
+  const request = event.request;
+  if (request) {
+    if (request.url) {
+      request.url = redactUrl(request.url);
+    }
+    if (request.query_string) {
+      request.query_string = redactQuery(request.query_string as QueryString);
+    }
+    if (request.headers) {
+      const headers = { ...request.headers };
+      delete headers["authorization"];
+      delete headers["cookie"];
+      request.headers = headers;
+    }
+    delete request.cookies;
+  }
+
+  for (const context of Object.values(event.contexts ?? {})) {
+    if (context && typeof context === "object") {
+      redactUrlsIn(context as Record<string, unknown>);
+      redactUrlsIn((context as { data?: Record<string, unknown> }).data);
+    }
+  }
+  for (const span of event.spans ?? []) {
+    redactUrlsIn(span.data as Record<string, unknown> | undefined);
+    if (span.description) {
+      span.description = redactUrl(span.description);
+    }
+  }
+  for (const breadcrumb of event.breadcrumbs ?? []) {
+    redactUrlsIn(breadcrumb.data);
+  }
+
+  return event;
+}
 
 /** Removes the bound values of a failed query from an error event. */
 export function scrubQueryParams(event: Sentry.ErrorEvent): Sentry.ErrorEvent {

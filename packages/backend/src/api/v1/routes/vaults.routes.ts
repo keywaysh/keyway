@@ -27,11 +27,13 @@ import {
   getVaultPermissions,
   getDefaultPermission,
   requireEnvironmentPermission,
+  resolveEffectivePermissions,
   inferEnvironmentType,
 } from "../../../utils/permissions";
 import { getOrThrowUser, getUserFromVcsUser, type VcsUser } from "../../../utils/user-lookup";
 import type { CollaboratorRole } from "../../../db/schema";
 import {
+  ApiError,
   sendData,
   sendPaginatedData,
   sendCreated,
@@ -52,6 +54,7 @@ import {
   touchVault,
   getSecretsForVault,
   getSecretsCount,
+  getSecretEnvironments,
   upsertSecret,
   updateSecret,
   secretExists,
@@ -135,13 +138,6 @@ const PatchSecretSchema = z
     message: "At least one of name or value must be provided",
   });
 
-const EnvironmentPermissionsSchema = z.object({
-  permissions: z.object({
-    read: z.enum(["read", "triage", "write", "maintain", "admin"]),
-    write: z.enum(["read", "triage", "write", "maintain", "admin"]),
-  }),
-});
-
 // Environment name validation: lowercase, alphanumeric + dash/underscore, 2-30 chars
 const environmentNameSchema = z
   .string()
@@ -176,6 +172,22 @@ const UpdateEnvironmentTypeSchema = z.object({
  * PATCH  /v1/vaults/:owner/:repo/secrets/:secretId - Update secret
  * DELETE /v1/vaults/:owner/:repo/secrets/:secretId - Delete secret
  */
+/**
+ * Environments holding secrets (active or trashed) that this user may read.
+ * Listings only show keys from these: key names of a protected environment
+ * are not for roles that cannot read it.
+ */
+async function getReadableEnvironments(
+  vaultId: string,
+  userId: string,
+  role: CollaboratorRole,
+  options: { trashed?: boolean } = {}
+): Promise<string[]> {
+  const environments = await getSecretEnvironments(vaultId, options);
+  const canRead = await resolveEffectivePermissions(vaultId, environments, userId, role, "read");
+  return environments.filter((env) => canRead[env]);
+}
+
 export async function vaultsRoutes(fastify: FastifyInstance) {
   /**
    * GET /
@@ -236,17 +248,21 @@ export async function vaultsRoutes(fastify: FastifyInstance) {
         );
       }
 
+      // Store GitHub's canonical name, never the caller's casing or an old name that
+      // redirects: exact-name lookups (pull, push, role checks) must find this vault.
+      const repoFullName = repoInfo.fullName ?? body.repoFullName;
+
       // Get user from database - must exist from auth flow
       const user = await getOrThrowUser(vcsUser);
 
       // Check if repo owner is an organization and ensure it exists in DB
-      const repoOwner = body.repoFullName.split("/")[0];
+      const repoOwner = repoFullName.split("/")[0];
       let org = null;
       let trialEligibility = null;
 
       if (repoInfo.isOrganization) {
         // Get installation token for this repo to fetch org info
-        const installToken = await getTokenForRepo(repoOwner, body.repoFullName.split("/")[1]);
+        const installToken = await getTokenForRepo(repoOwner, repoFullName.split("/")[1]);
 
         // Resolve the caller's true GitHub org role before granting any
         // Keyway org membership. requireAdminAccess gates this route on
@@ -309,10 +325,20 @@ export async function vaultsRoutes(fastify: FastifyInstance) {
 
       // Check if vault already exists (by name or by forge repo ID after rename)
       const existingVault = await db.query.vaults.findFirst({
-        where: eq(vaults.repoFullName, body.repoFullName),
+        where: eq(vaults.repoFullName, repoFullName),
       });
 
       if (existingVault) {
+        if (
+          existingVault.forgeRepoId &&
+          repoInfo.repoId &&
+          existingVault.forgeRepoId !== repoInfo.repoId
+        ) {
+          throw new ConflictError(
+            `A vault created for a previous repository named ${repoFullName} still exists. ` +
+              "Its owner must delete it before a vault can be created for this repository."
+          );
+        }
         throw new ConflictError("Vault already exists for this repository");
       }
 
@@ -325,11 +351,11 @@ export async function vaultsRoutes(fastify: FastifyInstance) {
         });
 
         if (existingByRepoId) {
-          // Self-heal the stale name
-          if (existingByRepoId.repoFullName !== body.repoFullName) {
+          // Self-heal the stale name (canonical name only)
+          if (existingByRepoId.repoFullName !== repoFullName) {
             await db
               .update(vaults)
-              .set({ repoFullName: body.repoFullName, updatedAt: new Date() })
+              .set({ repoFullName, updatedAt: new Date() })
               .where(eq(vaults.id, existingByRepoId.id));
           }
           throw new ConflictError("Vault already exists for this repository");
@@ -340,7 +366,7 @@ export async function vaultsRoutes(fastify: FastifyInstance) {
       const [vault] = await db
         .insert(vaults)
         .values({
-          repoFullName: body.repoFullName,
+          repoFullName,
           forgeRepoId: repoInfo.repoId,
           ownerId: user.id,
           orgId: org?.id ?? null,
@@ -362,7 +388,7 @@ export async function vaultsRoutes(fastify: FastifyInstance) {
       await computeUserUsage(user.id);
 
       trackEvent(user.id, AnalyticsEvents.VAULT_INITIALIZED, {
-        repoFullName: body.repoFullName,
+        repoFullName,
         isPrivate: repoInfo.isPrivate,
       });
 
@@ -371,13 +397,13 @@ export async function vaultsRoutes(fastify: FastifyInstance) {
         action: "vault_created",
         platform: detectPlatform(request),
         vaultId: vault.id,
-        metadata: { repoFullName: body.repoFullName, isPrivate: repoInfo.isPrivate },
+        metadata: { repoFullName, isPrivate: repoInfo.isPrivate },
         ...extractRequestInfo(request),
       });
 
       fastify.log.info(
         {
-          repoFullName: body.repoFullName,
+          repoFullName,
           userId: user.id,
           vaultId: vault.id,
           isPrivate: repoInfo.isPrivate,
@@ -530,17 +556,23 @@ export async function vaultsRoutes(fastify: FastifyInstance) {
         throw new NotFoundError("Vault not found");
       }
 
-      const role = await getUserRoleWithApp(vault.repoFullName, vcsUser.username);
+      const role = await getUserRoleWithApp(vault.repoFullName, vcsUser.username, {
+        expectedRepoId: vault.forgeRepoId,
+      });
       if (!role) {
         throw new ForbiddenError("You do not have access to this vault");
       }
 
+      const user = await getOrThrowUser(vcsUser);
+      const environments = await getReadableEnvironments(vault.id, user.id, role);
+
       // Get total count and paginated secrets efficiently
       const [totalCount, paginatedSecrets] = await Promise.all([
-        getSecretsCount(vault.id),
+        getSecretsCount(vault.id, { environments }),
         getSecretsForVault(vault.id, {
           limit: pagination.limit,
           offset: pagination.offset,
+          environments,
         }),
       ]);
 
@@ -577,7 +609,9 @@ export async function vaultsRoutes(fastify: FastifyInstance) {
       const user = await getOrThrowUser(vcsUser);
 
       // Check GitHub role using GitHub App
-      const role = await getUserRoleWithApp(vault.repoFullName, vcsUser.username);
+      const role = await getUserRoleWithApp(vault.repoFullName, vcsUser.username, {
+        expectedRepoId: vault.forgeRepoId,
+      });
       if (!role) {
         throw new ForbiddenError("You do not have access to this vault");
       }
@@ -664,7 +698,9 @@ export async function vaultsRoutes(fastify: FastifyInstance) {
       const user = await getOrThrowUser(vcsUser);
 
       // Check GitHub role using GitHub App
-      const role = await getUserRoleWithApp(vault.repoFullName, vcsUser.username);
+      const role = await getUserRoleWithApp(vault.repoFullName, vcsUser.username, {
+        expectedRepoId: vault.forgeRepoId,
+      });
       if (!role) {
         throw new ForbiddenError("You do not have access to this vault");
       }
@@ -741,7 +777,9 @@ export async function vaultsRoutes(fastify: FastifyInstance) {
       const user = await getOrThrowUser(vcsUser);
 
       // Check GitHub role using GitHub App
-      const role = await getUserRoleWithApp(vault.repoFullName, vcsUser.username);
+      const role = await getUserRoleWithApp(vault.repoFullName, vcsUser.username, {
+        expectedRepoId: vault.forgeRepoId,
+      });
       if (!role) {
         throw new ForbiddenError("You do not have access to this vault");
       }
@@ -837,7 +875,9 @@ export async function vaultsRoutes(fastify: FastifyInstance) {
       const user = await getOrThrowUser(vcsUser);
 
       // Check GitHub role using GitHub App
-      const role = await getUserRoleWithApp(vault.repoFullName, vcsUser.username);
+      const role = await getUserRoleWithApp(vault.repoFullName, vcsUser.username, {
+        expectedRepoId: vault.forgeRepoId,
+      });
       if (!role) {
         throw new ForbiddenError("You do not have access to this vault");
       }
@@ -933,7 +973,9 @@ export async function vaultsRoutes(fastify: FastifyInstance) {
         throw new NotFoundError("Vault not found");
       }
 
-      const role = await getUserRoleWithApp(vault.repoFullName, vcsUser.username);
+      const role = await getUserRoleWithApp(vault.repoFullName, vcsUser.username, {
+        expectedRepoId: vault.forgeRepoId,
+      });
       if (!role) {
         throw new ForbiddenError("You do not have access to this vault");
       }
@@ -989,7 +1031,9 @@ export async function vaultsRoutes(fastify: FastifyInstance) {
       // Get user from database first (needed for permission resolution)
       const user = await getOrThrowUser(vcsUser);
 
-      const role = await getUserRoleWithApp(vault.repoFullName, vcsUser.username);
+      const role = await getUserRoleWithApp(vault.repoFullName, vcsUser.username, {
+        expectedRepoId: vault.forgeRepoId,
+      });
       if (!role) {
         throw new ForbiddenError("You do not have access to this vault");
       }
@@ -1056,7 +1100,9 @@ export async function vaultsRoutes(fastify: FastifyInstance) {
       const user = await getOrThrowUser(vcsUser);
 
       // Check GitHub role
-      const role = await getUserRoleWithApp(vault.repoFullName, vcsUser.username);
+      const role = await getUserRoleWithApp(vault.repoFullName, vcsUser.username, {
+        expectedRepoId: vault.forgeRepoId,
+      });
       if (!role) {
         throw new ForbiddenError("You do not have access to this vault");
       }
@@ -1135,16 +1181,24 @@ export async function vaultsRoutes(fastify: FastifyInstance) {
         throw new NotFoundError("Vault not found");
       }
 
-      const role = await getUserRoleWithApp(vault.repoFullName, vcsUser.username);
+      const role = await getUserRoleWithApp(vault.repoFullName, vcsUser.username, {
+        expectedRepoId: vault.forgeRepoId,
+      });
       if (!role) {
         throw new ForbiddenError("You do not have access to this vault");
       }
 
+      const user = await getOrThrowUser(vcsUser);
+      const environments = await getReadableEnvironments(vault.id, user.id, role, {
+        trashed: true,
+      });
+
       const [totalCount, trashedSecrets] = await Promise.all([
-        getTrashedSecretsCount(vault.id),
+        getTrashedSecretsCount(vault.id, { environments }),
         getTrashedSecrets(vault.id, {
           limit: pagination.limit,
           offset: pagination.offset,
+          environments,
         }),
       ]);
 
@@ -1180,7 +1234,9 @@ export async function vaultsRoutes(fastify: FastifyInstance) {
       const user = await getOrThrowUser(vcsUser);
 
       // Check GitHub role
-      const role = await getUserRoleWithApp(vault.repoFullName, vcsUser.username);
+      const role = await getUserRoleWithApp(vault.repoFullName, vcsUser.username, {
+        expectedRepoId: vault.forgeRepoId,
+      });
       if (!role) {
         throw new ForbiddenError("You do not have access to this vault");
       }
@@ -1269,7 +1325,9 @@ export async function vaultsRoutes(fastify: FastifyInstance) {
       const user = await getOrThrowUser(vcsUser);
 
       // Check GitHub role
-      const role = await getUserRoleWithApp(vault.repoFullName, vcsUser.username);
+      const role = await getUserRoleWithApp(vault.repoFullName, vcsUser.username, {
+        expectedRepoId: vault.forgeRepoId,
+      });
       if (!role) {
         throw new ForbiddenError("You do not have access to this vault");
       }
@@ -1337,7 +1395,9 @@ export async function vaultsRoutes(fastify: FastifyInstance) {
 
       // Check GitHub role - require admin for bulk trash operations
       // This is because emptying trash affects multiple environments
-      const role = await getUserRoleWithApp(vault.repoFullName, vcsUser.username);
+      const role = await getUserRoleWithApp(vault.repoFullName, vcsUser.username, {
+        expectedRepoId: vault.forgeRepoId,
+      });
       if (!role) {
         throw new ForbiddenError("You do not have access to this vault");
       }
@@ -1404,7 +1464,9 @@ export async function vaultsRoutes(fastify: FastifyInstance) {
         throw new NotFoundError("Vault not found");
       }
 
-      const role = await getUserRoleWithApp(vault.repoFullName, vcsUser.username);
+      const role = await getUserRoleWithApp(vault.repoFullName, vcsUser.username, {
+        expectedRepoId: vault.forgeRepoId,
+      });
       if (!role) {
         throw new ForbiddenError("You do not have access to this vault");
       }
@@ -1814,7 +1876,9 @@ export async function vaultsRoutes(fastify: FastifyInstance) {
         throw new NotFoundError("Vault not found");
       }
 
-      const role = await getUserRoleWithApp(vault.repoFullName, vcsUser.username);
+      const role = await getUserRoleWithApp(vault.repoFullName, vcsUser.username, {
+        expectedRepoId: vault.forgeRepoId,
+      });
       if (!role) {
         throw new ForbiddenError("You do not have access to this vault");
       }
@@ -1835,64 +1899,24 @@ export async function vaultsRoutes(fastify: FastifyInstance) {
 
   /**
    * PUT /:owner/:repo/permissions/:env
-   * Set custom permissions for an environment (admin only)
+   * Legacy per-environment minimum roles. Access checks resolve permissions through
+   * overrides, org defaults and environment types, never through this table, so
+   * accepting a rule here would tell admins an environment is restricted when it isn't.
    */
   fastify.put(
     "/:owner/:repo/permissions/:env",
     {
       preHandler: [authenticateGitHub, requireApiKeyScope("write:secrets"), requireAdminAccess],
     },
-    async (request, reply) => {
-      const params = request.params as { owner: string; repo: string; env: string };
-      const repoFullName = `${params.owner}/${params.repo}`;
-      const environment = params.env;
-      const body = EnvironmentPermissionsSchema.parse(request.body);
-
-      const vault = await getVaultByRepoInternal(repoFullName);
-      if (!vault) {
-        throw new NotFoundError("Vault not found");
-      }
-
-      // Delete existing custom permissions for this environment
-      await db
-        .delete(environmentPermissions)
-        .where(
-          and(
-            eq(environmentPermissions.vaultId, vault.id),
-            eq(environmentPermissions.environment, environment)
-          )
-        );
-
-      // Insert new custom permissions
-      await db.insert(environmentPermissions).values([
-        {
-          vaultId: vault.id,
-          environment,
-          permissionType: "read",
-          minRole: body.permissions.read as CollaboratorRole,
-        },
-        {
-          vaultId: vault.id,
-          environment,
-          permissionType: "write",
-          minRole: body.permissions.write as CollaboratorRole,
-        },
-      ]);
-
-      fastify.log.info(
-        { repoFullName, environment, permissions: body.permissions },
-        "Custom permissions set"
-      );
-
-      return sendData(
-        reply,
-        {
-          success: true,
-          message: `Custom permissions set for environment: ${environment}`,
-          permissions: body.permissions,
-        },
-        { requestId: request.id }
-      );
+    async () => {
+      throw new ApiError({
+        type: "gone",
+        title: "Gone",
+        status: 410,
+        detail:
+          "Per-environment rules are managed with permission overrides: " +
+          "POST /v1/vaults/:owner/:repo/permissions/overrides",
+      });
     }
   );
 
@@ -1968,7 +1992,9 @@ export async function vaultsRoutes(fastify: FastifyInstance) {
         throw new NotFoundError("Vault not found");
       }
 
-      const role = await getUserRoleWithApp(vault.repoFullName, vcsUser.username);
+      const role = await getUserRoleWithApp(vault.repoFullName, vcsUser.username, {
+        expectedRepoId: vault.forgeRepoId,
+      });
       if (!role) {
         throw new ForbiddenError("You do not have access to this vault");
       }

@@ -182,7 +182,7 @@ export async function getVaultsForUser(
       let permission: string | null = null;
       let warning: VaultListItem["warning"];
       try {
-        permission = await getUserRoleWithApp(vault.repoFullName, username);
+        permission = await getUserRoleWithApp(vault.repoFullName, username, { expectedRepoId: vault.forgeRepoId });
       } catch (err) {
         logger.warn({ repo: vault.repoFullName, err }, "Failed to check repo access — repo may have been deleted");
         warning = "repo_inaccessible";
@@ -251,14 +251,19 @@ export async function getVaultsForUser(
 
 /**
  * Try to find a vault by its forge repo ID (fallback for repo renames).
- * If found, self-heal by updating repoFullName to the current name.
+ * If found, self-heal by updating repoFullName to the repo's canonical name.
+ *
+ * This runs before any access check, so the stored name may only ever become
+ * GitHub's canonical full_name — never the string the caller supplied (an alias,
+ * a different casing or a crafted path would otherwise rename someone's vault).
  */
 async function findVaultByForgeRepoId(repoFullName: string) {
   try {
     const repoInfo = await getRepoInfoWithApp(repoFullName);
-    if (!repoInfo?.repoId) {
+    if (!repoInfo?.repoId || !repoInfo.fullName) {
       return null;
     }
+    const canonicalName = repoInfo.fullName;
 
     const vault = await db.query.vaults.findFirst({
       where: and(eq(vaults.forgeRepoId, repoInfo.repoId), eq(vaults.forgeType, "github")),
@@ -267,38 +272,22 @@ async function findVaultByForgeRepoId(repoFullName: string) {
       return null;
     }
 
-    // Self-heal: update the stored name to the current one
-    await db
-      .update(vaults)
-      .set({ repoFullName, updatedAt: new Date() })
-      .where(eq(vaults.id, vault.id));
+    if (vault.repoFullName !== canonicalName) {
+      await db
+        .update(vaults)
+        .set({ repoFullName: canonicalName, updatedAt: new Date() })
+        .where(eq(vaults.id, vault.id));
 
-    logger.info(
-      { vaultId: vault.id, oldName: vault.repoFullName, newName: repoFullName },
-      "Vault repoFullName self-healed after repo rename"
-    );
+      logger.info(
+        { vaultId: vault.id, oldName: vault.repoFullName, newName: canonicalName },
+        "Vault repoFullName self-healed after repo rename"
+      );
+    }
 
-    return { ...vault, repoFullName };
+    return { ...vault, repoFullName: canonicalName };
   } catch (error) {
     logger.warn({ error, repoFullName }, "Failed to resolve vault by forge repo ID");
     return null;
-  }
-}
-
-/**
- * Backfill forgeRepoId for a vault that was created before this column existed.
- */
-async function backfillForgeRepoId(vaultId: string, repoFullName: string) {
-  try {
-    const repoInfo = await getRepoInfoWithApp(repoFullName);
-    if (repoInfo?.repoId) {
-      await db
-        .update(vaults)
-        .set({ forgeRepoId: repoInfo.repoId })
-        .where(eq(vaults.id, vaultId));
-    }
-  } catch {
-    // Best-effort, don't block the request
   }
 }
 
@@ -340,16 +329,11 @@ export async function getVaultByRepo(
     }
   }
 
-  // Lazy backfill forgeRepoId for pre-existing vaults
-  if (!vault.forgeRepoId) {
-    void backfillForgeRepoId(vault.id, vault.repoFullName).catch(() => {});
-  }
-
   // Check user's role using GitHub App token
   let role: string | null = null;
   let warning: VaultDetails["warning"];
   try {
-    role = await getUserRoleWithApp(vault.repoFullName, username);
+    role = await getUserRoleWithApp(vault.repoFullName, username, { expectedRepoId: vault.forgeRepoId });
   } catch (err) {
     if (
       err instanceof ForbiddenError &&
@@ -446,10 +430,6 @@ export async function getVaultByRepoInternal(repoFullName: string) {
   });
 
   if (vault) {
-    // Lazy backfill forgeRepoId for pre-existing vaults
-    if (!vault.forgeRepoId) {
-      void backfillForgeRepoId(vault.id, vault.repoFullName).catch(() => {});
-    }
     return vault;
   }
 

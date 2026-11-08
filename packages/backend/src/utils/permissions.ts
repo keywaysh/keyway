@@ -1,12 +1,15 @@
 import { db } from "../db";
-import { environmentPermissions, vaults, vaultEnvironments } from "../db/schema";
+import { vaults, vaultEnvironments } from "../db/schema";
 import { eq, and } from "drizzle-orm";
 import type {
   CollaboratorRole,
   PermissionType,
   EnvironmentType as DbEnvironmentType,
 } from "../db/schema";
-import { findApplicableOverride } from "../services/permission-override.service";
+import {
+  getCandidateOverrides,
+  pickApplicableOverride,
+} from "../services/permission-override.service";
 import { ForbiddenError } from "../lib";
 
 // ============================================================================
@@ -240,25 +243,73 @@ export async function resolveEffectivePermission(
   userRole: CollaboratorRole,
   permissionType: PermissionType
 ): Promise<boolean> {
-  // 1. Check for applicable override
-  const override = await findApplicableOverride(vaultId, environment, userId, userRole);
+  const context = await loadPermissionContext(vaultId, userId, userRole);
+  return evaluatePermission(context, environment, userId, userRole, permissionType);
+}
+
+/**
+ * Same rules as resolveEffectivePermission for many environments at once, with a
+ * fixed number of queries (listings filter on every environment of a vault).
+ */
+export async function resolveEffectivePermissions(
+  vaultId: string,
+  environments: string[],
+  userId: string,
+  userRole: CollaboratorRole,
+  permissionType: PermissionType
+): Promise<Record<string, boolean>> {
+  const context = await loadPermissionContext(vaultId, userId, userRole);
+  return Object.fromEntries(
+    environments.map((env) => [
+      env,
+      evaluatePermission(context, env, userId, userRole, permissionType),
+    ])
+  );
+}
+
+interface PermissionContext {
+  overrides: Awaited<ReturnType<typeof getCandidateOverrides>>;
+  storedTypes: Map<string, EnvironmentType>;
+  orgDefaultPermissions: unknown;
+}
+
+async function loadPermissionContext(
+  vaultId: string,
+  userId: string,
+  userRole: CollaboratorRole
+): Promise<PermissionContext> {
+  const [overrides, environments, vault] = await Promise.all([
+    getCandidateOverrides(vaultId, userId, userRole),
+    db.query.vaultEnvironments.findMany({ where: eq(vaultEnvironments.vaultId, vaultId) }),
+    db.query.vaults.findFirst({ where: eq(vaults.id, vaultId), with: { organization: true } }),
+  ]);
+  return {
+    overrides,
+    storedTypes: new Map(environments.map((env) => [env.name, env.type])),
+    orgDefaultPermissions: vault?.organization?.defaultPermissions ?? null,
+  };
+}
+
+function evaluatePermission(
+  context: PermissionContext,
+  environment: string,
+  userId: string,
+  userRole: CollaboratorRole,
+  permissionType: PermissionType
+): boolean {
+  // 1. Applicable override
+  const override = pickApplicableOverride(context.overrides, environment, userId, userRole);
   if (override) {
     return permissionType === "read" ? override.canRead : override.canWrite;
   }
 
-  // Get environment type (explicit from DB or inferred from name)
-  const { type: envType } = await getStoredEnvironmentType(vaultId, environment);
+  // Environment type: explicit from DB, or inferred from the name
+  const envType = context.storedTypes.get(environment) ?? inferEnvironmentType(environment);
 
-  // 2. Check for org-level default permissions
-  const vault = await db.query.vaults.findFirst({
-    where: eq(vaults.id, vaultId),
-    with: { organization: true },
-  });
-
-  if (vault?.organization?.defaultPermissions) {
-    // Safely extract permission from JSONB with type validation
+  // 2. Org-level default permissions
+  if (context.orgDefaultPermissions) {
     const permission = getOrgDefaultPermission(
-      vault.organization.defaultPermissions,
+      context.orgDefaultPermissions,
       userRole,
       envType,
       permissionType
@@ -268,7 +319,7 @@ export async function resolveEffectivePermission(
     }
   }
 
-  // 3. Fall back to global defaults
+  // 3. Global defaults
   const defaults = DEFAULT_ROLE_PERMISSIONS[userRole][envType];
   return permissionType === "read" ? defaults.read : defaults.write;
 }
@@ -276,44 +327,6 @@ export async function resolveEffectivePermission(
 // ============================================================================
 // Legacy Functions (for backwards compatibility)
 // ============================================================================
-
-/**
- * Check if user has permission to perform an action on an environment
- *
- * @deprecated Use resolveEffectivePermission for new code
- *
- * This function maintains backwards compatibility with the old system
- * that uses environment_permissions table (per-vault/env custom roles)
- */
-export async function hasEnvironmentPermission(
-  vaultId: string,
-  environment: string,
-  userRole: CollaboratorRole,
-  permissionType: PermissionType
-): Promise<boolean> {
-  // First, check if there are custom permissions in the old table
-  const customPermissions = await db
-    .select()
-    .from(environmentPermissions)
-    .where(
-      and(
-        eq(environmentPermissions.vaultId, vaultId),
-        eq(environmentPermissions.environment, environment),
-        eq(environmentPermissions.permissionType, permissionType)
-      )
-    );
-
-  // If custom permission exists in old table, use it
-  if (customPermissions.length > 0) {
-    const requiredRole = customPermissions[0].minRole;
-    return roleHasLevel(userRole, requiredRole);
-  }
-
-  // Otherwise, use the new role-based defaults
-  const envType = getEnvironmentType(environment);
-  const defaults = DEFAULT_ROLE_PERMISSIONS[userRole][envType];
-  return permissionType === "read" ? defaults.read : defaults.write;
-}
 
 /**
  * Get the default minimum role required for an environment/permission
@@ -332,22 +345,12 @@ export function getDefaultPermission(
 /**
  * Get all permission rules for a vault (custom + defaults for common environments)
  */
-export async function getVaultPermissions(vaultId: string) {
-  // Get custom permissions from old table
-  const custom = await db
-    .select()
-    .from(environmentPermissions)
-    .where(eq(environmentPermissions.vaultId, vaultId));
-
-  // Return custom permissions with environment type classification
-  const customWithDefaults = custom.map((perm) => ({
-    ...perm,
-    isCustom: true,
-    environmentType: getEnvironmentType(perm.environment),
-  }));
-
+export async function getVaultPermissions(_vaultId: string) {
+  // Legacy environment_permissions rows are never applied by access checks
+  // (resolveEffectivePermission uses overrides, org defaults and environment types),
+  // so they must not be listed as active rules. Custom rules are permission overrides.
   return {
-    custom: customWithDefaults,
+    custom: [] as never[],
     defaults: LEGACY_DEFAULT_PERMISSIONS,
     roleDefaults: DEFAULT_ROLE_PERMISSIONS,
   };
@@ -367,17 +370,16 @@ export async function getEffectivePermissionsForUser(
   userRole: CollaboratorRole,
   environments: string[]
 ): Promise<Record<string, { read: boolean; write: boolean }>> {
-  const result: Record<string, { read: boolean; write: boolean }> = {};
-
-  for (const env of environments) {
-    const [canRead, canWrite] = await Promise.all([
-      resolveEffectivePermission(vaultId, env, userId, userRole, "read"),
-      resolveEffectivePermission(vaultId, env, userId, userRole, "write"),
-    ]);
-    result[env] = { read: canRead, write: canWrite };
-  }
-
-  return result;
+  const context = await loadPermissionContext(vaultId, userId, userRole);
+  return Object.fromEntries(
+    environments.map((env) => [
+      env,
+      {
+        read: evaluatePermission(context, env, userId, userRole, "read"),
+        write: evaluatePermission(context, env, userId, userRole, "write"),
+      },
+    ])
+  );
 }
 
 /**

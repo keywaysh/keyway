@@ -226,8 +226,8 @@ func (m *MockAPIClient) GetConnections(ctx context.Context) ([]api.Connection, e
 func (m *MockAPIClient) DeleteConnection(ctx context.Context, connectionID string) error {
 	return nil
 }
-func (m *MockAPIClient) GetProviderAuthURL(provider string) string {
-	return ""
+func (m *MockAPIClient) CreateProviderAuthURL(ctx context.Context, provider string) (string, error) {
+	return "", nil
 }
 func (m *MockAPIClient) ConnectWithToken(ctx context.Context, provider, providerToken string) (*api.ConnectTokenResponse, error) {
 	return nil, nil

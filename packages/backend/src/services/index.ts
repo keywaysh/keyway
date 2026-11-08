@@ -15,6 +15,7 @@ export {
 export {
   getSecretsForVault,
   getSecretsCount,
+  getSecretEnvironments,
   upsertSecret,
   updateSecret,
   getSecretById,

@@ -14,6 +14,8 @@ vi.mock('../src/services/github-app.service', () => ({
 describe('GitHub Utils', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // Drop queued mockResolvedValueOnce values so one test can't leak into the next
+    mockFetch.mockReset();
   });
 
   afterEach(() => {
@@ -230,33 +232,48 @@ describe('GitHub Utils', () => {
       expect(result).toBe('admin');
     });
 
-    it('should return admin when repo owner matches URL owner', async () => {
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          owner: { login: 'someorg' },
-          permissions: { admin: false, push: true, pull: true },
-        }),
-      });
+    it('does not grant admin just because the requested owner segment equals the username', async () => {
+      // GitHub answered for a repo owned by someone else (e.g. after a redirect):
+      // only the canonical owner from the API response may count as "owner".
+      mockFetch
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({
+            id: 1,
+            full_name: 'victim-org/api',
+            private: true,
+            owner: { login: 'victim-org', type: 'User' },
+          }),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({ permission: 'none', role_name: 'none' }),
+        });
 
-      // When username matches the owner part of repoFullName
-      const result = await getUserRole(accessToken, 'testuser/other-repo', 'testuser');
+      const result = await getUserRole(accessToken, 'testuser/api', 'testuser');
 
-      expect(result).toBe('admin');
+      expect(result).toBeNull();
     });
 
-    it('should return admin when permissions.admin is true', async () => {
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          owner: { login: 'someorg' },
-          permissions: { admin: true, push: true, pull: true },
-        }),
-      });
+    it('does not derive the user role from the token repo permissions', async () => {
+      // getUserRole runs with an installation token: repo.permissions describe the
+      // token, not `username`. The collaborator API is the source of truth.
+      mockFetch
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({
+            owner: { login: 'someorg' },
+            permissions: { admin: true, push: true, pull: true },
+          }),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({ permission: 'read', role_name: 'read' }),
+        });
 
       const result = await getUserRole(accessToken, 'someorg/test-repo', 'other-user');
 
-      expect(result).toBe('admin');
+      expect(result).toBe('read');
     });
 
     it('should return write when user has push permission', async () => {
@@ -281,13 +298,13 @@ describe('GitHub Utils', () => {
       expect(result).toBe('write');
     });
 
-    it('should return read when user only has pull permission', async () => {
+    it('returns null when the collaborator API fails (no fallback to token permissions)', async () => {
       mockFetch
         .mockResolvedValueOnce({
           ok: true,
           json: async () => ({
             owner: { login: 'someorg' },
-            permissions: { admin: false, push: false, pull: true },
+            permissions: { admin: false, push: true, pull: true },
           }),
         })
         .mockResolvedValueOnce({
@@ -298,7 +315,7 @@ describe('GitHub Utils', () => {
 
       const result = await getUserRole(accessToken, 'someorg/test-repo', 'reader');
 
-      expect(result).toBe('read');
+      expect(result).toBeNull();
     });
 
     it('should return null when user has no access', async () => {
@@ -461,6 +478,148 @@ describe('GitHub Utils', () => {
       const result = await getUserRole(accessToken, 'otheruser/repo', 'reader');
 
       expect(result).toBe('read');
+    });
+  });
+
+  describe('getUserRole — authorization hardening', () => {
+    const token = 'ghs_installation_token';
+    const repoResponse = (data: Record<string, unknown>) => ({ ok: true, json: async () => data });
+    const permissionResponse = (role: string) => ({
+      ok: true,
+      json: async () => ({ permission: role, role_name: role }),
+    });
+
+    it('rejects repo names that are not exactly owner/name with safe characters', async () => {
+      const crafted = [
+        'attacker/..\\victim-org\\api',
+        'attacker/../victim-org/api',
+        'attacker/..%2Fvictim-org%2Fapi',
+        'a/b/c',
+        'a',
+        'a/..',
+        'a/.',
+        '/b',
+        'a/',
+        'a/b?x=1',
+        'a/b#frag',
+      ];
+      for (const name of crafted) {
+        expect(await getUserRole(token, name, 'attacker')).toBeNull();
+      }
+      expect(mockFetch).not.toHaveBeenCalled();
+    });
+
+    it('treats the implicit read GitHub reports on public repos as no access', async () => {
+      mockFetch
+        .mockResolvedValueOnce(
+          repoResponse({ id: 1, private: false, owner: { login: 'acme', type: 'User' } })
+        )
+        .mockResolvedValueOnce(permissionResponse('read'))
+        .mockResolvedValueOnce({ ok: false, status: 404, text: async () => '' });
+
+      expect(await getUserRole(token, 'acme/public-repo', 'stranger')).toBeNull();
+      expect(mockFetch.mock.calls[2][0]).toBe(
+        'https://api.github.com/repos/acme/public-repo/collaborators/stranger'
+      );
+    });
+
+    it('keeps read for an actual collaborator on a public repo', async () => {
+      mockFetch
+        .mockResolvedValueOnce(
+          repoResponse({ id: 1, private: false, owner: { login: 'acme', type: 'User' } })
+        )
+        .mockResolvedValueOnce(permissionResponse('read'))
+        .mockResolvedValueOnce({ ok: true, status: 204, text: async () => '' });
+
+      expect(await getUserRole(token, 'acme/public-repo', 'reader')).toBe('read');
+    });
+
+    it('evaluates org ownership and collaborators on the canonical repo after a redirect', async () => {
+      mockFetch
+        .mockResolvedValueOnce(
+          repoResponse({
+            id: 1,
+            full_name: 'new-org/api',
+            name: 'api',
+            private: true,
+            owner: { login: 'new-org', type: 'Organization' },
+          })
+        )
+        .mockResolvedValueOnce({ ok: false, status: 404, text: async () => '' })
+        .mockResolvedValueOnce(permissionResponse('none'));
+
+      expect(await getUserRole(token, 'old-org/api', 'someone')).toBeNull();
+      expect(mockFetch.mock.calls[1][0]).toBe(
+        'https://api.github.com/orgs/new-org/memberships/someone'
+      );
+      expect(mockFetch.mock.calls[2][0]).toBe(
+        'https://api.github.com/repos/new-org/api/collaborators/someone/permission'
+      );
+    });
+
+    it('returns null when the repository id differs from the expected vault repo id', async () => {
+      mockFetch.mockResolvedValueOnce(
+        repoResponse({ id: 999, private: true, owner: { login: 'acme', type: 'User' } })
+      );
+
+      expect(await getUserRole(token, 'acme/api', 'acme', { expectedRepoId: '123' })).toBeNull();
+    });
+
+    it('still grants admin to the canonical owner when the repo id matches', async () => {
+      mockFetch.mockResolvedValueOnce(
+        repoResponse({ id: 123, private: true, owner: { login: 'acme', type: 'User' } })
+      );
+
+      expect(await getUserRole(token, 'acme/api', 'acme', { expectedRepoId: '123' })).toBe(
+        'admin'
+      );
+    });
+
+    it('grants nothing on a vault that is not bound to a repository id', async () => {
+      // expectedRepoId === null means "this vault exists but was never linked to a repo id"
+      expect(await getUserRole(token, 'acme/api', 'acme', { expectedRepoId: null })).toBeNull();
+      expect(mockFetch).not.toHaveBeenCalled();
+    });
+
+    it('getUserRoleWithApp refuses an unbound vault with an explicit error', async () => {
+      const { findInstallationForRepo } = await import('../src/services/github-app.service');
+      const { getUserRoleWithApp } = await import('../src/utils/github');
+
+      await expect(
+        getUserRoleWithApp('acme/api', 'acme', { expectedRepoId: null })
+      ).rejects.toThrow(/not linked to its GitHub repository/);
+      expect(findInstallationForRepo).not.toHaveBeenCalled();
+    });
+
+    it('getRepoInfo reports the canonical name and creation date', async () => {
+      const { getRepoInfo } = await import('../src/utils/github');
+      mockFetch.mockResolvedValueOnce(
+        repoResponse({
+          id: 7,
+          full_name: 'acme/api',
+          private: true,
+          created_at: '2024-01-02T03:04:05Z',
+          owner: { login: 'acme', type: 'Organization' },
+        })
+      );
+
+      expect(await getRepoInfo(token, 'acme/api')).toEqual({
+        repoId: '7',
+        fullName: 'acme/api',
+        createdAt: new Date('2024-01-02T03:04:05Z'),
+        isPrivate: true,
+        isOrganization: true,
+      });
+    });
+
+    it('getUserRoleWithApp refuses a crafted repo name before looking up an installation', async () => {
+      const { findInstallationForRepo } = await import('../src/services/github-app.service');
+      const { getUserRoleWithApp } = await import('../src/utils/github');
+
+      await expect(getUserRoleWithApp('attacker/..\\victim-org\\api', 'attacker')).rejects.toThrow(
+        /Invalid repository name/
+      );
+      expect(findInstallationForRepo).not.toHaveBeenCalled();
     });
   });
 

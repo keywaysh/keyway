@@ -124,7 +124,7 @@ make clean            # Clean build artifacts
 
 ## Key Patterns
 
-- **Authentication flow**: Device code flow (CLI starts, user approves in browser) or fine-grained PAT
+- **Authentication flow**: Device code flow (CLI starts, user approves in browser) or Keyway API key (`kw_live_…`). Raw GitHub tokens are never accepted as an identity
 - **Authorization**: All vault access verified via GitHub API collaborator checks
 - **Encryption**: Secrets encrypted at rest with AES-256-GCM via isolated crypto gRPC service
 - **Analytics**: PostHog for usage metrics; never tracks secret values, only metadata

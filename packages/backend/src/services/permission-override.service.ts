@@ -87,29 +87,40 @@ export async function createOverride(input: CreateOverrideInput): Promise<Permis
 }
 
 /**
- * Update an existing permission override
+ * WHERE clause for "this override, in this vault". Every by-id access is scoped
+ * to the vault from the URL so an admin of one vault can't reach another
+ * vault's overrides by UUID.
+ */
+function byIdInVault(overrideId: string, vaultId: string) {
+  return and(eq(permissionOverrides.id, overrideId), eq(permissionOverrides.vaultId, vaultId));
+}
+
+/**
+ * Update an existing permission override of a vault.
+ * Returns null when no override with this id exists in that vault.
  */
 export async function updateOverride(
   overrideId: string,
+  vaultId: string,
   updates: UpdateOverrideInput
-): Promise<PermissionOverride> {
+): Promise<PermissionOverride | null> {
   const [updated] = await db
     .update(permissionOverrides)
     .set({
       ...updates,
       updatedAt: new Date(),
     })
-    .where(eq(permissionOverrides.id, overrideId))
+    .where(byIdInVault(overrideId, vaultId))
     .returning();
 
-  return updated;
+  return updated ?? null;
 }
 
 /**
- * Delete a permission override
+ * Delete a permission override of a vault (no-op if it isn't in that vault)
  */
-export async function deleteOverride(overrideId: string): Promise<void> {
-  await db.delete(permissionOverrides).where(eq(permissionOverrides.id, overrideId));
+export async function deleteOverride(overrideId: string, vaultId: string): Promise<void> {
+  await db.delete(permissionOverrides).where(byIdInVault(overrideId, vaultId));
 }
 
 /**
@@ -137,11 +148,14 @@ export async function resetVaultOverrides(vaultId: string): Promise<void> {
 }
 
 /**
- * Get a single override by ID
+ * Get a single override by ID, only if it belongs to the given vault
  */
-export async function getOverrideById(overrideId: string): Promise<OverrideInfo | null> {
+export async function getOverrideById(
+  overrideId: string,
+  vaultId: string
+): Promise<OverrideInfo | null> {
   const override = await db.query.permissionOverrides.findFirst({
-    where: eq(permissionOverrides.id, overrideId),
+    where: byIdInVault(overrideId, vaultId),
     with: {
       targetUser: true,
       createdByUser: true,
@@ -198,8 +212,55 @@ export async function getOverridesForEnvironment(
 // ============================================================================
 
 /**
- * Find the most specific override for a user/role/environment combination
- * Priority: user-specific > role-specific > wildcard environment
+ * Overrides of a vault that can apply to this user (theirs, or their role's), all environments.
+ */
+export async function getCandidateOverrides(
+  vaultId: string,
+  userId: string,
+  userRole: CollaboratorRole
+): Promise<PermissionOverride[]> {
+  return db.query.permissionOverrides.findMany({
+    where: and(
+      eq(permissionOverrides.vaultId, vaultId),
+      or(
+        and(
+          eq(permissionOverrides.targetType, "user"),
+          eq(permissionOverrides.targetUserId, userId)
+        ),
+        and(
+          eq(permissionOverrides.targetType, "role"),
+          eq(permissionOverrides.targetRole, userRole)
+        )
+      )
+    ),
+  });
+}
+
+/**
+ * The override that applies, by precedence:
+ * user + exact environment > user + "*" > role + exact environment > role + "*".
+ */
+export function pickApplicableOverride<
+  T extends Pick<PermissionOverride, "targetType" | "targetUserId" | "targetRole" | "environment">,
+>(candidates: T[], environment: string, userId: string, userRole: CollaboratorRole): T | null {
+  const match = (targetType: OverrideTargetType, env: string) =>
+    candidates.find(
+      (o) =>
+        o.targetType === targetType &&
+        o.environment === env &&
+        (targetType === "user" ? o.targetUserId === userId : o.targetRole === userRole)
+    );
+  return (
+    match("user", environment) ??
+    match("user", "*") ??
+    match("role", environment) ??
+    match("role", "*") ??
+    null
+  );
+}
+
+/**
+ * Find the override that applies to a user on an environment, or null.
  */
 export async function findApplicableOverride(
   vaultId: string,
@@ -207,59 +268,8 @@ export async function findApplicableOverride(
   userId: string,
   userRole: CollaboratorRole
 ): Promise<PermissionOverride | null> {
-  // 1. Check for user-specific override (exact environment)
-  const userOverrideExact = await db.query.permissionOverrides.findFirst({
-    where: and(
-      eq(permissionOverrides.vaultId, vaultId),
-      eq(permissionOverrides.environment, environment),
-      eq(permissionOverrides.targetType, "user"),
-      eq(permissionOverrides.targetUserId, userId)
-    ),
-  });
-  if (userOverrideExact) {
-    return userOverrideExact;
-  }
-
-  // 2. Check for user-specific override (wildcard environment)
-  const userOverrideWildcard = await db.query.permissionOverrides.findFirst({
-    where: and(
-      eq(permissionOverrides.vaultId, vaultId),
-      eq(permissionOverrides.environment, "*"),
-      eq(permissionOverrides.targetType, "user"),
-      eq(permissionOverrides.targetUserId, userId)
-    ),
-  });
-  if (userOverrideWildcard) {
-    return userOverrideWildcard;
-  }
-
-  // 3. Check for role-specific override (exact environment)
-  const roleOverrideExact = await db.query.permissionOverrides.findFirst({
-    where: and(
-      eq(permissionOverrides.vaultId, vaultId),
-      eq(permissionOverrides.environment, environment),
-      eq(permissionOverrides.targetType, "role"),
-      eq(permissionOverrides.targetRole, userRole)
-    ),
-  });
-  if (roleOverrideExact) {
-    return roleOverrideExact;
-  }
-
-  // 4. Check for role-specific override (wildcard environment)
-  const roleOverrideWildcard = await db.query.permissionOverrides.findFirst({
-    where: and(
-      eq(permissionOverrides.vaultId, vaultId),
-      eq(permissionOverrides.environment, "*"),
-      eq(permissionOverrides.targetType, "role"),
-      eq(permissionOverrides.targetRole, userRole)
-    ),
-  });
-  if (roleOverrideWildcard) {
-    return roleOverrideWildcard;
-  }
-
-  return null;
+  const candidates = await getCandidateOverrides(vaultId, userId, userRole);
+  return pickApplicableOverride(candidates, environment, userId, userRole);
 }
 
 // ============================================================================

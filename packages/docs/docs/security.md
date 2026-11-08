@@ -294,7 +294,7 @@ POST /v1/api-keys
 }
 ```
 
-Benefits over PATs:
+Benefits:
 - Scoped permissions (read-only possible)
 - Keyway-specific (doesn't grant GitHub access)
 - Revocable without affecting GitHub tokens
@@ -303,11 +303,13 @@ Benefits over PATs:
 
 See [API Reference](./api#api-keys) for details.
 
-### GitHub PAT (Legacy)
+### GitHub tokens are not accepted
 
-Fine-grained PATs still work but API keys are preferred.
+The API rejects GitHub tokens (personal access tokens `ghp_…` and `github_pat_…`, OAuth, app and refresh tokens) with `401`, and the CLI refuses them before sending them. Keyway checks repository access with the Keyway GitHub App and the caller's GitHub username, not with the token's own permissions, so accepting a GitHub token would let any token you hold (one issued to another app, or a PAT with no permissions) read every secret you can reach.
 
-Use [fine-grained PATs](https://github.com/settings/tokens?type=beta) with `Contents: Read`.
+To migrate:
+- **On your machine:** run `keyway login` (again, if you signed in with `keyway login --token`, which was removed).
+- **In CI/CD:** create an [API key](./api#api-keys) with the `read:secrets` scope (add `write:secrets` if the job pushes) and use it as the value of the `KEYWAY_TOKEN` secret. See [CI/CD](./ci-cd#api-keys).
 
 ---
 
@@ -326,7 +328,7 @@ keyway doctor
 
 ## Best Practices
 
-1. **Use API keys for CI/CD** - More secure than PATs
+1. **Use API keys for CI/CD** - Scoped, revocable, and expiring
 2. **Never commit secrets** - `.gitignore` all `.env` files
 3. **Least privilege** - Use `read:secrets` scope when possible
 4. **Rotate regularly** - Especially after team changes

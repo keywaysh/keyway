@@ -1,11 +1,18 @@
 import { config } from "../config";
 import { ForbiddenError, UnauthorizedError } from "../lib";
+import { isValidRepoSegment, isValidRepoFullName, parseRepoFullName } from "./repoName";
 import type { CollaboratorRole } from "../db/schema";
 import { findInstallationForRepo, getInstallationToken } from "../services/github-app.service";
 import { logger } from "./sharedLogger";
 import { maskToken } from "./logger";
 
 const GITHUB_API_BASE = config.github?.apiBaseUrl || "https://api.github.com";
+
+export { isValidRepoSegment, isValidRepoFullName, parseRepoFullName };
+
+function repoApiUrl(owner: string, repo: string): string {
+  return `${GITHUB_API_BASE}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`;
+}
 
 /**
  * Token source type - always 'app' since we only use GitHub App tokens
@@ -49,6 +56,9 @@ interface GitHubTokenResponse {
 
 interface GitHubRepo {
   id?: number;
+  name?: string;
+  full_name?: string;
+  created_at?: string;
   private?: boolean;
   owner?: {
     login: string;
@@ -150,10 +160,10 @@ export async function getRepoAccessAndPermission(
   accessToken: string,
   repoFullName: string
 ): Promise<{ hasAccess: boolean; permission: CollaboratorRole | null }> {
-  const [owner, repo] = repoFullName.split("/");
+  const { owner, repo } = parseRepoFullName(repoFullName);
 
   try {
-    const repoResponse = await fetch(`${GITHUB_API_BASE}/repos/${owner}/${repo}`, {
+    const repoResponse = await fetch(repoApiUrl(owner, repo), {
       headers: {
         Authorization: `Bearer ${accessToken}`,
         Accept: "application/vnd.github.v3+json",
@@ -209,9 +219,9 @@ export async function getRepoAccessAndPermission(
  * Check if user has admin access to a repository
  */
 export async function hasAdminAccess(accessToken: string, repoFullName: string): Promise<boolean> {
-  const [owner, repo] = repoFullName.split("/");
+  const { owner, repo } = parseRepoFullName(repoFullName);
 
-  const repoResponse = await fetch(`${GITHUB_API_BASE}/repos/${owner}/${repo}`, {
+  const repoResponse = await fetch(repoApiUrl(owner, repo), {
     headers: {
       Authorization: `Bearer ${accessToken}`,
       Accept: "application/vnd.github.v3+json",
@@ -236,10 +246,10 @@ export async function getRepoPermission(
   accessToken: string,
   repoFullName: string
 ): Promise<CollaboratorRole | null> {
-  const [owner, repo] = repoFullName.split("/");
+  const { owner, repo } = parseRepoFullName(repoFullName);
 
   try {
-    const repoResponse = await fetch(`${GITHUB_API_BASE}/repos/${owner}/${repo}`, {
+    const repoResponse = await fetch(repoApiUrl(owner, repo), {
       headers: {
         Authorization: `Bearer ${accessToken}`,
         Accept: "application/vnd.github.v3+json",
@@ -281,25 +291,47 @@ export async function getRepoPermission(
 }
 
 /**
- * Get user's collaborator role for a repository
- * Returns one of: read, triage, write, maintain, admin
+ * Get a user's collaborator role for a repository.
+ * Returns one of: read, triage, write, maintain, admin — or null for no access.
+ *
+ * Called with a GitHub App installation token, so `repo.permissions` in the API
+ * response describe the token, never `username`: the role comes only from the
+ * canonical repo owner, live org ownership and the collaborator permission API.
+ *
+ * @param options.expectedRepoId - immutable forge repo id of the vault being accessed;
+ *   a name that now resolves to a different repository grants nothing. `null` means the
+ *   vault exists but is not bound to a repository id: nothing is granted. Leave it
+ *   undefined only when no vault is involved (e.g. checking a repo before creating one).
  */
 export async function getUserRole(
   accessToken: string,
   repoFullName: string,
-  username: string
+  username: string,
+  options: { expectedRepoId?: string | null } = {}
 ): Promise<CollaboratorRole | null> {
-  const [owner, repo] = repoFullName.split("/");
+  let owner: string;
+  let repo: string;
+  try {
+    ({ owner, repo } = parseRepoFullName(repoFullName));
+  } catch {
+    logger.warn({ repoFullName }, "Rejected invalid repository name in role check");
+    return null;
+  }
+  if (options.expectedRepoId === null) {
+    // The vault exists but was never bound to a repository id: whoever holds the
+    // name today may not be the repository the vault was created for.
+    logger.warn({ repoFullName }, "Role check on a vault that is not bound to a repository id");
+    return null;
+  }
   logger.debug({ username, repoFullName }, "Getting GitHub user role");
 
+  const headers = {
+    Authorization: `Bearer ${accessToken}`,
+    Accept: "application/vnd.github.v3+json",
+  };
+
   try {
-    // First, get basic repo info and permissions
-    const repoResponse = await fetch(`${GITHUB_API_BASE}/repos/${owner}/${repo}`, {
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        Accept: "application/vnd.github.v3+json",
-      },
-    });
+    const repoResponse = await fetch(repoApiUrl(owner, repo), { headers });
 
     if (!repoResponse.ok) {
       const errorBody = await repoResponse.text();
@@ -316,52 +348,35 @@ export async function getUserRole(
     }
 
     const repoData = (await repoResponse.json()) as GitHubRepo;
-    logger.debug(
-      {
-        owner: repoData.owner?.login,
-        type: repoData.owner?.type,
-        permissions: repoData.permissions,
-      },
-      "GitHub repo data"
-    );
 
-    // Check if user is the repository owner (for personal repos)
-    // Owners have admin access but don't appear in the collaborators list
-    if (repoData.owner?.login === username) {
+    if (options.expectedRepoId && String(repoData.id) !== String(options.expectedRepoId)) {
+      logger.warn(
+        { repoFullName, expectedRepoId: options.expectedRepoId, actualRepoId: repoData.id },
+        "Repository name no longer points to the vault's repository"
+      );
+      return null;
+    }
+
+    // GitHub follows renames and transfers with a redirect: evaluate everything on the
+    // repository it actually answered for, never on the name the caller supplied.
+    const canonicalOwner = repoData.owner?.login;
+    const canonicalRepo = repoData.name ?? repo;
+    if (!canonicalOwner) {
+      return null;
+    }
+
+    // Personal repo owners have admin access but don't appear in the collaborators list
+    if (canonicalOwner === username) {
       logger.debug({ username, reason: "repo_owner" }, "User is repo owner, role=admin");
       return "admin";
     }
 
-    // Also check if the repo owner (from URL) matches the username
-    // This handles the case where installation tokens don't return full owner info
-    if (owner === username) {
-      logger.debug(
-        { username, reason: "url_owner_match" },
-        "User matches owner from URL, role=admin"
-      );
-      return "admin";
-    }
-
-    // If they have admin permission via the basic permissions check
-    if (repoData.permissions?.admin === true) {
-      logger.debug(
-        { username, reason: "repo_api_admin" },
-        "User has admin permission from repo API, role=admin"
-      );
-      return "admin";
-    }
-
-    // For organization repos, check if user is an org owner/admin
+    // Org owners have admin access to all repos in the org
     if (repoData.owner?.type === "Organization") {
       try {
         const orgMembershipResponse = await fetch(
-          `${GITHUB_API_BASE}/orgs/${owner}/memberships/${username}`,
-          {
-            headers: {
-              Authorization: `Bearer ${accessToken}`,
-              Accept: "application/vnd.github.v3+json",
-            },
-          }
+          `${GITHUB_API_BASE}/orgs/${encodeURIComponent(canonicalOwner)}/memberships/${encodeURIComponent(username)}`,
+          { headers }
         );
 
         if (orgMembershipResponse.ok) {
@@ -369,12 +384,6 @@ export async function getUserRole(
             role: string;
             state: string;
           };
-          logger.debug(
-            { username, org: owner, role: membership.role, state: membership.state },
-            "Org membership check"
-          );
-
-          // Org owners have admin access to all repos in the org
           if (membership.role === "admin" && membership.state === "active") {
             logger.debug({ username, reason: "org_owner" }, "User is org owner, role=admin");
             return "admin";
@@ -390,59 +399,45 @@ export async function getUserRole(
       }
     }
 
-    // Try to get detailed collaborator role using the permission endpoint
-    // This returns the actual permission level, not just 204/404
-    const collabResponse = await fetch(
-      `${GITHUB_API_BASE}/repos/${owner}/${repo}/collaborators/${username}/permission`,
-      {
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          Accept: "application/vnd.github.v3+json",
-        },
-      }
-    );
+    const collaboratorUrl = `${repoApiUrl(canonicalOwner, canonicalRepo)}/collaborators/${encodeURIComponent(username)}`;
+    const collabResponse = await fetch(`${collaboratorUrl}/permission`, { headers });
 
-    if (collabResponse.ok) {
-      const data = (await collabResponse.json()) as { permission: string; role_name: string };
-
-      // Map GitHub's role_name to our CollaboratorRole type
-      const roleMap: Record<string, CollaboratorRole> = {
-        pull: "read",
-        read: "read", // GitHub /permission endpoint can return 'read' directly
-        triage: "triage",
-        push: "write",
-        write: "write", // GitHub /permission endpoint can return 'write' directly
-        maintain: "maintain",
-        admin: "admin",
-      };
-
-      // Use role_name for more accurate role, fallback to permission
-      const role = roleMap[data.role_name] || roleMap[data.permission] || null;
-      logger.debug(
-        { roleName: data.role_name, permission: data.permission, role },
-        "Got role from collaborator permission API"
-      );
-      return role;
-    } else {
+    if (!collabResponse.ok) {
       const errorBody = await collabResponse.text();
       logger.debug(
         { status: collabResponse.status, body: errorBody.substring(0, 200) },
         "Collaborator permission API failed"
       );
+      return null;
     }
 
-    // Fall back to basic permissions if collaborator API doesn't work
-    if (repoData.permissions?.push === true) {
-      logger.debug({ username, reason: "push_permission" }, "User has push permission, role=write");
-      return "write";
-    }
-    if (repoData.permissions?.pull === true) {
-      logger.debug({ username, reason: "pull_permission" }, "User has pull permission, role=read");
-      return "read";
+    const data = (await collabResponse.json()) as { permission: string; role_name: string };
+    const roleMap: Record<string, CollaboratorRole> = {
+      pull: "read",
+      read: "read", // GitHub /permission endpoint can return 'read' directly
+      triage: "triage",
+      push: "write",
+      write: "write", // GitHub /permission endpoint can return 'write' directly
+      maintain: "maintain",
+      admin: "admin",
+    };
+    const role = roleMap[data.role_name] || roleMap[data.permission] || null;
+    logger.debug(
+      { roleName: data.role_name, permission: data.permission, role },
+      "Got role from collaborator permission API"
+    );
+
+    // On a public repo GitHub reports "read" for every account. Only an actual
+    // collaborator (direct, team, org base permission or outside collaborator) counts.
+    if (role === "read" && repoData.private === false) {
+      const isCollaborator = await fetch(collaboratorUrl, { headers });
+      if (isCollaborator.status !== 204) {
+        logger.debug({ username, repoFullName }, "Public repo reader is not a collaborator");
+        return null;
+      }
     }
 
-    logger.warn({ username, repoFullName }, "No role found for user");
-    return null;
+    return role;
   } catch (error) {
     // If API call fails or JSON parsing fails, return null
     // Caller handles null case appropriately
@@ -505,11 +500,17 @@ export async function getUserFromToken(accessToken: string) {
 export async function getRepoInfo(
   accessToken: string,
   repoFullName: string
-): Promise<{ repoId: string | null; isPrivate: boolean; isOrganization: boolean } | null> {
-  const [owner, repo] = repoFullName.split("/");
+): Promise<{
+  repoId: string | null;
+  fullName: string | null;
+  createdAt: Date | null;
+  isPrivate: boolean;
+  isOrganization: boolean;
+} | null> {
+  const { owner, repo } = parseRepoFullName(repoFullName);
 
   try {
-    const response = await fetch(`${GITHUB_API_BASE}/repos/${owner}/${repo}`, {
+    const response = await fetch(repoApiUrl(owner, repo), {
       headers: {
         Authorization: `Bearer ${accessToken}`,
         Accept: "application/vnd.github.v3+json",
@@ -534,6 +535,8 @@ export async function getRepoInfo(
     const data = (await response.json()) as GitHubRepo;
     return {
       repoId: data.id !== undefined && data.id !== null ? String(data.id) : null,
+      fullName: isValidRepoFullName(data.full_name) ? data.full_name : null,
+      createdAt: data.created_at ? new Date(data.created_at) : null,
       isPrivate: data.private === true,
       isOrganization: data.owner?.type === "Organization",
     };
@@ -588,7 +591,7 @@ export async function getRepoCollaborators(
 
   while (true) {
     const response = await fetch(
-      `${GITHUB_API_BASE}/repos/${owner}/${repo}/collaborators?per_page=${perPage}&page=${page}`,
+      `${repoApiUrl(owner, repo)}/collaborators?per_page=${perPage}&page=${page}`,
       {
         headers: {
           Authorization: `Bearer ${accessToken}`,
@@ -635,10 +638,8 @@ export async function getRepoCollaborators(
  * Get repository info using GitHub App installation token
  * @throws ForbiddenError if GitHub App is not installed
  */
-export async function getRepoInfoWithApp(
-  repoFullName: string
-): Promise<{ repoId: string | null; isPrivate: boolean; isOrganization: boolean } | null> {
-  const [owner, repo] = repoFullName.split("/");
+export async function getRepoInfoWithApp(repoFullName: string): ReturnType<typeof getRepoInfo> {
+  const { owner, repo } = parseRepoFullName(repoFullName);
   const token = await getTokenForRepo(owner, repo);
 
   return getRepoInfo(token, repoFullName);
@@ -661,7 +662,7 @@ export async function getRepoCollaboratorsWithApp(
  * @throws ForbiddenError if GitHub App is not installed
  */
 export async function hasAdminAccessWithApp(repoFullName: string): Promise<boolean> {
-  const [owner, repo] = repoFullName.split("/");
+  const { owner, repo } = parseRepoFullName(repoFullName);
   const token = await getTokenForRepo(owner, repo);
   return hasAdminAccess(token, repoFullName);
 }
@@ -673,7 +674,7 @@ export async function hasAdminAccessWithApp(repoFullName: string): Promise<boole
 export async function getRepoAccessAndPermissionWithApp(
   repoFullName: string
 ): Promise<{ hasAccess: boolean; permission: CollaboratorRole | null }> {
-  const [owner, repo] = repoFullName.split("/");
+  const { owner, repo } = parseRepoFullName(repoFullName);
   const token = await getTokenForRepo(owner, repo);
   return getRepoAccessAndPermission(token, repoFullName);
 }
@@ -684,14 +685,21 @@ export async function getRepoAccessAndPermissionWithApp(
  */
 export async function getUserRoleWithApp(
   repoFullName: string,
-  username: string
+  username: string,
+  options: { expectedRepoId?: string | null } = {}
 ): Promise<CollaboratorRole | null> {
   logger.debug({ username, repoFullName }, "getUserRoleWithApp called");
-  const [owner, repo] = repoFullName.split("/");
+  const { owner, repo } = parseRepoFullName(repoFullName);
+  if (options.expectedRepoId === null) {
+    throw new ForbiddenError(
+      `The vault for ${repoFullName} is not linked to its GitHub repository yet and can't be ` +
+        "accessed until it is. Ask your Keyway administrator to run the repository ID backfill."
+    );
+  }
   try {
     const token = await getTokenForRepo(owner, repo);
     logger.debug({ repoFullName }, "Got installation token, checking user role");
-    const role = await getUserRole(token, repoFullName, username);
+    const role = await getUserRole(token, repoFullName, username, options);
     logger.debug({ username, repoFullName, role }, "getUserRoleWithApp result");
     return role;
   } catch (error) {
@@ -734,13 +742,16 @@ export async function getOrgMembership(
   username: string
 ): Promise<GitHubOrgMembershipInfo | null> {
   try {
-    const response = await fetch(`${GITHUB_API_BASE}/orgs/${org}/memberships/${username}`, {
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        Accept: "application/vnd.github+json",
-        "X-GitHub-Api-Version": "2022-11-28",
-      },
-    });
+    const response = await fetch(
+      `${GITHUB_API_BASE}/orgs/${encodeURIComponent(org)}/memberships/${encodeURIComponent(username)}`,
+      {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          Accept: "application/vnd.github+json",
+          "X-GitHub-Api-Version": "2022-11-28",
+        },
+      }
+    );
 
     if (!response.ok) {
       if (response.status === 404) {
@@ -789,7 +800,7 @@ async function listOrgMembersByRole(
   try {
     while (true) {
       const response = await fetch(
-        `${GITHUB_API_BASE}/orgs/${org}/members?role=${role}&per_page=${perPage}&page=${page}`,
+        `${GITHUB_API_BASE}/orgs/${encodeURIComponent(org)}/members?role=${role}&per_page=${perPage}&page=${page}`,
         {
           headers: {
             Authorization: `Bearer ${accessToken}`,
@@ -1041,13 +1052,16 @@ export async function getOrgMembershipForCurrentUser(
   org: string
 ): Promise<{ role: "admin" | "member"; state: "active" | "pending" } | null> {
   try {
-    const response = await fetch(`${GITHUB_API_BASE}/user/memberships/orgs/${org}`, {
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        Accept: "application/vnd.github+json",
-        "X-GitHub-Api-Version": "2022-11-28",
-      },
-    });
+    const response = await fetch(
+      `${GITHUB_API_BASE}/user/memberships/orgs/${encodeURIComponent(org)}`,
+      {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          Accept: "application/vnd.github+json",
+          "X-GitHub-Api-Version": "2022-11-28",
+        },
+      }
+    );
 
     if (!response.ok) {
       return null;
@@ -1080,7 +1094,7 @@ export async function getGitHubOrgInfo(orgLogin: string): Promise<GitHubOrgInfo 
 
     const token = await getInstallationToken(installation.installationId);
 
-    const response = await fetch(`${GITHUB_API_BASE}/orgs/${orgLogin}`, {
+    const response = await fetch(`${GITHUB_API_BASE}/orgs/${encodeURIComponent(orgLogin)}`, {
       headers: {
         Authorization: `Bearer ${token}`,
         Accept: "application/vnd.github+json",
@@ -1136,7 +1150,7 @@ export async function getGitHubOrgInfoWithToken(
   orgLogin: string
 ): Promise<GitHubOrgInfo | null> {
   try {
-    const response = await fetch(`${GITHUB_API_BASE}/orgs/${orgLogin}`, {
+    const response = await fetch(`${GITHUB_API_BASE}/orgs/${encodeURIComponent(orgLogin)}`, {
       headers: {
         Authorization: `Bearer ${token}`,
         Accept: "application/vnd.github+json",

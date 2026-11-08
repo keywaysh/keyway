@@ -37,7 +37,12 @@ vi.mock('../../src/db', () => {
 // Mock GitHub utils
 vi.mock('../../src/utils/github', () => ({
   getUserRoleWithApp: vi.fn().mockResolvedValue('admin'),
-  getRepoInfoWithApp: vi.fn().mockResolvedValue({ repoId: '999888', isPrivate: false, isOrganization: false }),
+  getRepoInfoWithApp: vi.fn().mockResolvedValue({
+    repoId: '999888',
+    fullName: 'testuser/renamed-repo',
+    isPrivate: false,
+    isOrganization: false,
+  }),
 }));
 
 // Mock types
@@ -376,17 +381,59 @@ describe('VaultService', () => {
         expect(result).toBeUndefined();
       });
 
-      it('should trigger lazy backfill when vault has no forgeRepoId', async () => {
+      it("self-heals to GitHub's canonical name, never to the requested alias", async () => {
+        const set = vi.fn().mockReturnValue({ where: vi.fn().mockResolvedValue(undefined) });
+        (db.update as any).mockReturnValue({ set });
+        (db.query.vaults.findFirst as any)
+          .mockResolvedValueOnce(undefined)
+          .mockResolvedValueOnce({ ...vaultWithForgeId, repoFullName: 'testuser/test-repo' });
+
+        const result = await getVaultByRepoInternal('TestUser/Renamed-Repo');
+
+        expect(result?.repoFullName).toBe('testuser/renamed-repo');
+        expect(set).toHaveBeenCalledWith(
+          expect.objectContaining({ repoFullName: 'testuser/renamed-repo' })
+        );
+      });
+
+      it('does not rename a vault whose stored name already is the canonical one', async () => {
+        (db.query.vaults.findFirst as any)
+          .mockResolvedValueOnce(undefined)
+          .mockResolvedValueOnce({ ...vaultWithForgeId, repoFullName: 'testuser/renamed-repo' });
+
+        const result = await getVaultByRepoInternal('TESTUSER/RENAMED-REPO');
+
+        expect(result?.repoFullName).toBe('testuser/renamed-repo');
+        expect(db.update).not.toHaveBeenCalled();
+      });
+
+      it('does not self-heal when GitHub returns no canonical name', async () => {
+        const { getRepoInfoWithApp } = await import('../../src/utils/github');
+        (getRepoInfoWithApp as any).mockResolvedValueOnce({
+          repoId: '999888',
+          isPrivate: false,
+          isOrganization: false,
+        });
+        (db.query.vaults.findFirst as any).mockResolvedValueOnce(undefined);
+
+        const result = await getVaultByRepoInternal('attacker/whatever');
+
+        expect(result).toBeUndefined();
+        expect(db.query.vaults.findFirst).toHaveBeenCalledTimes(1);
+        expect(db.update).not.toHaveBeenCalled();
+      });
+
+      it('never binds an unbound vault to whatever repo currently has its name', async () => {
+        // A lazy backfill would trust the current owner of the name, which may be a
+        // different (re-created) repository: binding is done by the vetted backfill script.
         const vaultWithoutForgeId = { ...mockVault, forgeRepoId: null };
         (db.query.vaults.findFirst as any).mockResolvedValue(vaultWithoutForgeId);
 
         const result = await getVaultByRepoInternal('testuser/test-repo');
 
         expect(result).toEqual(vaultWithoutForgeId);
-        // backfillForgeRepoId is fire-and-forget, so update should be called
-        // Give the async backfill a tick to run
         await new Promise((r) => setTimeout(r, 10));
-        expect(db.update).toHaveBeenCalled();
+        expect(db.update).not.toHaveBeenCalled();
       });
     });
 

@@ -51,11 +51,17 @@ vi.mock('../../src/services/organization.service', () => ({
 }));
 
 // Mock trial service
-vi.mock('../../src/services/trial.service', () => ({
-  startTrial: mockStartTrial,
-  getTrialInfo: mockGetTrialInfo,
-  TRIAL_DURATION_DAYS: 15,
-}));
+vi.mock('../../src/services/trial.service', async () => {
+  const actual = await vi.importActual<typeof import('../../src/services/trial.service')>(
+    '../../src/services/trial.service'
+  );
+  return {
+    startTrial: mockStartTrial,
+    getTrialInfo: mockGetTrialInfo,
+    hasPaidOrgSubscription: actual.hasPaidOrgSubscription,
+    TRIAL_DURATION_DAYS: 15,
+  };
+});
 
 // Mock activity service
 vi.mock('../../src/services/activity.service', () => ({
@@ -92,6 +98,7 @@ vi.mock('../../src/db', () => ({
       vcsAppInstallations: {
         findFirst: vi.fn().mockResolvedValue({
           installationId: 123,
+          accountId: 98765, // = mockOrg.forgeOrgId
           accountLogin: 'test-org',
           accountType: 'organization',
           status: 'active',
@@ -104,7 +111,11 @@ vi.mock('../../src/db', () => ({
 }));
 
 // Mock auth middleware
-vi.mock('../../src/middleware/auth', () => ({
+vi.mock('../../src/middleware/auth', async () => ({
+  // The real shared API-key refusal; only authentication is stubbed.
+  rejectApiKeyAuth: (
+    await vi.importActual<typeof import('../../src/middleware/auth')>('../../src/middleware/auth')
+  ).rejectApiKeyAuth,
   authenticateGitHub: vi.fn().mockImplementation(async (request) => {
     request.githubUser = {
       forgeType: 'github',
@@ -177,6 +188,7 @@ describe('Organization Billing Routes', () => {
     mockGetOrganizationDetails.mockResolvedValue(mockOrgDetails);
     mockGetOrganizationMembership.mockResolvedValue({
       id: 'membership-123',
+      orgId: 'org-123',
       orgRole: 'member',
     });
     mockGetOrgMembership.mockResolvedValue({ role: 'member', state: 'active' });
@@ -191,6 +203,8 @@ describe('Organization Billing Routes', () => {
     });
     mockFindFirst.mockResolvedValue(mockUser);
     mockUpsertOrganizationMember.mockResolvedValue({});
+    // Behind a null membership read, GitHub answers a definitive 404.
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('{}', { status: 404 })));
 
     app = await createTestApp();
 
@@ -201,6 +215,7 @@ describe('Organization Billing Routes', () => {
   });
 
   afterEach(async () => {
+    vi.unstubAllGlobals();
     await app.close();
   });
 
@@ -384,6 +399,7 @@ describe('Organization Billing Routes', () => {
       mockGetOrgMembership.mockResolvedValue({ role: 'admin', state: 'active' });
       mockGetOrganizationMembership.mockResolvedValue({
         id: 'membership-123',
+        orgId: 'org-123',
         orgRole: 'owner',
       });
     });
@@ -441,6 +457,8 @@ describe('Organization Billing Routes', () => {
         ...mockOrg,
         plan: 'business',
         stripeCustomerId: 'cus_123',
+        trialStartedAt: new Date(Date.now() - 5 * 86400000),
+        trialEndsAt: new Date(Date.now() + 10 * 86400000),
       });
       mockGetTrialInfo.mockReturnValue({
         status: 'active',
@@ -471,6 +489,7 @@ describe('Organization Billing Routes', () => {
       mockGetOrgMembership.mockResolvedValue({ role: 'member', state: 'active' });
       mockGetOrganizationMembership.mockResolvedValue({
         id: 'membership-123',
+        orgId: 'org-123',
         orgRole: 'member',
       });
 
@@ -532,6 +551,7 @@ describe('Organization Billing Routes', () => {
       mockGetOrgMembership.mockResolvedValue({ role: 'admin', state: 'active' });
       mockGetOrganizationMembership.mockResolvedValue({
         id: 'membership-123',
+        orgId: 'org-123',
         orgRole: 'owner',
       });
     });
@@ -559,6 +579,7 @@ describe('Organization Billing Routes', () => {
       mockGetOrgMembership.mockResolvedValue({ role: 'member', state: 'active' });
       mockGetOrganizationMembership.mockResolvedValue({
         id: 'membership-123',
+        orgId: 'org-123',
         orgRole: 'member',
       });
 
@@ -616,6 +637,7 @@ describe('Organization Billing Routes', () => {
       mockGetOrgMembership.mockResolvedValue({ role: 'admin', state: 'active' });
       mockGetOrganizationMembership.mockResolvedValue({
         id: 'membership-123',
+        orgId: 'org-123',
         orgRole: 'owner',
       });
 
@@ -641,6 +663,7 @@ describe('Organization Billing Routes', () => {
       mockGetOrgMembership.mockResolvedValue({ role: 'member', state: 'active' });
       mockGetOrganizationMembership.mockResolvedValue({
         id: 'membership-123',
+        orgId: 'org-123',
         orgRole: 'member',
       });
 

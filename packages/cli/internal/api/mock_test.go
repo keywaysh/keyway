@@ -137,10 +137,10 @@ func TestMockClient_ProviderMethods(t *testing.T) {
 		t.Errorf("DeleteConnection() error = %v", err)
 	}
 
-	// Test GetProviderAuthURL
-	url := mock.GetProviderAuthURL("vercel")
-	if url == "" {
-		t.Error("GetProviderAuthURL() should return a URL")
+	// Test CreateProviderAuthURL
+	url, err := mock.CreateProviderAuthURL(ctx, "vercel")
+	if err != nil || url == "" {
+		t.Error("CreateProviderAuthURL() should return a URL")
 	}
 
 	// Test ConnectWithToken

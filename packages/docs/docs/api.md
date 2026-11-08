@@ -20,7 +20,8 @@ Authorization: Bearer <token>
 |------------|--------|----------|
 | Keyway API Key | Dashboard -> API Keys | CI/CD, automation (recommended) |
 | Keyway JWT | `keyway login` -> `~/.config/keyway-nodejs/config.json` | CLI, scripts |
-| GitHub PAT | [Fine-grained PAT](https://github.com/settings/tokens?type=beta) | Legacy CI/CD |
+
+GitHub tokens (`ghp_`, `github_pat_`, `gho_`, `ghu_`, `ghs_`, `ghr_`) are rejected with `401`. See [GitHub tokens are not accepted](./security#github-tokens-are-not-accepted).
 
 ---
 

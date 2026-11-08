@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"net/url"
 )
 
 // Provider represents a supported provider
@@ -139,9 +140,26 @@ func (c *Client) DeleteConnection(ctx context.Context, connectionID string) erro
 	return c.do(ctx, http.MethodDelete, fmt.Sprintf("/v1/integrations/connections/%s", connectionID), nil, nil)
 }
 
-// GetProviderAuthURL returns the OAuth URL for a provider
-func (c *Client) GetProviderAuthURL(provider string) string {
-	return fmt.Sprintf("%s/v1/integrations/%s/authorize?token=%s", c.baseURL, provider, c.token)
+// CreateProviderAuthURL returns the URL to open in the browser to connect a provider
+// with OAuth. The API puts a short-lived, single-use ticket in it: the CLI's token never
+// goes into a URL (server logs, analytics, browser history).
+func (c *Client) CreateProviderAuthURL(ctx context.Context, provider string) (string, error) {
+	var wrapper struct {
+		Data struct {
+			URL string `json:"url"`
+		} `json:"data"`
+	}
+
+	path := fmt.Sprintf("/v1/integrations/%s/authorize-ticket", url.PathEscape(provider))
+	if err := c.do(ctx, http.MethodPost, path, map[string]string{}, &wrapper); err != nil {
+		return "", err
+	}
+
+	authURL, err := url.Parse(wrapper.Data.URL)
+	if err != nil || (authURL.Scheme != "https" && authURL.Scheme != "http") || authURL.Host == "" {
+		return "", fmt.Errorf("the server returned an invalid authorization URL")
+	}
+	return wrapper.Data.URL, nil
 }
 
 // ConnectWithToken connects to a provider using a token (e.g., Railway)

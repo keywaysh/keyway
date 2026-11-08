@@ -1,7 +1,7 @@
-import { FastifyInstance } from "fastify";
+import { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
-import { authenticateGitHub } from "../../../middleware/auth";
-import { db, vaults, users, organizationMembers } from "../../../db";
+import { authenticateGitHub, rejectApiKeyAuth, requireApiKeyScope } from "../../../middleware/auth";
+import { db, vaults, users } from "../../../db";
 import { eq, and } from "drizzle-orm";
 import {
   sendData,
@@ -18,12 +18,50 @@ import {
   getOverridesForVault,
   getOverrideById,
   resetVaultOverrides,
+  type OverrideInfo,
 } from "../../../services/permission-override.service";
-import { getVaultEnvironmentNames } from "../../../services";
+import {
+  getVaultEnvironmentNames,
+  logActivity,
+  detectPlatform,
+  extractRequestInfo,
+} from "../../../services";
+import { getOrganizationById } from "../../../services/organization.service";
+import { isLiveOrgAdmin } from "../../../utils/orgAdmin";
 import {
   DEFAULT_ROLE_PERMISSIONS,
   getEffectivePermissionsForUser,
 } from "../../../utils/permissions";
+
+const readPreHandler = [authenticateGitHub, requireApiKeyScope("read:secrets")];
+/**
+ * Overrides decide who can read/write each environment (production included).
+ * No API key scope covers that — scopes are about secrets and API-key
+ * management — so mutations need an interactive session: API keys are refused
+ * outright, whatever their scopes.
+ */
+const managePreHandler = [authenticateGitHub, rejectApiKeyAuth("manage permissions")];
+
+/** Audit-log description of an override's target (never any secret value). */
+function describeOverride(override: OverrideInfo) {
+  return {
+    overrideId: override.id,
+    environment: override.environment,
+    targetType: override.targetType,
+    ...(override.targetType === "user"
+      ? {
+          targetUserId: override.targetUser?.id ?? null,
+          targetUsername: override.targetUser?.username ?? null,
+        }
+      : { targetRole: override.targetRole ?? null }),
+  };
+}
+
+const permissionValues = (override: OverrideInfo) => ({
+  canRead: override.canRead,
+  canWrite: override.canWrite,
+});
+
 // Validation schemas
 const collaboratorRoleSchema = z.enum(["read", "triage", "write", "maintain", "admin"]);
 const targetTypeSchema = z.enum(["user", "role"]);
@@ -72,33 +110,50 @@ const updateOverrideSchema = z.object({
  */
 export async function permissionOverridesRoutes(fastify: FastifyInstance) {
   /**
-   * Check if user can manage permissions (is org owner or repo admin)
+   * Check if user can manage permissions (is repo admin or org admin), both
+   * read LIVE from GitHub. The cached organization_members.org_role is not
+   * trusted: GitHub sends no webhook when an org admin is demoted, so a stale
+   * "owner" row would let them keep granting themselves production access.
+   * The org check is bound to the org's immutable GitHub id, not its login.
    */
   async function canManagePermissions(
-    userId: string,
-    vault: { id: string; orgId: string | null; repoFullName: string },
+    vault: { id: string; orgId: string | null; repoFullName: string; forgeRepoId: string | null },
     username: string
   ): Promise<boolean> {
     // Check if user is repo admin
-    const role = await getUserRoleWithApp(vault.repoFullName, username);
+    const role = await getUserRoleWithApp(vault.repoFullName, username, {
+      expectedRepoId: vault.forgeRepoId,
+    });
     if (role === "admin") {
       return true;
     }
 
-    // Check if user is org owner
+    // Check if user is a current admin of the vault's org
     if (vault.orgId) {
-      const membership = await db.query.organizationMembers.findFirst({
-        where: and(
-          eq(organizationMembers.orgId, vault.orgId),
-          eq(organizationMembers.userId, userId)
-        ),
-      });
-      if (membership?.orgRole === "owner") {
+      const org = await getOrganizationById(vault.orgId);
+      if (org && (await isLiveOrgAdmin(org, username))) {
         return true;
       }
     }
 
     return false;
+  }
+
+  /** Emit the `permission_changed` audit event for an override change. */
+  async function logPermissionChange(
+    request: FastifyRequest,
+    userId: string,
+    vault: { id: string; repoFullName: string },
+    metadata: Record<string, unknown>
+  ): Promise<void> {
+    await logActivity({
+      userId,
+      action: "permission_changed",
+      platform: detectPlatform(request),
+      vaultId: vault.id,
+      metadata: { repoFullName: vault.repoFullName, ...metadata },
+      ...extractRequestInfo(request),
+    });
   }
 
   /**
@@ -110,7 +165,7 @@ export async function permissionOverridesRoutes(fastify: FastifyInstance) {
   }>(
     "/:owner/:repo/permissions/overrides",
     {
-      preHandler: [authenticateGitHub],
+      preHandler: readPreHandler,
     },
     async (request, reply) => {
       const { owner, repo } = request.params;
@@ -127,7 +182,9 @@ export async function permissionOverridesRoutes(fastify: FastifyInstance) {
       }
 
       // Check user has at least read access
-      const role = await getUserRoleWithApp(repoFullName, vcsUser.username);
+      const role = await getUserRoleWithApp(repoFullName, vcsUser.username, {
+        expectedRepoId: vault.forgeRepoId,
+      });
       if (!role) {
         throw new ForbiddenError("You do not have access to this vault");
       }
@@ -154,7 +211,7 @@ export async function permissionOverridesRoutes(fastify: FastifyInstance) {
   }>(
     "/:owner/:repo/permissions/overrides",
     {
-      preHandler: [authenticateGitHub],
+      preHandler: managePreHandler,
     },
     async (request, reply) => {
       const { owner, repo } = request.params;
@@ -186,7 +243,7 @@ export async function permissionOverridesRoutes(fastify: FastifyInstance) {
       }
 
       // Check permission to manage overrides
-      const canManage = await canManagePermissions(user.id, vault, vcsUser.username);
+      const canManage = await canManagePermissions(vault, vcsUser.username);
       if (!canManage) {
         throw new ForbiddenError(
           "Only organization owners or repository admins can manage permissions"
@@ -225,7 +282,15 @@ export async function permissionOverridesRoutes(fastify: FastifyInstance) {
         throw error;
       }
 
-      const overrideInfo = await getOverrideById(override.id);
+      const overrideInfo = await getOverrideById(override.id, vault.id);
+      if (overrideInfo) {
+        await logPermissionChange(request, user.id, vault, {
+          operation: "override_created",
+          ...describeOverride(overrideInfo),
+          old: null,
+          new: permissionValues(overrideInfo),
+        });
+      }
       return sendData(reply, overrideInfo, { requestId: request.id });
     }
   );
@@ -240,7 +305,7 @@ export async function permissionOverridesRoutes(fastify: FastifyInstance) {
   }>(
     "/:owner/:repo/permissions/overrides/:id",
     {
-      preHandler: [authenticateGitHub],
+      preHandler: managePreHandler,
     },
     async (request, reply) => {
       const { owner, repo, id } = request.params;
@@ -276,22 +341,33 @@ export async function permissionOverridesRoutes(fastify: FastifyInstance) {
       }
 
       // Check permission to manage overrides
-      const canManage = await canManagePermissions(user.id, vault, vcsUser.username);
+      const canManage = await canManagePermissions(vault, vcsUser.username);
       if (!canManage) {
         throw new ForbiddenError(
           "Only organization owners or repository admins can manage permissions"
         );
       }
 
-      // Check override exists and belongs to this vault
-      const existing = await getOverrideById(id);
+      // Check override exists and belongs to this vault (404 for other vaults' ids)
+      const existing = await getOverrideById(id, vault.id);
       if (!existing) {
         throw new NotFoundError("Permission override not found");
       }
 
-      // Update override
-      await updateOverride(id, body);
-      const updated = await getOverrideById(id);
+      // Update override (scoped to this vault)
+      const changed = await updateOverride(id, vault.id, body);
+      const updated = changed ? await getOverrideById(id, vault.id) : null;
+      if (!updated) {
+        throw new NotFoundError("Permission override not found");
+      }
+
+      await logPermissionChange(request, user.id, vault, {
+        operation: "override_updated",
+        ...describeOverride(updated),
+        old: permissionValues(existing),
+        new: permissionValues(updated),
+      });
+
       return sendData(reply, updated, { requestId: request.id });
     }
   );
@@ -305,7 +381,7 @@ export async function permissionOverridesRoutes(fastify: FastifyInstance) {
   }>(
     "/:owner/:repo/permissions/overrides/:id",
     {
-      preHandler: [authenticateGitHub],
+      preHandler: managePreHandler,
     },
     async (request, reply) => {
       const { owner, repo, id } = request.params;
@@ -334,20 +410,28 @@ export async function permissionOverridesRoutes(fastify: FastifyInstance) {
       }
 
       // Check permission to manage overrides
-      const canManage = await canManagePermissions(user.id, vault, vcsUser.username);
+      const canManage = await canManagePermissions(vault, vcsUser.username);
       if (!canManage) {
         throw new ForbiddenError(
           "Only organization owners or repository admins can manage permissions"
         );
       }
 
-      // Check override exists
-      const existing = await getOverrideById(id);
+      // Check override exists and belongs to this vault (404 for other vaults' ids)
+      const existing = await getOverrideById(id, vault.id);
       if (!existing) {
         throw new NotFoundError("Permission override not found");
       }
 
-      await deleteOverride(id);
+      await deleteOverride(id, vault.id);
+
+      await logPermissionChange(request, user.id, vault, {
+        operation: "override_deleted",
+        ...describeOverride(existing),
+        old: permissionValues(existing),
+        new: null,
+      });
+
       return sendData(reply, { deleted: true }, { requestId: request.id });
     }
   );
@@ -361,7 +445,7 @@ export async function permissionOverridesRoutes(fastify: FastifyInstance) {
   }>(
     "/:owner/:repo/permissions/reset",
     {
-      preHandler: [authenticateGitHub],
+      preHandler: managePreHandler,
     },
     async (request, reply) => {
       const { owner, repo } = request.params;
@@ -390,14 +474,21 @@ export async function permissionOverridesRoutes(fastify: FastifyInstance) {
       }
 
       // Check permission to manage overrides
-      const canManage = await canManagePermissions(user.id, vault, vcsUser.username);
+      const canManage = await canManagePermissions(vault, vcsUser.username);
       if (!canManage) {
         throw new ForbiddenError(
           "Only organization owners or repository admins can manage permissions"
         );
       }
 
+      const removed = await getOverridesForVault(vault.id);
       await resetVaultOverrides(vault.id);
+
+      await logPermissionChange(request, user.id, vault, {
+        operation: "overrides_reset",
+        removed: removed.map((o) => ({ ...describeOverride(o), old: permissionValues(o) })),
+      });
+
       return sendData(
         reply,
         {
@@ -418,7 +509,7 @@ export async function permissionOverridesRoutes(fastify: FastifyInstance) {
   }>(
     "/:owner/:repo/permissions/effective",
     {
-      preHandler: [authenticateGitHub],
+      preHandler: readPreHandler,
     },
     async (request, reply) => {
       const { owner, repo } = request.params;
@@ -447,7 +538,9 @@ export async function permissionOverridesRoutes(fastify: FastifyInstance) {
       }
 
       // Get user's GitHub role
-      const role = await getUserRoleWithApp(repoFullName, vcsUser.username);
+      const role = await getUserRoleWithApp(repoFullName, vcsUser.username, {
+        expectedRepoId: vault.forgeRepoId,
+      });
       if (!role) {
         throw new ForbiddenError("You do not have access to this vault");
       }
@@ -476,7 +569,7 @@ export async function permissionOverridesRoutes(fastify: FastifyInstance) {
   }>(
     "/:owner/:repo/permissions/defaults",
     {
-      preHandler: [authenticateGitHub],
+      preHandler: readPreHandler,
     },
     async (request, reply) => {
       return sendData(

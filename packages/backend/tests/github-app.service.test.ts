@@ -425,6 +425,28 @@ describe('GitHub App Service', () => {
       );
     });
 
+    it('does not ask GitHub for the installation of a crafted repo name', async () => {
+      const { db } = await import('../src/db');
+      (db.query.vcsAppInstallationRepos.findFirst as any).mockResolvedValue(null);
+      (db.query.vcsAppInstallations.findFirst as any).mockResolvedValue(null);
+      global.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            id: 1,
+            account: { id: 2, login: 'victim-org', type: 'Organization' },
+            repository_selection: 'all',
+            permissions: {},
+          }),
+      });
+
+      const { findInstallationForRepo } = await import('../src/services/github-app.service');
+
+      expect(await findInstallationForRepo('attacker', '..\\victim-org\\api')).toBeNull();
+      expect(await findInstallationForRepo('attacker', '..')).toBeNull();
+      expect(global.fetch).not.toHaveBeenCalled();
+    });
+
     it('should return null when GitHub API returns 404', async () => {
       const { db } = await import('../src/db');
       (db.query.vcsAppInstallationRepos.findFirst as any).mockResolvedValue(null);

@@ -175,7 +175,7 @@ describe('GitHub Routes - Webhook Security', () => {
         payload,
       });
 
-      expect(response.statusCode).toBe(403);
+      expect(response.statusCode).toBe(401);
     });
 
     it('should reject webhook with tampered payload', async () => {
@@ -200,7 +200,7 @@ describe('GitHub Routes - Webhook Security', () => {
         payload: tamperedPayload,
       });
 
-      expect(response.statusCode).toBe(403);
+      expect(response.statusCode).toBe(401);
     });
 
     it('should reject webhook with missing signature header', async () => {

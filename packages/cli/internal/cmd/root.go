@@ -37,24 +37,13 @@ func runRoot(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	// Check if user is logged in
-	store := auth.NewStore()
-	storedAuth, err := store.GetAuth()
-	var token string
-	isLoggedIn := false
-
-	if err == nil && storedAuth != nil && storedAuth.KeywayToken != "" {
-		isLoggedIn = true
-		token = storedAuth.KeywayToken
+	// Check if user is logged in (KEYWAY_TOKEN, else stored credentials)
+	token, err := resolveToken(defaultDeps.AuthStore)
+	if err != nil {
+		return err
 	}
 
-	// Also check env var
-	if envToken := os.Getenv("KEYWAY_TOKEN"); envToken != "" {
-		isLoggedIn = true
-		token = envToken
-	}
-
-	if !isLoggedIn {
+	if token == "" {
 		// Not logged in: run full onboarding flow
 		return runOnboarding(cmd)
 	}

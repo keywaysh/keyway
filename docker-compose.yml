@@ -1,11 +1,13 @@
 services:
   db:
     image: postgres:16-alpine
-    ports:
-      - "5432:5432"
+    # Not published on the host: only services on the compose network need it.
+    # Docker-published ports bypass host firewalls (ufw), so if you need local
+    # access, keep it on loopback:  ports: ["127.0.0.1:5432:5432"]
     environment:
       POSTGRES_USER: keyway
-      POSTGRES_PASSWORD: keyway
+      # Required even with an external DATABASE_URL (any value then): the bundled db service still starts
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env (make setup generates one; any value if you use an external DATABASE_URL)}
       POSTGRES_DB: keyway
     volumes:
       - postgres_data:/var/lib/postgresql/data
@@ -39,7 +41,9 @@ services:
     environment:
       - PORT=8080
       - NODE_ENV=production
-      - DATABASE_URL=${DATABASE_URL:-postgresql://keyway:keyway@db:5432/keyway}
+      - DATABASE_URL=${DATABASE_URL:-postgresql://keyway:${POSTGRES_PASSWORD}@db:5432/keyway}
+      # Caddy is the only hop in front of the backend: trust its X-Forwarded-For
+      - TRUST_PROXY=${TRUST_PROXY:-1}
       - CRYPTO_SERVICE_URL=${CRYPTO_SERVICE_URL:-crypto:50051}
       - CRYPTO_AUTH_TOKEN=${CRYPTO_AUTH_TOKEN:-}
       - CRYPTO_TLS_CA_PATH=${CRYPTO_TLS_CA_PATH:-}

@@ -11,7 +11,7 @@ import { getEncryptionService } from "../../../utils/encryption";
 import { CryptoServiceError } from "../../../utils/remoteEncryption";
 import { toEnvFormat } from "../../../utils/legacyEnvFormat";
 import { hasRequiredScopes } from "../../../utils/apiKeys";
-import { resolveEffectivePermission, hasEnvironmentPermission } from "../../../utils/permissions";
+import { resolveEffectivePermission } from "../../../utils/permissions";
 import {
   sendData,
   NotFoundError,
@@ -215,12 +215,11 @@ async function canReadEnvironment(
     return false;
   }
   const role = request.repoRole;
-  if (!role) {
+  // Permissions are resolved per Keyway user (overrides, org defaults): no user, no read
+  if (!role || !userId) {
     return false;
   }
-  return userId
-    ? resolveEffectivePermission(vaultId, environment, userId, role, "read")
-    : hasEnvironmentPermission(vaultId, environment, role, "read");
+  return resolveEffectivePermission(vaultId, environment, userId, role, "read");
 }
 
 async function requireEnvironment(

@@ -283,7 +283,7 @@ describe('Exposure Service', () => {
     it('should call db.select and findMany for access history', async () => {
       // Just verify the function makes the expected calls
       try {
-        await getSecretAccessHistory('secret-123');
+        await getSecretAccessHistory('secret-123', 'vault-123');
       } catch {
         // Expected to fail with mock, but we verify the call was made
       }

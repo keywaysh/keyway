@@ -1,5 +1,6 @@
 import { PostHog } from "posthog-node";
 import { config } from "../config";
+import { redactUrl } from "./logger";
 
 let posthog: PostHog | null = null;
 
@@ -56,7 +57,8 @@ function sanitizeProperties(properties: Record<string, any>): Record<string, any
       continue;
     }
 
-    sanitized[key] = value;
+    // A URL-like value never carries a token, ticket or OAuth code/state
+    sanitized[key] = typeof value === "string" ? redactUrl(value) : value;
   }
 
   return sanitized;
