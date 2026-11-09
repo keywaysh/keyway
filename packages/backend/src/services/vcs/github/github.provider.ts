@@ -19,6 +19,11 @@ import type {
 } from "../types";
 import type { CollaboratorRole } from "../../../db/schema";
 import { GitHubApiClient, GITHUB_ROLE_MAP } from "./github.api-client";
+import {
+  githubAccountId,
+  isSameGitHubAccount,
+  type ForgeAccount,
+} from "../../../utils/forgeAccount";
 import { config } from "../../../config";
 
 // ============================================================================
@@ -173,9 +178,9 @@ export class GitHubProvider extends VcsProvider {
     accessToken: string,
     owner: string,
     repo: string,
-    username: string
+    account: ForgeAccount
   ): Promise<CollaboratorRole | null> {
-    return this.client.getUserRole(accessToken, owner, repo, username);
+    return this.client.getUserRole(accessToken, owner, repo, account);
   }
 
   async listCollaborators(
@@ -228,11 +233,13 @@ export class GitHubProvider extends VcsProvider {
     // Get each member's role
     for (const member of members) {
       const membership = await this.client.getOrgMembership(accessToken, org, member.login);
+      // Asked by login: only the role of the same account (by id) can make it an owner
+      const sameAccount = isSameGitHubAccount(String(member.id), membership?.user);
       result.push({
         forgeUserId: String(member.id),
         username: member.login,
         avatarUrl: member.avatar_url,
-        role: membership?.role === "admin" ? "owner" : "member",
+        role: sameAccount && membership?.role === "admin" ? "owner" : "member",
         state: membership?.state || "active",
       });
     }
@@ -240,13 +247,18 @@ export class GitHubProvider extends VcsProvider {
     return result;
   }
 
+  /** Null unless GitHub's answer for the login is about `account.forgeUserId`. */
   async getOrgMembership(
     accessToken: string,
     org: string,
-    username: string
+    account: ForgeAccount
   ): Promise<{ role: "owner" | "member"; state: string } | null> {
-    const membership = await this.client.getOrgMembership(accessToken, org, username);
-    if (!membership) {
+    const accountId = githubAccountId(account);
+    if (accountId === null) {
+      return null;
+    }
+    const membership = await this.client.getOrgMembership(accessToken, org, account.username);
+    if (!membership || !isSameGitHubAccount(accountId, membership.user)) {
       return null;
     }
 

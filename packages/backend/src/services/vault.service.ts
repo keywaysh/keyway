@@ -1,7 +1,7 @@
 import { db, vaults, vaultEnvironments, type DbExecutor } from "../db";
 import { eq, desc, and, asc } from "drizzle-orm";
 import { getUserRoleWithApp, getRepoInfoWithApp } from "../utils/github";
-import type { UserPlan, EnvironmentType } from "../db/schema";
+import type { UserPlan, EnvironmentType, ForgeType } from "../db/schema";
 import { PLANS } from "../config/plans";
 import { DEFAULT_ENVIRONMENTS } from "../types";
 import { getOrganizationById } from "./organization.service";
@@ -12,6 +12,17 @@ import { logger } from "../utils/sharedLogger";
 
 // Reason why a vault is read-only
 export type ReadonlyReason = "plan_limit_exceeded" | "org_free_plan" | null;
+
+/**
+ * The signed-in account a vault is fetched for (request.vcsUser fits). Access is
+ * bound to forgeType + forgeUserId: GitHub logins can be released and
+ * re-registered, `username` only addresses the account in GitHub's API.
+ */
+export interface VaultAccount {
+  forgeType: ForgeType;
+  forgeUserId: string;
+  username: string;
+}
 
 // Helper to get GitHub avatar URL for a repo owner
 function getGitHubAvatarUrl(owner: string): string {
@@ -153,7 +164,7 @@ export async function getVaultEnvironmentNames(
  */
 export async function getVaultsForUser(
   userId: string,
-  username: string,
+  account: VaultAccount,
   plan: UserPlan
 ): Promise<VaultListItem[]> {
   const ownedVaults = await db.query.vaults.findMany({
@@ -182,7 +193,9 @@ export async function getVaultsForUser(
       let permission: string | null = null;
       let warning: VaultListItem["warning"];
       try {
-        permission = await getUserRoleWithApp(vault.repoFullName, username, { expectedRepoId: vault.forgeRepoId });
+        permission = await getUserRoleWithApp(vault.repoFullName, account, {
+          expectedRepoId: vault.forgeRepoId,
+        });
       } catch (err) {
         logger.warn({ repo: vault.repoFullName, err }, "Failed to check repo access — repo may have been deleted");
         warning = "repo_inaccessible";
@@ -297,7 +310,7 @@ async function findVaultByForgeRepoId(repoFullName: string) {
  */
 export async function getVaultByRepo(
   repoFullName: string,
-  username: string,
+  account: VaultAccount,
   plan: UserPlan
 ): Promise<{ vault: VaultDetails; hasAccess: boolean }> {
   let vault = await db.query.vaults.findFirst({
@@ -333,7 +346,9 @@ export async function getVaultByRepo(
   let role: string | null = null;
   let warning: VaultDetails["warning"];
   try {
-    role = await getUserRoleWithApp(vault.repoFullName, username, { expectedRepoId: vault.forgeRepoId });
+    role = await getUserRoleWithApp(vault.repoFullName, account, {
+      expectedRepoId: vault.forgeRepoId,
+    });
   } catch (err) {
     if (
       err instanceof ForbiddenError &&
@@ -349,8 +364,12 @@ export async function getVaultByRepo(
     }
   }
 
-  // If repo is inaccessible, only the vault owner can see it
-  if (warning && vault.owner.username !== username) {
+  // If repo is inaccessible, only the vault owner can see it — the same forge
+  // account, never whoever holds the owner's former login today.
+  const isVaultOwner =
+    vault.owner.forgeType === account.forgeType &&
+    vault.owner.forgeUserId === account.forgeUserId;
+  if (warning && !isVaultOwner) {
     return { vault: null as unknown as VaultDetails, hasAccess: false };
   }
 

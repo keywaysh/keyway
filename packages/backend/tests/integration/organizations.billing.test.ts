@@ -12,6 +12,8 @@ const mockGetOrganizationMembership = vi.hoisted(() => vi.fn());
 const mockIsOrganizationOwner = vi.hoisted(() => vi.fn());
 const mockGetOrgMembershipForCurrentUser = vi.hoisted(() => vi.fn());
 const mockGetOrgMembership = vi.hoisted(() => vi.fn());
+/** The caller's GitHub account (forgeUserId 12345), as membership answers name it. */
+const TESTUSER_ON_GITHUB = { id: 12345, login: 'testuser' };
 const mockUpsertOrganizationMember = vi.hoisted(() => vi.fn());
 const mockCreateOrgCheckoutSession = vi.hoisted(() => vi.fn());
 const mockCreateOrgPortalSession = vi.hoisted(() => vi.fn());
@@ -191,7 +193,7 @@ describe('Organization Billing Routes', () => {
       orgId: 'org-123',
       orgRole: 'member',
     });
-    mockGetOrgMembership.mockResolvedValue({ role: 'member', state: 'active' });
+    mockGetOrgMembership.mockResolvedValue({ role: 'member', state: 'active', user: TESTUSER_ON_GITHUB });
     mockCreateOrgCheckoutSession.mockResolvedValue('https://checkout.stripe.com/session/123');
     mockCreateOrgPortalSession.mockResolvedValue('https://billing.stripe.com/portal/123');
     mockGetTrialInfo.mockReturnValue({
@@ -204,7 +206,15 @@ describe('Organization Billing Routes', () => {
     mockFindFirst.mockResolvedValue(mockUser);
     mockUpsertOrganizationMember.mockResolvedValue({});
     // Behind a null membership read, GitHub answers a definitive 404.
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('{}', { status: 404 })));
+    // GET /users/testuser (asked behind a 404) still names the caller's account.
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation(async (url: string) =>
+        String(url).includes('/users/')
+          ? new Response(JSON.stringify(TESTUSER_ON_GITHUB), { status: 200 })
+          : new Response('{}', { status: 404 })
+      )
+    );
 
     app = await createTestApp();
 
@@ -396,7 +406,7 @@ describe('Organization Billing Routes', () => {
   describe('POST /v1/orgs/:org/billing/checkout', () => {
     beforeEach(() => {
       // Owner is required for billing operations
-      mockGetOrgMembership.mockResolvedValue({ role: 'admin', state: 'active' });
+      mockGetOrgMembership.mockResolvedValue({ role: 'admin', state: 'active', user: TESTUSER_ON_GITHUB });
       mockGetOrganizationMembership.mockResolvedValue({
         id: 'membership-123',
         orgId: 'org-123',
@@ -486,7 +496,7 @@ describe('Organization Billing Routes', () => {
     });
 
     it('should return 403 when user is not owner', async () => {
-      mockGetOrgMembership.mockResolvedValue({ role: 'member', state: 'active' });
+      mockGetOrgMembership.mockResolvedValue({ role: 'member', state: 'active', user: TESTUSER_ON_GITHUB });
       mockGetOrganizationMembership.mockResolvedValue({
         id: 'membership-123',
         orgId: 'org-123',
@@ -548,7 +558,7 @@ describe('Organization Billing Routes', () => {
 
   describe('POST /v1/orgs/:org/billing/portal', () => {
     beforeEach(() => {
-      mockGetOrgMembership.mockResolvedValue({ role: 'admin', state: 'active' });
+      mockGetOrgMembership.mockResolvedValue({ role: 'admin', state: 'active', user: TESTUSER_ON_GITHUB });
       mockGetOrganizationMembership.mockResolvedValue({
         id: 'membership-123',
         orgId: 'org-123',
@@ -576,7 +586,7 @@ describe('Organization Billing Routes', () => {
     });
 
     it('should return 403 when user is not owner', async () => {
-      mockGetOrgMembership.mockResolvedValue({ role: 'member', state: 'active' });
+      mockGetOrgMembership.mockResolvedValue({ role: 'member', state: 'active', user: TESTUSER_ON_GITHUB });
       mockGetOrganizationMembership.mockResolvedValue({
         id: 'membership-123',
         orgId: 'org-123',
@@ -634,7 +644,7 @@ describe('Organization Billing Routes', () => {
     });
 
     it('should allow organization owner to start a trial', async () => {
-      mockGetOrgMembership.mockResolvedValue({ role: 'admin', state: 'active' });
+      mockGetOrgMembership.mockResolvedValue({ role: 'admin', state: 'active', user: TESTUSER_ON_GITHUB });
       mockGetOrganizationMembership.mockResolvedValue({
         id: 'membership-123',
         orgId: 'org-123',
@@ -660,7 +670,7 @@ describe('Organization Billing Routes', () => {
     });
 
     it('should return 403 when user is a member but not owner', async () => {
-      mockGetOrgMembership.mockResolvedValue({ role: 'member', state: 'active' });
+      mockGetOrgMembership.mockResolvedValue({ role: 'member', state: 'active', user: TESTUSER_ON_GITHUB });
       mockGetOrganizationMembership.mockResolvedValue({
         id: 'membership-123',
         orgId: 'org-123',

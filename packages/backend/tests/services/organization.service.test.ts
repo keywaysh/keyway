@@ -23,6 +23,7 @@ const mocks = vi.hoisted(() => {
     insertedOrgs: [] as any[],
     insertedMembers: [] as any[],
     updatedMembers: [] as any[],
+    updatedOrgs: [] as any[],
   };
   return {
     dbState,
@@ -47,19 +48,25 @@ vi.mock("../../src/db", () => {
   });
   const dbInsert = vi.fn().mockImplementation(() => ({ values: insertValues }));
 
-  const updateWhere = vi.fn().mockImplementation(() => ({
-    returning: vi.fn().mockResolvedValue([{}]),
-  }));
   const updateSet = vi.fn().mockImplementation((row: any) => {
-    dbState.updatedMembers.push(row);
-    return { where: updateWhere };
+    const isMember = row.orgRole !== undefined;
+    (isMember ? dbState.updatedMembers : dbState.updatedOrgs).push(row);
+    // An org refresh returns the stored row with the new fields.
+    return {
+      where: vi.fn().mockImplementation(() => ({
+        returning: vi.fn().mockImplementation(async () => [
+          isMember ? row : { ...(await findFirstOrganizations()), ...row },
+        ]),
+      })),
+    };
   });
   const dbUpdate = vi.fn().mockImplementation(() => ({ set: updateSet }));
 
   return {
     db: {
       query: {
-        organizations: { findFirst: findFirstOrganizations },
+        // No other org holds the login in these tests (see organization.login-reuse.test.ts).
+        organizations: { findFirst: findFirstOrganizations, findMany: vi.fn().mockResolvedValue([]) },
         organizationMembers: { findFirst: findFirstOrganizationMembers },
       },
       insert: dbInsert,
@@ -103,6 +110,7 @@ function resetState() {
   mocks.dbState.insertedOrgs.length = 0;
   mocks.dbState.insertedMembers.length = 0;
   mocks.dbState.updatedMembers.length = 0;
+  mocks.dbState.updatedOrgs.length = 0;
   mocks.findFirstOrganizations.mockReset();
   mocks.findFirstOrganizations.mockResolvedValue(undefined);
   mocks.findFirstOrganizationMembers.mockReset();
@@ -186,6 +194,13 @@ describe("ensureOrganizationExists — privilege-escalation regression", () => {
 
     beforeEach(() => {
       mocks.findFirstOrganizations.mockResolvedValue(existingOrg);
+      // GitHub confirms acme-corp is still org 98765 (the existing row's id).
+      mocks.getGitHubOrgInfoWithToken.mockResolvedValue({
+        id: 98765,
+        login: "acme-corp",
+        name: "Acme",
+        avatar_url: "https://github.com/acme.png",
+      });
     });
 
     it("inserts caller as 'member' when caller is not yet a member and passes keywayRole='member'", async () => {

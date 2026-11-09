@@ -3,7 +3,7 @@
  *
  * The CLI must not put its JWT in a browser URL. It gets a single-use ticket (10 minutes)
  *     from POST /:provider/authorize-ticket (Bearer auth) and opens /authorize?ticket=.
- *     The legacy ?token= is still read by GET /authorize only.
+ *     The legacy ?token= of CLI versions before 0.7.0 is refused with an upgrade message.
  * The state signed at /authorize is bound to the browser by a nonce cookie.
  * Provider usernames and error descriptions are escaped in the HTML pages.
  */
@@ -366,15 +366,18 @@ describe('Provider OAuth security', () => {
       }
     });
 
-    it('GET /authorize still accepts the legacy ?token= of older CLIs', async () => {
+    it('GET /authorize refuses the legacy ?token= of older CLIs and asks to upgrade', async () => {
       const response = await app.inject({
         method: 'GET',
         url: `/v1/integrations/vercel/authorize?token=${encodeURIComponent(VALID_JWT)}`,
         cookies: { [SESSION_COOKIE]: sessionFor(mockUser) },
       });
 
-      expect(response.statusCode).toBe(302);
-      expect(response.headers.location).toContain('vercel.com');
+      expect(String(response.headers.location ?? '')).not.toContain('vercel.com');
+      expect(String(response.headers['set-cookie'] ?? '')).not.toContain('nonce');
+      expect(response.statusCode).toBe(410);
+      expect(response.body).toMatch(/0\.7\.0/);
+      expect(response.body).not.toContain(VALID_JWT);
     });
 
     it('?token= is not accepted by the other routes', async () => {
@@ -498,8 +501,7 @@ describe('Provider OAuth security', () => {
       expectNoProviderFlow(response);
       // Never through the login round trip: that would put the long-lived token in the state
       expect(response.headers.location).toBeUndefined();
-      expect(response.statusCode).toBe(401);
-      expect(response.body).toContain(`@${mockUser.username}`);
+      expect(response.statusCode).toBe(410);
     });
 
     it('the legacy ?token= in a browser signed in as someone else starts nothing', async () => {
@@ -513,7 +515,7 @@ describe('Provider OAuth security', () => {
       });
 
       expectNoProviderFlow(response);
-      expect(response.statusCode).toBe(403);
+      expect(response.statusCode).toBe(410);
     });
 
     it('escapes the usernames it prints', async () => {
@@ -571,9 +573,11 @@ describe('Provider OAuth security', () => {
     async function expectRoleCheckedOnce() {
       const { getUserRoleWithApp } = await import('../../src/utils/github');
       expect(getUserRoleWithApp).toHaveBeenCalledTimes(1);
-      expect(getUserRoleWithApp).toHaveBeenCalledWith('testuser/test-repo', mockUser.username, {
-        expectedRepoId: '999888',
-      });
+      expect(getUserRoleWithApp).toHaveBeenCalledWith(
+        'testuser/test-repo',
+        expect.objectContaining({ username: mockUser.username, forgeUserId: mockUser.forgeUserId }),
+        { expectedRepoId: '999888' }
+      );
     }
 
     it('POST /sync: a read collaborator cannot push production secrets', async () => {

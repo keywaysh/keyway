@@ -1,11 +1,11 @@
 import Stripe from "stripe";
-import { eq } from "drizzle-orm";
+import { and, eq, lt } from "drizzle-orm";
 import { db, users, subscriptions, stripeWebhookEvents, organizations, type UserPlan } from "../db";
 import { config } from "../config";
 import { trackEvent, identifyUser, AnalyticsEvents } from "../utils/analytics";
 import { logActivity } from "./activity.service";
 import { logger } from "../utils/sharedLogger";
-import { BadRequestError } from "../lib";
+import { BadRequestError, ConflictError } from "../lib";
 import {
   updateOrganizationPlan,
   setOrganizationStripeCustomerId,
@@ -43,67 +43,88 @@ const ENTITLED_SUBSCRIPTION_STATUSES: ReadonlySet<Stripe.Subscription.Status> = 
 ]);
 
 /**
- * The plan a subscription event entitles the account to: the price's plan while
- * the subscription is entitled, "free" once it is unpaid/expired/canceled/paused
- * (Stripe does not always follow those with customer.subscription.deleted),
- * and `currentPlan` unchanged while the first payment is still "incomplete" —
- * nothing has been paid yet, and a late-delivered "incomplete" event must not
- * downgrade a subscription that has since become active.
+ * Statuses a subscription never leaves: a payload carrying one is the
+ * subscription's current state, whatever order its events arrive in.
  */
-function planForSubscriptionStatus(
-  status: Stripe.Subscription.Status,
-  pricePlan: UserPlan,
-  currentPlan: UserPlan
-): UserPlan {
-  if (ENTITLED_SUBSCRIPTION_STATUSES.has(status)) {
-    return pricePlan;
-  }
-  return status === "incomplete" ? currentPlan : "free";
-}
+const ENDED_SUBSCRIPTION_STATUSES: ReadonlySet<Stripe.Subscription.Status> = new Set([
+  "canceled",
+  "incomplete_expired",
+]);
 
 function isEntitled(status: Stripe.Subscription.Status): boolean {
   return ENTITLED_SUBSCRIPTION_STATUSES.has(status);
 }
 
+function customerIdOf(subscription: Stripe.Subscription): string | null {
+  return typeof subscription.customer === "string"
+    ? subscription.customer
+    : (subscription.customer?.id ?? null);
+}
+
+interface CurrentSubscriptions {
+  /** The event's subscription in its current state. */
+  eventSubscription: Stripe.Subscription;
+  /** The highest-tier subscription of the owner that is entitled right now. */
+  entitlement: { subscription: Stripe.Subscription; plan: UserPlan } | null;
+}
+
 /**
- * True when the org has ANOTHER subscription (not `subscription`) on the same
- * Stripe customer that entitles it right now. Organizations store no current
- * subscription id, so before an event about one subscription lowers the org's
- * plan, Stripe is asked whether a different subscription still pays for it
- * (e.g. subscription A abandoned `incomplete`, the org paid with B, then A
- * expires). Only subscriptions carrying this org's keyway_org_id count: those
- * are the ones whose events maintain the org plan.
+ * Where the owner of `subscription` (a user or an org) stands with Stripe
+ * right now.
  *
- * If Stripe can't be asked, returns false (the downgrade is applied): a
- * webhook is not retried once recorded, and keeping a paid plan on an
- * unverified assumption could grant it indefinitely, whereas a wrongly
- * downgraded org is restored by the next event of its live subscription.
+ * The plan is never taken from an event payload: payloads are snapshots that
+ * Stripe does not deliver in order (an `active` snapshot can arrive after the
+ * cancellation or downgrade that followed it), and an owner can hold several
+ * subscriptions at once (parallel checkouts: Team and Business). So Stripe is
+ * asked for the customer's subscriptions (one subscriptions.list call: the
+ * non-canceled ones, 100 at most) and the entitlement is the highest tier
+ * among those that are entitled and carry the owner's metadata. Ties go to
+ * `preferredId` (the stored current subscription) so it doesn't flap.
+ *
+ * Throws if Stripe can't be asked: the event is then left unprocessed and
+ * Stripe retries it.
  */
-async function orgHasOtherEntitledSubscription(
+async function currentSubscriptions(
   subscription: Stripe.Subscription,
-  orgId: string
-): Promise<boolean> {
-  const customerId =
-    typeof subscription.customer === "string" ? subscription.customer : subscription.customer?.id;
-  if (!customerId) {
-    return false;
+  owner: { key: "keyway_org_id" | "keyway_user_id"; id: string },
+  customerId: string,
+  preferredId?: string
+): Promise<CurrentSubscriptions> {
+  const { data, has_more } = await getStripe().subscriptions.list({
+    customer: customerId,
+    limit: 100,
+  });
+  if (has_more) {
+    logger.warn({ customerId }, "Customer has over 100 Stripe subscriptions; using the latest 100");
   }
-  try {
-    // Without a status filter, Stripe lists every subscription that is not canceled.
-    const { data } = await getStripe().subscriptions.list({ customer: customerId, limit: 100 });
-    return data.some(
-      (other) =>
-        other.id !== subscription.id &&
-        isEntitled(other.status) &&
-        other.metadata?.keyway_org_id === orgId
-    );
-  } catch (err) {
-    logger.error(
-      { err, orgId, subscriptionId: subscription.id },
-      "Could not list the org's Stripe subscriptions; applying the plan change"
-    );
-    return false;
+
+  const eventEnded = ENDED_SUBSCRIPTION_STATUSES.has(subscription.status);
+  // The list leaves canceled subscriptions out: one missing from it was canceled.
+  const eventSubscription: Stripe.Subscription = eventEnded
+    ? subscription
+    : (data.find((s) => s.id === subscription.id) ?? { ...subscription, status: "canceled" });
+
+  let entitlement: CurrentSubscriptions["entitlement"] = null;
+  for (const candidate of data) {
+    if (
+      candidate.metadata?.[owner.key] !== owner.id ||
+      !isEntitled(candidate.status) ||
+      (eventEnded && candidate.id === subscription.id)
+    ) {
+      continue;
+    }
+    const price = candidate.items.data[0]?.price;
+    const plan = price ? await getPlanFromPrice(price) : null;
+    if (!plan) {
+      continue;
+    }
+    const rank = planRank(plan);
+    const bestRank = entitlement ? planRank(entitlement.plan) : -1;
+    if (rank > bestRank || (rank === bestRank && candidate.id === preferredId)) {
+      entitlement = { subscription: candidate, plan };
+    }
   }
+  return { eventSubscription, entitlement };
 }
 
 export interface ResolvedPrice {
@@ -337,13 +358,77 @@ export async function isEventProcessed(eventId: string): Promise<boolean> {
 }
 
 /**
- * Record a processed webhook event
+ * How long a delivery may hold an event before a retry of the same event may
+ * take it over: processing takes seconds, so an older claim's holder died.
  */
-async function recordWebhookEvent(eventId: string, eventType: string): Promise<void> {
-  await db.insert(stripeWebhookEvents).values({
-    stripeEventId: eventId,
-    eventType,
-  });
+const WEBHOOK_CLAIM_TTL_MS = 10 * 60 * 1000;
+
+/**
+ * The row that marks an event as being processed, kept in stripe_webhook_events
+ * next to the processed markers: `stripe_event_id` is unique, so inserting it
+ * is an atomic claim, and its `processed_at` holds the claim time. Stripe
+ * event ids start with "evt_", so a claim never collides with one.
+ */
+function webhookClaimKey(eventId: string): string {
+  return `claim:${eventId}`;
+}
+
+/**
+ * Claim `event` for this delivery. Returns false when it was already
+ * processed. Throws ConflictError (409: Stripe retries later) while another
+ * delivery is processing it, so concurrent duplicates don't apply it twice.
+ */
+async function claimWebhookEvent(event: Stripe.Event): Promise<boolean> {
+  if (await isEventProcessed(event.id)) {
+    return false;
+  }
+  const key = webhookClaimKey(event.id);
+  const [claimed] = await db
+    .insert(stripeWebhookEvents)
+    .values({ stripeEventId: key, eventType: event.type, processedAt: new Date() })
+    .onConflictDoNothing()
+    .returning({ id: stripeWebhookEvents.id });
+  if (!claimed) {
+    // Another delivery holds the event: take it over only if its claim is stale.
+    const [takenOver] = await db
+      .update(stripeWebhookEvents)
+      .set({ processedAt: new Date() })
+      .where(
+        and(
+          eq(stripeWebhookEvents.stripeEventId, key),
+          lt(stripeWebhookEvents.processedAt, new Date(Date.now() - WEBHOOK_CLAIM_TTL_MS))
+        )
+      )
+      .returning({ id: stripeWebhookEvents.id });
+    if (!takenOver) {
+      throw new ConflictError("This Stripe event is already being processed");
+    }
+    logger.warn({ eventId: event.id }, "Taking over a stale claim on a Stripe event");
+  }
+  // The delivery we raced with may have finished between the first check and the claim.
+  if (await isEventProcessed(event.id)) {
+    await releaseWebhookEvent(event.id);
+    return false;
+  }
+  return true;
+}
+
+async function releaseWebhookEvent(eventId: string): Promise<void> {
+  await db
+    .delete(stripeWebhookEvents)
+    .where(eq(stripeWebhookEvents.stripeEventId, webhookClaimKey(eventId)));
+}
+
+/** Mark a claimed event processed, once its side effects succeeded. */
+async function completeWebhookEvent(event: Stripe.Event): Promise<void> {
+  await db
+    .insert(stripeWebhookEvents)
+    .values({ stripeEventId: event.id, eventType: event.type })
+    .onConflictDoNothing();
+  await releaseWebhookEvent(event.id).catch((err) =>
+    // Harmless leftover: the processed marker is what later deliveries check.
+    logger.warn({ err, eventId: event.id }, "Could not delete the claim of a processed Stripe event")
+  );
 }
 
 /**
@@ -364,42 +449,116 @@ async function handleSubscriptionChange(subscription: Stripe.Subscription): Prom
     logger.warn({ subscriptionId: subscription.id }, "Subscription missing price");
     return;
   }
-  const priceId = price.id;
-
-  const pricePlan = await getPlanFromPrice(price);
-  if (!pricePlan) {
-    logger.warn({ priceId }, "Unknown price ID");
+  if (!(await getPlanFromPrice(price))) {
+    logger.warn({ priceId: price.id }, "Unknown price ID");
     return;
   }
 
-  // Only the user's current subscription (the stored row) may take the plan
-  // down: a late "incomplete_expired"/"canceled" for a subscription the user has
-  // since replaced must not touch the plan, the billing status, or the row. An
-  // entitled subscription becomes the current one.
+  await syncUserSubscription(subscription, userId);
+}
+
+/**
+ * Handle subscription deleted event
+ */
+async function handleSubscriptionDeleted(subscription: Stripe.Subscription): Promise<void> {
+  const userId = subscription.metadata.keyway_user_id;
+  if (!userId) {
+    logger.warn({ subscriptionId: subscription.id }, "Deleted subscription missing keyway_user_id");
+    return;
+  }
+
+  await syncUserSubscription(subscription, userId);
+}
+
+/**
+ * Bring the user's stored subscription and plan in line with what Stripe holds
+ * for them now (see currentSubscriptions), after an event about `subscription`:
+ *
+ *  - an entitled subscription (the highest tier) becomes the stored, current
+ *    one and sets the plan;
+ *  - otherwise only the stored current subscription may take the plan down: a
+ *    late event about a subscription the user has since replaced changes
+ *    nothing (that one's own events maintain the plan);
+ *  - a canceled current subscription is removed and the user drops to free;
+ *  - any other one is stored with its status: still `incomplete` (first
+ *    payment pending, nothing paid, nothing ended) the plan is kept, anything
+ *    else (unpaid, paused, incomplete_expired) drops to free.
+ */
+async function syncUserSubscription(subscription: Stripe.Subscription, userId: string) {
+  const customerId = customerIdOf(subscription);
+  if (!customerId) {
+    logger.warn({ subscriptionId: subscription.id }, "Subscription missing customer");
+    return;
+  }
+
   const current = await getUserSubscription(userId);
-  if (
-    current &&
-    current.stripeSubscriptionId !== subscription.id &&
-    !isEntitled(subscription.status)
-  ) {
+  const { eventSubscription, entitlement } = await currentSubscriptions(
+    subscription,
+    { key: "keyway_user_id", id: userId },
+    customerId,
+    current?.stripeSubscriptionId
+  );
+
+  if (entitlement) {
+    await storeUserSubscription(userId, entitlement.subscription, entitlement.plan);
+    return;
+  }
+
+  if (current && current.stripeSubscriptionId !== eventSubscription.id) {
     logger.info(
       {
         userId,
-        subscriptionId: subscription.id,
+        subscriptionId: eventSubscription.id,
         currentSubscriptionId: current.stripeSubscriptionId,
-        status: subscription.status,
+        status: eventSubscription.status,
       },
       "Ignoring status change of a subscription that is not the user's current one"
     );
     return;
   }
 
+  if (eventSubscription.status === "canceled") {
+    await removeUserSubscription(userId);
+    return;
+  }
+
+  if (isEntitled(eventSubscription.status)) {
+    // Entitled, yet not counted above: its price is not one of our plans.
+    logger.warn(
+      { userId, subscriptionId: eventSubscription.id },
+      "Entitled subscription with an unknown price; plan left unchanged"
+    );
+    return;
+  }
+
+  await storeUserSubscription(
+    userId,
+    eventSubscription,
+    eventSubscription.status === "incomplete" ? null : "free"
+  );
+}
+
+/**
+ * Store `subscription` as the user's current one and set the user's plan to
+ * `plan` (null keeps the current plan).
+ */
+async function storeUserSubscription(
+  userId: string,
+  subscription: Stripe.Subscription,
+  plan: UserPlan | null
+): Promise<void> {
+  const subscriptionItem = subscription.items.data[0];
+  if (!subscriptionItem) {
+    logger.warn({ subscriptionId: subscription.id }, "Subscription missing price");
+    return;
+  }
+  const priceId = subscriptionItem.price.id;
+
   // Map Stripe status to our billing status
   const billingStatus = mapStripeToBillingStatus(subscription.status);
 
   // Get current period end from subscription items (Stripe v20 structure)
-  const subscriptionItem = subscription.items.data[0];
-  const currentPeriodEnd = subscriptionItem?.current_period_end
+  const currentPeriodEnd = subscriptionItem.current_period_end
     ? new Date(subscriptionItem.current_period_end * 1000)
     : new Date(); // Fallback to now if not available
 
@@ -434,23 +593,24 @@ async function handleSubscriptionChange(subscription: Stripe.Subscription): Prom
     .limit(1);
 
   const previousPlan = currentUser?.plan || "free";
-  const plan = planForSubscriptionStatus(subscription.status, pricePlan, previousPlan);
+  const newPlan = plan ?? previousPlan;
 
   // Update user plan and billing status
   await db
     .update(users)
     .set({
-      plan,
+      plan: newPlan,
       billingStatus,
       updatedAt: new Date(),
     })
     .where(eq(users.id, userId));
 
-  logger.info({ userId, plan, billingStatus }, "Updated user plan");
+  logger.info({ userId, plan: newPlan, billingStatus }, "Updated user plan");
 
   // Track billing upgrade/downgrade events
-  if (previousPlan !== plan) {
-    const isUpgrade = planRank(plan) > planRank(previousPlan);
+  if (previousPlan !== newPlan) {
+    const isUpgrade = planRank(newPlan) > planRank(previousPlan);
+    const billingInterval = subscriptionItem.price.recurring?.interval || "unknown";
 
     // Log activity
     await logActivity({
@@ -459,46 +619,29 @@ async function handleSubscriptionChange(subscription: Stripe.Subscription): Prom
       platform: "api",
       metadata: {
         previousPlan,
-        newPlan: plan,
-        billingInterval: subscription.items.data[0]?.price.recurring?.interval || "unknown",
+        newPlan,
+        billingInterval,
         source: "stripe_webhook",
       },
     });
 
     // Track analytics
-    if (previousPlan === "free" && plan !== "free") {
+    if (previousPlan === "free" && newPlan !== "free") {
       trackEvent(userId, AnalyticsEvents.BILLING_UPGRADE, {
         previousPlan,
-        newPlan: plan,
-        billingInterval: subscription.items.data[0]?.price.recurring?.interval || "unknown",
+        newPlan,
+        billingInterval,
       });
       // Update user identity with new plan
-      identifyUser(userId, { plan });
+      identifyUser(userId, { plan: newPlan });
     }
   }
 }
 
 /**
- * Handle subscription deleted event
+ * The user's current subscription is gone: delete its row and drop to free.
  */
-async function handleSubscriptionDeleted(subscription: Stripe.Subscription): Promise<void> {
-  const userId = subscription.metadata.keyway_user_id;
-  if (!userId) {
-    logger.warn({ subscriptionId: subscription.id }, "Deleted subscription missing keyway_user_id");
-    return;
-  }
-
-  // Deleting a subscription the user has since replaced changes nothing (and
-  // must not delete the current subscription's row, which is keyed by user).
-  const current = await getUserSubscription(userId);
-  if (current && current.stripeSubscriptionId !== subscription.id) {
-    logger.info(
-      { userId, subscriptionId: subscription.id, currentSubscriptionId: current.stripeSubscriptionId },
-      "Ignoring deletion of a subscription that is not the user's current one"
-    );
-    return;
-  }
-
+async function removeUserSubscription(userId: string): Promise<void> {
   // Get current user plan before downgrade
   const [currentUser] = await db
     .select({ plan: users.plan })
@@ -506,7 +649,7 @@ async function handleSubscriptionDeleted(subscription: Stripe.Subscription): Pro
     .where(eq(users.id, userId))
     .limit(1);
 
-  const previousPlan = currentUser?.plan || "team";
+  const previousPlan = currentUser?.plan || "free";
 
   // Delete subscription record
   await db.delete(subscriptions).where(eq(subscriptions.userId, userId));
@@ -522,6 +665,11 @@ async function handleSubscriptionDeleted(subscription: Stripe.Subscription): Pro
     .where(eq(users.id, userId));
 
   logger.info({ userId }, "Downgraded user to free plan (subscription deleted)");
+
+  // Already free (e.g. an `unpaid` event dropped the plan first): nothing to report.
+  if (previousPlan === "free") {
+    return;
+  }
 
   // Log activity
   await logActivity({
@@ -622,7 +770,13 @@ export function constructWebhookEvent(payload: Buffer, signature: string): Strip
 }
 
 /**
- * Handle a Stripe webhook event
+ * Handle a Stripe webhook event, at most once.
+ *
+ * The event is recorded as processed only after its side effects succeeded.
+ * If they fail, the claim is released and the error propagates, so the route
+ * answers 5xx and Stripe retries the event; if the process dies mid-way, the
+ * claim goes stale and a later retry takes over. A duplicate delivered while
+ * the event is being processed gets a ConflictError (409) and is retried later.
  */
 export async function handleWebhookEvent(event: Stripe.Event): Promise<void> {
   if (!config.billing.enabled) {
@@ -630,16 +784,27 @@ export async function handleWebhookEvent(event: Stripe.Event): Promise<void> {
     return;
   }
 
-  // Check idempotency
-  if (await isEventProcessed(event.id)) {
+  if (!(await claimWebhookEvent(event))) {
     logger.debug({ eventId: event.id }, "Event already processed");
     return;
   }
 
-  // Record event first (for idempotency)
-  await recordWebhookEvent(event.id, event.type);
+  try {
+    await applyWebhookEvent(event);
+  } catch (err) {
+    await releaseWebhookEvent(event.id).catch((releaseErr) =>
+      logger.error(
+        { err: releaseErr, eventId: event.id },
+        "Could not release a failed Stripe event; a retry takes it over once its claim is stale"
+      )
+    );
+    throw err;
+  }
 
-  // Handle event by type
+  await completeWebhookEvent(event);
+}
+
+async function applyWebhookEvent(event: Stripe.Event): Promise<void> {
   switch (event.type) {
     case "customer.subscription.created":
     case "customer.subscription.updated": {
@@ -772,8 +937,11 @@ export async function createOrgCheckoutSession(
   // Get or create customer
   const customerId = await getOrCreateOrgStripeCustomer(orgId, orgLogin, ownerEmail);
 
-  const activeSubs = await s.subscriptions.list({ customer: customerId, status: "active", limit: 1 });
-  if (activeSubs.data.length > 0) {
+  // Any subscription that already grants a plan (trialing and past_due as well
+  // as active) means the org pays: another checkout would run two in parallel.
+  // Without a status filter, Stripe lists every subscription that is not canceled.
+  const existingSubs = await s.subscriptions.list({ customer: customerId, limit: 100 });
+  if (existingSubs.data.some((sub) => isEntitled(sub.status))) {
     throw new BadRequestError(
       "Organization already has an active subscription. Use the billing portal to change plans."
     );
@@ -855,46 +1023,12 @@ export async function handleOrgSubscriptionChange(
     logger.warn({ subscriptionId: subscription.id }, "Org subscription missing price");
     return;
   }
-  const priceId = price.id;
-
-  const pricePlan = await getPlanFromPrice(price);
-  if (!pricePlan) {
-    logger.warn({ priceId }, "Unknown price ID for org");
+  if (!(await getPlanFromPrice(price))) {
+    logger.warn({ priceId: price.id }, "Unknown price ID for org");
     return;
   }
 
-  const org = await getOrganizationById(orgId);
-  const entitled = isEntitled(subscription.status);
-
-  // A subscription that is actually live converts the trial: from then on the
-  // org's plan is the one this webhook maintains (see getEffectivePlanWithTrial).
-  if (org && hasHadTrial(org) && !org.trialConvertedAt && entitled) {
-    await convertTrial({
-      orgId,
-      userId: orgId, // System action - use org ID as actor
-      platform: "api",
-      stripeCustomerId: subscription.customer as string,
-    });
-    logger.info({ orgId }, "Converted trial to paid subscription");
-  }
-
-  // Only an entitled subscription grants its plan (an abandoned or failed
-  // checkout must not). While a Keyway trial is active the effective plan comes
-  // from the trial dates, whatever is written here.
-  const currentPlan = org?.plan ?? "free";
-  const plan = planForSubscriptionStatus(subscription.status, pricePlan, currentPlan);
-  if (
-    planRank(plan) < planRank(currentPlan) &&
-    (await orgHasOtherEntitledSubscription(subscription, orgId))
-  ) {
-    logger.info(
-      { orgId, subscriptionId: subscription.id, status: subscription.status, plan: currentPlan },
-      "Keeping organization plan: another subscription of the org is still entitled"
-    );
-    return;
-  }
-  await updateOrganizationPlan(orgId, plan);
-  logger.info({ orgId, plan, status: subscription.status }, "Updated organization plan");
+  await syncOrgPlan(subscription, orgId);
 }
 
 /**
@@ -909,19 +1043,78 @@ export async function handleOrgSubscriptionDeleted(
     return;
   }
 
-  // An old subscription's deletion must not downgrade an org another
-  // subscription still pays for.
-  if (await orgHasOtherEntitledSubscription(subscription, orgId)) {
-    logger.info(
-      { orgId, subscriptionId: subscription.id },
-      "Keeping organization plan: deleted subscription is not the org's only entitled one"
-    );
+  await syncOrgPlan(subscription, orgId);
+}
+
+/**
+ * Set the org's plan from the subscriptions Stripe holds for it now (see
+ * currentSubscriptions), after an event about `subscription`: the highest
+ * tier among its entitled subscriptions, else free. Organizations store no
+ * subscription row, so this is recomputed on every event, which also covers
+ * ending one of two parallel subscriptions (cancelling Business while Team
+ * still runs leaves Team, not Business).
+ *
+ * While the event's subscription is still `incomplete` and nothing else is
+ * entitled, nothing has been paid and nothing has ended: the plan is left
+ * alone. During a Keyway trial the effective plan comes from the trial dates,
+ * whatever is written here (see getEffectivePlanWithTrial).
+ */
+async function syncOrgPlan(subscription: Stripe.Subscription, orgId: string): Promise<void> {
+  const customerId = customerIdOf(subscription);
+  if (!customerId) {
+    logger.warn({ orgId, subscriptionId: subscription.id }, "Org subscription missing customer");
     return;
   }
 
-  // Downgrade org to free plan
-  await updateOrganizationPlan(orgId, "free");
-  logger.info({ orgId }, "Downgraded organization to free plan (subscription deleted)");
+  const { eventSubscription, entitlement } = await currentSubscriptions(
+    subscription,
+    { key: "keyway_org_id", id: orgId },
+    customerId
+  );
+
+  // A subscription that is actually live converts the trial: from then on the
+  // org's plan is the one this webhook maintains.
+  const org = await getOrganizationById(orgId);
+  if (entitlement && org && hasHadTrial(org) && !org.trialConvertedAt) {
+    await convertTrial({
+      orgId,
+      userId: null, // System action (Stripe webhook): no user started it
+      platform: "api",
+      stripeCustomerId: customerId,
+    });
+    logger.info({ orgId }, "Converted trial to paid subscription");
+  }
+
+  let plan: UserPlan;
+  if (entitlement) {
+    plan = entitlement.plan;
+  } else if (eventSubscription.status === "incomplete") {
+    logger.info(
+      { orgId, subscriptionId: eventSubscription.id },
+      "Organization plan unchanged: first payment of the subscription is still incomplete"
+    );
+    return;
+  } else if (isEntitled(eventSubscription.status)) {
+    // Entitled, yet not counted: its price is not one of our plans.
+    logger.warn(
+      { orgId, subscriptionId: eventSubscription.id },
+      "Entitled org subscription with an unknown price; plan left unchanged"
+    );
+    return;
+  } else {
+    plan = "free";
+  }
+
+  await updateOrganizationPlan(orgId, plan);
+  logger.info(
+    {
+      orgId,
+      plan,
+      subscriptionId: entitlement?.subscription.id ?? eventSubscription.id,
+      status: entitlement?.subscription.status ?? eventSubscription.status,
+    },
+    "Updated organization plan"
+  );
 }
 
 /**

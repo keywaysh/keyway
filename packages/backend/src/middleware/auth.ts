@@ -366,7 +366,7 @@ export async function requireAdminAccess(request: FastifyRequest, _reply: Fastif
   }
 
   // Use GitHub App to check user's role on the repo the vault is bound to
-  const role = await getUserRoleWithApp(repoFullName, vcsUser.username, {
+  const role = await getUserRoleWithApp(repoFullName, vcsUser, {
     expectedRepoId: await getVaultForgeRepoId(repoFullName),
   });
   const isAdmin = role === "admin";
@@ -412,7 +412,7 @@ export async function requireAdminOrOwnerAccess(request: FastifyRequest, _reply:
   const expectedRepoId = await getVaultForgeRepoId(repoFullName);
   let role;
   try {
-    role = await getUserRoleWithApp(repoFullName, vcsUser.username, { expectedRepoId });
+    role = await getUserRoleWithApp(repoFullName, vcsUser, { expectedRepoId });
   } catch (err) {
     // App not installed, or vault not bound to a repository id: the repo can't vouch
     // for anyone, only the vault owner may clean the vault up.
@@ -475,7 +475,7 @@ export function requireEnvironmentAccess(permissionType: PermissionType) {
 
     // Role check bound to the vault's immutable repo id: a name that now points to
     // another repository (rename, transfer, deleted and recreated) grants nothing.
-    const userRole = await getUserRoleWithApp(repoFullName, vcsUser.username, {
+    const userRole = await getUserRoleWithApp(repoFullName, vcsUser, {
       expectedRepoId: vault?.forgeRepoId,
     });
 

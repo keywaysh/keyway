@@ -49,7 +49,7 @@ vi.mock("../../src/middleware/auth", async () => {
     authenticateGitHub: async (request: any) => {
       request.vcsUser = {
         forgeType: "github",
-        forgeUserId: "gh-alice",
+        forgeUserId: "1001",
         username: "alice",
         email: null,
         avatarUrl: null,
@@ -99,7 +99,9 @@ vi.mock("../../src/services/trial.service", () => ({
 
 import { exposureRoutes } from "../../src/api/v1/routes/exposure.routes";
 
-const alice = { id: "u-alice", forgeType: "github", forgeUserId: "gh-alice", username: "alice" };
+const alice = { id: "u-alice", forgeType: "github", forgeUserId: "1001", username: "alice" };
+/** GitHub's account behind alice's login, by immutable id (matches forgeUserId). */
+const aliceOnGitHub = { id: 1001, login: "alice" };
 // forgeOrgId: GitHub's immutable org id, what the installation must be bound to.
 const org = { id: "org-acme", login: "acme", forgeOrgId: "111", plan: "business" };
 const orgVault = { id: "vault-a", orgId: "org-acme", repoFullName: "acme/api", ownerId: "u-someone-else" };
@@ -180,7 +182,11 @@ describe("access-history on a personal vault requires live repo admin", () => {
     const res = await app.inject({ method: "GET", url: "/v1/vaults/alice/app/secrets/s1/access-history" });
 
     expect(res.statusCode).toBe(200);
-    expect(getUserRoleWithApp).toHaveBeenCalledWith("alice/app", "alice", { expectedRepoId: "55" });
+    expect(getUserRoleWithApp).toHaveBeenCalledWith(
+      "alice/app",
+      expect.objectContaining({ username: "alice", forgeUserId: "1001" }),
+      { expectedRepoId: "55" }
+    );
   });
 });
 
@@ -197,7 +203,7 @@ describe("org-owner gate uses a live GitHub admin check", () => {
   for (const r of orgRoutes) {
     it(`${r.name}: a demoted admin (cached owner, live member) is refused`, async () => {
       mocks.isOrganizationOwner.mockResolvedValue(true);
-      mocks.getOrgMembership.mockResolvedValue({ role: "member", state: "active" });
+      mocks.getOrgMembership.mockResolvedValue({ role: "member", state: "active", user: aliceOnGitHub });
 
       const res = await app.inject({ method: "GET", url: r.url });
 
@@ -216,12 +222,28 @@ describe("org-owner gate uses a live GitHub admin check", () => {
     });
 
     it(`${r.name}: a current GitHub admin is allowed`, async () => {
-      mocks.getOrgMembership.mockResolvedValue({ role: "admin", state: "active" });
+      mocks.getOrgMembership.mockResolvedValue({ role: "admin", state: "active", user: aliceOnGitHub });
 
       const res = await app.inject({ method: "GET", url: r.url });
 
       expect(res.statusCode).toBe(200);
       expect(mocks.getOrgMembership).toHaveBeenCalledWith("install-token", "acme", "alice");
+    });
+  }
+
+  for (const r of orgRoutes) {
+    it(`${r.name}: the account that re-registered the user's login is not the user`, async () => {
+      // alice renamed on GitHub; bob (id 2002) registered "alice" and is an acme admin.
+      mocks.getOrgMembership.mockResolvedValue({
+        role: "admin",
+        state: "active",
+        user: { id: 2002, login: "alice" },
+      });
+
+      const res = await app.inject({ method: "GET", url: r.url });
+
+      expect(res.statusCode).toBe(403);
+      expect(r.service).not.toHaveBeenCalled();
     });
   }
 
@@ -265,7 +287,7 @@ describe("org-owner gate uses a live GitHub admin check", () => {
   it("access-history on an org vault: a demoted admin is refused", async () => {
     mocks.vaultsFindFirst.mockResolvedValue(orgVault);
     mocks.isOrganizationOwner.mockResolvedValue(true);
-    mocks.getOrgMembership.mockResolvedValue({ role: "member", state: "active" });
+    mocks.getOrgMembership.mockResolvedValue({ role: "member", state: "active", user: aliceOnGitHub });
 
     const res = await app.inject({ method: "GET", url: "/v1/vaults/acme/api/secrets/s1/access-history" });
 
@@ -275,7 +297,7 @@ describe("org-owner gate uses a live GitHub admin check", () => {
 
   it("access-history on an org vault: a current GitHub admin is allowed", async () => {
     mocks.vaultsFindFirst.mockResolvedValue(orgVault);
-    mocks.getOrgMembership.mockResolvedValue({ role: "admin", state: "active" });
+    mocks.getOrgMembership.mockResolvedValue({ role: "admin", state: "active", user: aliceOnGitHub });
 
     const res = await app.inject({ method: "GET", url: "/v1/vaults/acme/api/secrets/s1/access-history" });
 
@@ -298,7 +320,7 @@ describe("exposure routes require read:secrets for API keys", () => {
   beforeEach(() => {
     // Authorized by every role check, so only the API key scope can refuse.
     mocks.isOrganizationOwner.mockResolvedValue(true);
-    mocks.getOrgMembership.mockResolvedValue({ role: "admin", state: "active" });
+    mocks.getOrgMembership.mockResolvedValue({ role: "admin", state: "active", user: aliceOnGitHub });
   });
 
   for (const url of urls) {

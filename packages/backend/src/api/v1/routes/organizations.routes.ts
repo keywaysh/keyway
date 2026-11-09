@@ -25,6 +25,7 @@ import {
   removeOrganizationMember,
 } from "../../../services/organization.service";
 import type {
+  ForgeType,
   OrgRole,
   Organization,
   OrganizationMember,
@@ -47,7 +48,7 @@ import {
   getOrgInstallationToken,
   readLiveOrgMembership,
   type OrgIdentity,
-  type UnverifiableReason,
+  type LiveOrgUnverifiableReason,
 } from "../../../utils/orgAdmin";
 import { eq, and } from "drizzle-orm";
 import {
@@ -80,9 +81,17 @@ function toOrgTierPrices(
  * PUT /api/v1/orgs/:org - Update organization settings
  * GET /api/v1/orgs/:org/members - List organization members
  * POST /api/v1/orgs/:org/members/sync - Force sync members from GitHub
+ *
+ * Every route needs an interactive (JWT/session) login: API keys are refused.
  */
 
 type WarnLogger = { warn: (obj: object, msg: string) => void };
+
+/**
+ * The signed-in caller as stored (DB user row): membership is checked for
+ * `forgeUserId`, GitHub's immutable id — `username` only addresses the API.
+ */
+type OrgCaller = { id: string; username: string; forgeUserId: string; forgeType: ForgeType };
 
 /**
  * Mutating org routes (connect, settings, member sync, trial, billing) act with
@@ -93,12 +102,25 @@ type WarnLogger = { warn: (obj: object, msg: string) => void };
  */
 const rejectApiKeys = rejectApiKeyAuth("manage organizations");
 
+/**
+ * Org dashboard reads (org list, details with member emails and defaults, the
+ * roster, billing with the Stripe customer id, trial) are for an interactive
+ * session too: a `read:secrets` CI key is scoped to secrets, not to the org.
+ */
+const rejectApiKeyReads = rejectApiKeyAuth("read organization data");
+
 const NOT_A_MEMBER = "You are not a member of this organization";
 
 /** Actionable refusal for when GitHub can't confirm a membership either way. */
-function membershipUnverifiedError(orgLogin: string, reason: UnverifiableReason): ApiError {
+function membershipUnverifiedError(orgLogin: string, reason: LiveOrgUnverifiableReason): ApiError {
   const prefix = `Keyway can't verify your membership of ${orgLogin}`;
   switch (reason) {
+    case "account_mismatch":
+      // GitHub answered for whoever holds the stored login now, not this account.
+      return new ForbiddenError(
+        `${prefix}: your GitHub username changed since you signed in to Keyway. ` +
+          "Please sign in to Keyway again."
+      );
     case "missing_permission":
       return new ForbiddenError(
         `${prefix}: the Keyway GitHub App needs the "Members: read" organization permission on ${orgLogin}. ` +
@@ -130,12 +152,18 @@ function membershipUnverifiedError(orgLogin: string, reason: UnverifiableReason)
  */
 async function requireVerifiedOrgMembership(
   org: OrgIdentity,
-  user: { id: string; username: string },
+  user: OrgCaller,
   cached: Pick<OrganizationMember, "orgId" | "orgRole"> | null,
   log: WarnLogger,
   notMemberMessage = NOT_A_MEMBER
 ): Promise<OrgRole> {
-  const live = await readLiveOrgMembership(org, user.username);
+  // Bound to the caller's GitHub id: an answer about whoever holds the stored
+  // login now (login reused) is "unverifiable", never a grant or a removal.
+  const live = await readLiveOrgMembership(org, {
+    username: user.username,
+    forgeUserId: user.forgeUserId,
+    forgeType: user.forgeType,
+  });
   if (live.status === "unverifiable") {
     throw membershipUnverifiedError(org.login, live.reason);
   }
@@ -166,7 +194,7 @@ async function requireVerifiedOrgMembership(
  */
 async function requireOrgMember(
   org: Organization,
-  user: { id: string; username: string },
+  user: OrgCaller,
   log: WarnLogger
 ): Promise<OrgRole> {
   const membership = await getOrganizationMembership(org.id, user.id);
@@ -222,7 +250,7 @@ function assertAllowedRedirectUrls(...urls: string[]): void {
  */
 async function requireLiveOrgAdmin(
   org: Organization,
-  user: { id: string; username: string },
+  user: OrgCaller,
   action: string,
   log: WarnLogger
 ): Promise<void> {
@@ -249,7 +277,7 @@ export async function organizationsRoutes(fastify: FastifyInstance) {
   fastify.get(
     "/",
     {
-      preHandler: [authenticateGitHub],
+      preHandler: [authenticateGitHub, rejectApiKeyReads],
     },
     async (request, reply) => {
       const vcsUser = request.vcsUser || request.githubUser!;
@@ -421,7 +449,7 @@ export async function organizationsRoutes(fastify: FastifyInstance) {
   }>(
     "/:org",
     {
-      preHandler: [authenticateGitHub],
+      preHandler: [authenticateGitHub, rejectApiKeyReads],
     },
     async (request, reply) => {
       const { org: orgLogin } = request.params;
@@ -538,7 +566,7 @@ export async function organizationsRoutes(fastify: FastifyInstance) {
   }>(
     "/:org/members",
     {
-      preHandler: [authenticateGitHub],
+      preHandler: [authenticateGitHub, rejectApiKeyReads],
     },
     async (request, reply) => {
       const { org: orgLogin } = request.params;
@@ -652,7 +680,7 @@ export async function organizationsRoutes(fastify: FastifyInstance) {
   }>(
     "/:org/billing",
     {
-      preHandler: [authenticateGitHub],
+      preHandler: [authenticateGitHub, rejectApiKeyReads],
     },
     async (request, reply) => {
       const { org: orgLogin } = request.params;
@@ -861,7 +889,7 @@ export async function organizationsRoutes(fastify: FastifyInstance) {
   }>(
     "/:org/trial",
     {
-      preHandler: [authenticateGitHub],
+      preHandler: [authenticateGitHub, rejectApiKeyReads],
     },
     async (request, reply) => {
       const { org: orgLogin } = request.params;

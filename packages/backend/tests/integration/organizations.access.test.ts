@@ -65,7 +65,7 @@ vi.mock("../../src/middleware/auth", async () => ({
   authenticateGitHub: async (request: any) => {
     request.vcsUser = {
       forgeType: "github",
-      forgeUserId: "gh-mallory",
+      forgeUserId: "31337",
       username: "mallory",
       email: "mallory@example.com",
       avatarUrl: null,
@@ -157,10 +157,13 @@ vi.mock("../../src/services/billing.service", () => ({
 
 import { organizationsRoutes } from "../../src/api/v1/routes/organizations.routes";
 
+/** Mallory's GitHub account, as GitHub's membership answers name it (immutable id). */
+const MALLORY_ON_GITHUB = { id: 31337, login: "mallory" };
+
 const mallory = {
   id: "u-mallory",
   forgeType: "github",
-  forgeUserId: "gh-mallory",
+  forgeUserId: "31337",
   username: "mallory",
   email: "mallory@example.com",
   plan: "free",
@@ -212,15 +215,25 @@ function malloryReclaimsTheLogin() {
   mocks.getOrgMembership.mockResolvedValue({
     role: "admin",
     state: "active",
+    user: MALLORY_ON_GITHUB,
     organization: { id: 4242, login: "acme-corp", avatar_url: "" },
   });
 }
 
-/** Fetch stub for the definitive membership read (GET /orgs/:org/memberships/:user). */
-function stubGitHubMembershipStatus(status: number) {
-  const fetchMock = vi.fn().mockResolvedValue(
-    new Response(status === 404 ? JSON.stringify({ message: "Not Found" }) : "{}", { status })
-  );
+/**
+ * Fetch stub for the definitive membership read (GET /orgs/:org/memberships/:user).
+ * GET /users/:login (asked behind a 404) answers that "mallory" is still
+ * Mallory's GitHub account unless `loginOwner` says otherwise.
+ */
+function stubGitHubMembershipStatus(status: number, loginOwner: { id: number } | null = MALLORY_ON_GITHUB) {
+  const fetchMock = vi.fn().mockImplementation(async (url: string) => {
+    if (String(url).includes("/users/")) {
+      return loginOwner
+        ? new Response(JSON.stringify(loginOwner), { status: 200 })
+        : new Response(JSON.stringify({ message: "Not Found" }), { status: 404 });
+    }
+    return new Response(status === 404 ? JSON.stringify({ message: "Not Found" }) : "{}", { status });
+  });
   vi.stubGlobal("fetch", fetchMock);
   return fetchMock;
 }
@@ -307,7 +320,7 @@ describe("POST /v1/orgs/connect requires an active GitHub org membership", () =>
   it("refuses a pending (invited, not accepted) membership", async () => {
     mocks.getOrganizationByLogin.mockResolvedValue(acme);
     mocks.getOrganizationMembership.mockResolvedValue(null);
-    mocks.getOrgMembership.mockResolvedValue({ role: "member", state: "pending" });
+    mocks.getOrgMembership.mockResolvedValue({ role: "member", state: "pending", user: MALLORY_ON_GITHUB });
 
     const res = await app.inject({
       method: "POST",
@@ -374,7 +387,7 @@ describe("POST /v1/orgs/connect requires an active GitHub org membership", () =>
   it("returns an already-connected, live-confirmed member's org without re-adding them", async () => {
     mocks.getOrganizationByLogin.mockResolvedValue(acme);
     mocks.getOrganizationMembership.mockResolvedValue({ id: "m-1", orgId: "org-acme", orgRole: "member" });
-    mocks.getOrgMembership.mockResolvedValue({ role: "member", state: "active" });
+    mocks.getOrgMembership.mockResolvedValue({ role: "member", state: "active", user: MALLORY_ON_GITHUB });
 
     const res = await app.inject({
       method: "POST",
@@ -406,7 +419,7 @@ describe("POST /v1/orgs/connect requires an active GitHub org membership", () =>
 
   it("refuses a new org whose GitHub id differs from the installation's (no member row)", async () => {
     mocks.getOrganizationByLogin.mockResolvedValue(null);
-    mocks.getOrgMembership.mockResolvedValue({ role: "admin", state: "active" });
+    mocks.getOrgMembership.mockResolvedValue({ role: "admin", state: "active", user: MALLORY_ON_GITHUB });
     mocks.ensureOrganizationExists.mockResolvedValue({ ...acme, forgeOrgId: "4242" });
 
     const res = await app.inject({
@@ -422,7 +435,7 @@ describe("POST /v1/orgs/connect requires an active GitHub org membership", () =>
   it("adds an active GitHub member with the installation-token role", async () => {
     mocks.getOrganizationByLogin.mockResolvedValue(acme);
     mocks.getOrganizationMembership.mockResolvedValue(null);
-    mocks.getOrgMembership.mockResolvedValue({ role: "member", state: "active" });
+    mocks.getOrgMembership.mockResolvedValue({ role: "member", state: "active", user: MALLORY_ON_GITHUB });
 
     const res = await app.inject({
       method: "POST",
@@ -462,7 +475,7 @@ describe("member-gated reads re-check the live GitHub membership", () => {
   });
 
   it("GET /:org removes the row when the membership is only pending", async () => {
-    mocks.getOrgMembership.mockResolvedValue({ role: "member", state: "pending" });
+    mocks.getOrgMembership.mockResolvedValue({ role: "member", state: "pending", user: MALLORY_ON_GITHUB });
 
     const res = await app.inject({ method: "GET", url: "/v1/orgs/acme-corp" });
 
@@ -518,8 +531,37 @@ describe("member-gated reads re-check the live GitHub membership", () => {
     expect(mocks.upsertOrganizationMember).not.toHaveBeenCalled();
   });
 
+  it("GET /:org refuses, keeping the row, when GitHub's answer is about another account (login reused)", async () => {
+    // Mallory renamed on GitHub; someone else registered "mallory" and is an org admin.
+    mocks.getOrgMembership.mockResolvedValue({
+      role: "admin",
+      state: "active",
+      user: { id: 999, login: "mallory" },
+    });
+
+    const res = await app.inject({ method: "GET", url: "/v1/orgs/acme-corp" });
+
+    expect(res.statusCode).toBe(403);
+    expect(res.body).toContain("sign in to Keyway again");
+    expect(res.body).not.toContain("alice-private@acme.example");
+    expect(mocks.getOrganizationDetails).not.toHaveBeenCalled();
+    expect(mocks.removeOrganizationMember).not.toHaveBeenCalled();
+    expect(mocks.upsertOrganizationMember).not.toHaveBeenCalled();
+  });
+
+  it("GET /:org keeps the row when GitHub's 404 is about whoever holds the login now", async () => {
+    mocks.getOrgMembership.mockResolvedValue(null);
+    stubGitHubMembershipStatus(404, { id: 999 });
+
+    const res = await app.inject({ method: "GET", url: "/v1/orgs/acme-corp" });
+
+    expect(res.statusCode).toBe(403);
+    expect(res.body).toContain("sign in to Keyway again");
+    expect(mocks.removeOrganizationMember).not.toHaveBeenCalled();
+  });
+
   it("GET /:org serves an active member and self-heals the role", async () => {
-    mocks.getOrgMembership.mockResolvedValue({ role: "admin", state: "active" });
+    mocks.getOrgMembership.mockResolvedValue({ role: "admin", state: "active", user: MALLORY_ON_GITHUB });
 
     const res = await app.inject({ method: "GET", url: "/v1/orgs/acme-corp" });
 
@@ -583,7 +625,7 @@ describe("member-gated reads re-check the live GitHub membership", () => {
     });
 
     it(`GET /:org/${path} serves a live-confirmed member`, async () => {
-      mocks.getOrgMembership.mockResolvedValue({ role: "member", state: "active" });
+      mocks.getOrgMembership.mockResolvedValue({ role: "member", state: "active", user: MALLORY_ON_GITHUB });
 
       const res = await app.inject({ method: "GET", url: `/v1/orgs/acme-corp/${path}` });
 
@@ -592,7 +634,7 @@ describe("member-gated reads re-check the live GitHub membership", () => {
   }
 
   it("GET /:org/members serves an active member", async () => {
-    mocks.getOrgMembership.mockResolvedValue({ role: "member", state: "active" });
+    mocks.getOrgMembership.mockResolvedValue({ role: "member", state: "active", user: MALLORY_ON_GITHUB });
 
     const res = await app.inject({ method: "GET", url: "/v1/orgs/acme-corp/members" });
 
@@ -610,7 +652,7 @@ describe("mutating org routes refuse API keys", () => {
     mocks.getOrganizationByLogin.mockResolvedValue(acme);
     mocks.getOrganizationMembership.mockResolvedValue({ id: "m-1", orgId: "org-acme", orgRole: "owner" });
     // Even a live GitHub admin: the key must not act with the user's full identity.
-    mocks.getOrgMembership.mockResolvedValue({ role: "admin", state: "active" });
+    mocks.getOrgMembership.mockResolvedValue({ role: "admin", state: "active", user: MALLORY_ON_GITHUB });
     mocks.updateOrganization.mockResolvedValue({
       id: "org-acme",
       login: "acme-corp",
@@ -682,6 +724,23 @@ describe("mutating org routes refuse API keys", () => {
     expect(mocks.upsertOrganizationMember).not.toHaveBeenCalled();
   });
 
+  it("PUT /:org refuses a GitHub admin answer that is about another account (login reused)", async () => {
+    mocks.getOrgMembership.mockResolvedValue({
+      role: "admin",
+      state: "active",
+      user: { id: 999, login: "mallory" },
+    });
+
+    const res = await app.inject({
+      method: "PUT",
+      url: "/v1/orgs/acme-corp",
+      payload: { displayName: "Acme" },
+    });
+
+    expect(res.statusCode).toBe(403);
+    expect(mocks.updateOrganization).not.toHaveBeenCalled();
+  });
+
   it("PUT /:org still works for a live admin on a session (non-API-key) login", async () => {
     const res = await app.inject({
       method: "PUT",
@@ -695,13 +754,49 @@ describe("mutating org routes refuse API keys", () => {
 });
 
 // ============================================================================
+// org dashboard reads refuse API-key authentication
+// ============================================================================
+
+describe("org dashboard reads refuse API keys", () => {
+  beforeEach(() => {
+    mocks.getOrganizationByLogin.mockResolvedValue({ ...acme, stripeCustomerId: "cus_acme" });
+    mocks.getOrganizationMembership.mockResolvedValue({ id: "m-1", orgId: "org-acme", orgRole: "member" });
+    // Even for a live GitHub member: a read:secrets CI key is not a dashboard session.
+    mocks.getOrgMembership.mockResolvedValue({ role: "member", state: "active", user: MALLORY_ON_GITHUB });
+  });
+
+  // Member emails, defaults, Stripe customer id, trial data, org list.
+  const reads = ["/v1/orgs", "/v1/orgs/acme-corp", "/v1/orgs/acme-corp/members", "/v1/orgs/acme-corp/billing", "/v1/orgs/acme-corp/trial"];
+
+  for (const url of reads) {
+    it(`GET ${url} → 403 with an API key, before any org data is read`, async () => {
+      const res = await app.inject({ method: "GET", url, headers: { "x-test-api-key": "1" } });
+
+      expect(res.statusCode).toBe(403);
+      expect(res.body).toContain("API keys cannot read organization data");
+      expect(res.body).not.toContain("alice-private@acme.example");
+      expect(res.body).not.toContain("cus_acme");
+      expect(mocks.getOrganizationByLogin).not.toHaveBeenCalled();
+      expect(mocks.getOrganizationDetails).not.toHaveBeenCalled();
+      expect(mocks.getOrganizationMembersWithGitHub).not.toHaveBeenCalled();
+    });
+
+    it(`GET ${url} still serves a session (non-API-key) login`, async () => {
+      const res = await app.inject({ method: "GET", url });
+
+      expect(res.statusCode).toBe(200);
+    });
+  }
+});
+
+// ============================================================================
 // Hardening — org billing redirect URLs restricted to allowed origins
 // ============================================================================
 
 describe("Org billing redirect URLs must be on allowed origins", () => {
   beforeEach(() => {
     mocks.getOrganizationByLogin.mockResolvedValue({ ...acme, stripeCustomerId: "cus_acme" });
-    mocks.getOrgMembership.mockResolvedValue({ role: "admin", state: "active" });
+    mocks.getOrgMembership.mockResolvedValue({ role: "admin", state: "active", user: MALLORY_ON_GITHUB });
   });
 
   it("rejects a checkout successUrl on a foreign origin", async () => {
@@ -763,7 +858,7 @@ describe("Org billing redirect URLs must be on allowed origins", () => {
 
 describe("checkout after an expired trial with an abandoned checkout", () => {
   beforeEach(() => {
-    mocks.getOrgMembership.mockResolvedValue({ role: "admin", state: "active" });
+    mocks.getOrgMembership.mockResolvedValue({ role: "admin", state: "active", user: MALLORY_ON_GITHUB });
   });
 
   it("lets the org subscribe (the Stripe customer exists but nothing was paid)", async () => {

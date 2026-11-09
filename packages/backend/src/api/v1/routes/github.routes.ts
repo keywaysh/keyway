@@ -17,11 +17,14 @@ import { db, users, vaults, vcsAppInstallations, vcsAppInstallationRepos } from 
 import { eq, and } from "drizzle-orm";
 import { sendData } from "../../../lib/response";
 import { BadRequestError, UnauthorizedError } from "../../../lib/errors";
-import type { InstallationAccountType } from "../../../db/schema";
+import type { InstallationAccountType, Organization } from "../../../db/schema";
 import {
   getOrCreateOrganization,
   syncOrganizationMembers,
   getOrganizationByLogin,
+  getOrganizationByForgeId,
+  upsertOrganizationMember,
+  removeOrganizationMember,
 } from "../../../services/organization.service";
 import { listOrgMembersWithApp, listUserOrganizations } from "../../../utils/github";
 import { decryptAccessToken } from "../../../utils/tokenEncryption";
@@ -635,7 +638,7 @@ async function handleInstallationRepositoriesEvent(
 
 // Payload types for organization events
 interface GitHubOrganizationPayload {
-  action: "member_added" | "member_removed" | "member_invited";
+  action: "member_added" | "member_removed" | "member_invited" | "renamed";
   membership?: {
     user: {
       id: number;
@@ -649,7 +652,8 @@ interface GitHubOrganizationPayload {
     login: string;
     avatar_url: string;
   };
-  installation?: GitHubWebhookInstallation;
+  /** Non-installation events carry only the installation's id. */
+  installation?: { id: number };
 }
 
 interface GitHubMembershipPayload {
@@ -666,11 +670,48 @@ interface GitHubMembershipPayload {
     id: number;
     login: string;
   };
-  installation?: GitHubWebhookInstallation;
+  installation?: { id: number };
 }
 
 /**
- * Handle organization.* events (member_added, member_removed)
+ * The Keyway org an org-level webhook is about, or null to ignore the event.
+ *
+ * Selected by GitHub's immutable org id, never by `organization.login`: logins
+ * are released by renames and re-registered by other orgs, so the row holding
+ * a login can be another tenant's. The event must also come through Keyway's
+ * installation on THAT org (stored installation, matched by account id), so a
+ * roster read with that installation's token only ever lands in that org.
+ */
+async function resolveWebhookOrg(
+  organization: { id: number; login: string },
+  installation: { id: number },
+  fastify: FastifyInstance
+): Promise<Organization | null> {
+  const org = await getOrganizationByForgeId("github", String(organization.id));
+  if (!org) {
+    fastify.log.debug(
+      { orgLogin: organization.login, forgeOrgId: organization.id },
+      "Organization not found in Keyway"
+    );
+    return null;
+  }
+  const stored = await getInstallationByGitHubId(installation.id);
+  if (!stored || stored.accountType !== "organization" || stored.accountId !== organization.id) {
+    fastify.log.warn(
+      {
+        installationId: installation.id,
+        forgeOrgId: organization.id,
+        installationAccountId: stored?.accountId ?? null,
+      },
+      "Org webhook not delivered through Keyway's installation on that org; ignoring"
+    );
+    return null;
+  }
+  return org;
+}
+
+/**
+ * Handle organization.* events (member_added, member_removed, renamed)
  */
 async function handleOrganizationEvent(payload: unknown, fastify: FastifyInstance): Promise<void> {
   const orgPayload = payload as GitHubOrganizationPayload;
@@ -680,16 +721,22 @@ async function handleOrganizationEvent(payload: unknown, fastify: FastifyInstanc
     return;
   }
 
-  // Find our org by GitHub org ID
-  const { getOrganizationByLogin } = await import("../../../services/organization.service");
-  const org = await getOrganizationByLogin(organization.login);
-
+  const org = await resolveWebhookOrg(organization, installation, fastify);
   if (!org) {
-    fastify.log.debug({ orgLogin: organization.login }, "Organization not found in Keyway");
     return;
   }
 
   switch (action) {
+    case "renamed":
+      // Record the new login now (selected by id; the login is taken off any
+      // other row still holding it), so it isn't left to a later lookup.
+      fastify.log.info(
+        { orgId: org.id, from: org.login, to: organization.login },
+        "Organization renamed on GitHub"
+      );
+      await getOrCreateOrganization("github", String(organization.id), organization.login);
+      break;
+
     case "member_added":
       if (membership) {
         fastify.log.info(
@@ -710,8 +757,6 @@ async function handleOrganizationEvent(payload: unknown, fastify: FastifyInstanc
         });
 
         if (newMember) {
-          const { upsertOrganizationMember } =
-            await import("../../../services/organization.service");
           await upsertOrganizationMember(
             org.id,
             newMember.id,
@@ -741,8 +786,6 @@ async function handleOrganizationEvent(payload: unknown, fastify: FastifyInstanc
         });
 
         if (removedMember) {
-          const { removeOrganizationMember } =
-            await import("../../../services/organization.service");
           await removeOrganizationMember(org.id, removedMember.id);
         }
       }
@@ -769,9 +812,7 @@ async function handleMembershipEvent(payload: unknown, fastify: FastifyInstance)
     return;
   }
 
-  const { getOrganizationByLogin } = await import("../../../services/organization.service");
-  const org = await getOrganizationByLogin(organization.login);
-
+  const org = await resolveWebhookOrg(organization, installation, fastify);
   if (!org) {
     return;
   }

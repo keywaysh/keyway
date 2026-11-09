@@ -57,7 +57,7 @@ vi.mock("../../src/middleware/auth", async () => {
     authenticateGitHub: async (request: any) => {
       request.vcsUser = {
         forgeType: "github",
-        forgeUserId: "gh-alice",
+        forgeUserId: "1001",
         username: "alice",
         email: null,
         avatarUrl: null,
@@ -123,10 +123,12 @@ import { permissionOverridesRoutes } from "../../src/api/v1/routes/permission-ov
 const alice = {
   id: "u-alice",
   forgeType: "github",
-  forgeUserId: "gh-alice",
+  forgeUserId: "1001",
   username: "alice",
   avatarUrl: null,
 };
+/** GitHub's account behind alice's login, by immutable id (matches forgeUserId). */
+const aliceOnGitHub = { id: 1001, login: "alice" };
 const TARGET_USER_ID = "33333333-3333-3333-3333-333333333333";
 
 const vaultA = { id: "vault-a", orgId: "org-acme", repoFullName: "acme/api", ownerId: "u-other" };
@@ -297,7 +299,7 @@ describe("org-owner path uses a live GitHub admin check", () => {
   for (const m of mutations) {
     it(`${m.name}: a demoted admin (live role member) is refused`, async () => {
       // ...but GitHub says she is only a member now.
-      mocks.getOrgMembership.mockResolvedValue({ role: "member", state: "active" });
+      mocks.getOrgMembership.mockResolvedValue({ role: "member", state: "active", user: aliceOnGitHub });
 
       const res = await app.inject({ method: m.method, url: m.url, payload: m.payload });
 
@@ -318,14 +320,28 @@ describe("org-owner path uses a live GitHub admin check", () => {
     expect(mocks.createOverride).not.toHaveBeenCalled();
   });
 
-  it("allows a current GitHub org admin, checked with the session username", async () => {
-    mocks.getOrgMembership.mockResolvedValue({ role: "admin", state: "active" });
+  it("allows a current GitHub org admin, checked with the session account", async () => {
+    mocks.getOrgMembership.mockResolvedValue({ role: "admin", state: "active", user: aliceOnGitHub });
 
     const res = await app.inject({ method: "POST", url: `${BASE}/overrides`, payload: createPayload });
 
     expect(res.statusCode).toBe(200);
     expect(mocks.getOrgMembership).toHaveBeenCalledWith("install-token", "acme", "alice");
     expect(mocks.createOverride).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not grant org admin to the account that re-registered the user's login", async () => {
+    // alice renamed on GitHub; bob (id 2002) registered "alice" and is an acme admin.
+    mocks.getOrgMembership.mockResolvedValue({
+      role: "admin",
+      state: "active",
+      user: { id: 2002, login: "alice" },
+    });
+
+    const res = await app.inject({ method: "POST", url: `${BASE}/overrides`, payload: createPayload });
+
+    expect(res.statusCode).toBe(403);
+    expect(mocks.createOverride).not.toHaveBeenCalled();
   });
 
   it("does not grant org admin through a reclaimed org login (installation of another GitHub org)", async () => {

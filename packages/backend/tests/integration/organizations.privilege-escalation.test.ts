@@ -60,7 +60,7 @@ vi.mock("../../src/middleware/auth", async () => ({
     // Stub auth: tests set request.vcsUser via headers
     request.vcsUser = {
       forgeType: "github",
-      forgeUserId: "u-bob-gh-id",
+      forgeUserId: "4001",
       username: "bob",
       email: "bob@example.com",
       avatarUrl: null,
@@ -195,10 +195,13 @@ import { vaultsRoutes } from "../../src/api/v1/routes/vaults.routes";
 
 // ----- helpers ----------------------------------------------------------
 
+/** Bob's GitHub account (forgeUserId 4001), as membership answers name it. */
+const BOB_ON_GITHUB = { id: 4001, login: "bob" };
+
 const bobUser = {
   id: "u-bob-keyway-id",
   forgeType: "github",
-  forgeUserId: "u-bob-gh-id",
+  forgeUserId: "4001",
   username: "bob",
   email: "bob@example.com",
   avatarUrl: null,
@@ -235,8 +238,16 @@ function resetAll() {
   });
   mocks.getOrThrowUser.mockResolvedValue(bobUser);
   mocks.findOrgInstallationViaGitHubAPI.mockResolvedValue(null);
-  // Behind a null membership read, GitHub answers a definitive 404.
-  vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("{}", { status: 404 })));
+  // Behind a null membership read, GitHub answers a definitive 404 (and the
+  // login "bob" still names Bob's account).
+  vi.stubGlobal(
+    "fetch",
+    vi.fn().mockImplementation(async (url: string) =>
+      String(url).includes("/users/")
+        ? new Response(JSON.stringify(BOB_ON_GITHUB), { status: 200 })
+        : new Response("{}", { status: 404 })
+    )
+  );
 }
 
 afterEach(() => {
@@ -269,7 +280,7 @@ describe("POST /v1/orgs/connect — privilege escalation regression", () => {
     // Org not yet in DB → triggers create-org branch
     mocks.getOrganizationByLogin.mockResolvedValue(null);
     // Live GitHub membership (checked with the installation token)
-    mocks.getOrgMembership.mockResolvedValue({ role: "member", state: "active" });
+    mocks.getOrgMembership.mockResolvedValue({ role: "member", state: "active", user: BOB_ON_GITHUB });
 
     const response = await app.inject({
       method: "POST",
@@ -292,7 +303,7 @@ describe("POST /v1/orgs/connect — privilege escalation regression", () => {
       { id: 98765, login: "acme-corp", role: "admin", avatar_url: null, description: null },
     ]);
     mocks.getOrganizationByLogin.mockResolvedValue(null);
-    mocks.getOrgMembership.mockResolvedValue({ role: "admin", state: "active" });
+    mocks.getOrgMembership.mockResolvedValue({ role: "admin", state: "active", user: BOB_ON_GITHUB });
 
     const response = await app.inject({
       method: "POST",
@@ -313,6 +324,7 @@ describe("POST /v1/orgs/connect — privilege escalation regression", () => {
     mocks.getOrgMembership.mockResolvedValue({
       role: "admin",
       state: "active",
+      user: BOB_ON_GITHUB,
       organization: { id: 98765, login: "acme-corp", avatar_url: "" },
     });
     mocks.getOrganizationByLogin.mockResolvedValue(null);
@@ -346,6 +358,7 @@ describe("POST /v1/orgs/connect — privilege escalation regression", () => {
     mocks.getOrgMembership.mockResolvedValue({
       role: "admin",
       state: "active",
+      user: BOB_ON_GITHUB,
       organization: { id: 98765, login: "acme-corp", avatar_url: "" },
     });
 
@@ -490,6 +503,7 @@ describe("PUT /v1/orgs/:org — fail-closed authorization", () => {
     mocks.getOrgMembership.mockResolvedValue({
       role: "member",
       state: "active",
+      user: BOB_ON_GITHUB,
     });
 
     const response = await app.inject({
@@ -520,6 +534,7 @@ describe("PUT /v1/orgs/:org — fail-closed authorization", () => {
     mocks.getOrgMembership.mockResolvedValue({
       role: "admin",
       state: "pending",
+      user: BOB_ON_GITHUB,
     });
 
     const response = await app.inject({
@@ -536,6 +551,7 @@ describe("PUT /v1/orgs/:org — fail-closed authorization", () => {
     mocks.getOrgMembership.mockResolvedValue({
       role: "admin",
       state: "active",
+      user: BOB_ON_GITHUB,
     });
 
     const response = await app.inject({

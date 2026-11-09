@@ -17,6 +17,7 @@ import type {
   RoleMapper,
 } from "./types";
 import type { CollaboratorRole } from "../../db/schema";
+import type { ForgeAccount } from "../../utils/forgeAccount";
 
 /**
  * Abstract VCS Provider
@@ -74,14 +75,15 @@ export abstract class VcsProvider implements VcsProviderInterface {
   ): Promise<VcsRepository | null>;
 
   /**
-   * Get the user's role on a repository
-   * Returns null if user has no access
+   * Get the account's role on a repository
+   * Returns null if the account has no access. Bound to `account.forgeUserId`:
+   * logins can be released and re-registered by someone else.
    */
   abstract getUserRole(
     accessToken: string,
     owner: string,
     repo: string,
-    username: string
+    account: ForgeAccount
   ): Promise<CollaboratorRole | null>;
 
   /**
@@ -108,12 +110,13 @@ export abstract class VcsProvider implements VcsProviderInterface {
   abstract listOrgMembers(accessToken: string, org: string): Promise<VcsOrgMember[]>;
 
   /**
-   * Get a user's membership in an organization
+   * Get an account's membership in an organization (null unless the forge's
+   * answer is about `account.forgeUserId`)
    */
   abstract getOrgMembership(
     accessToken: string,
     org: string,
-    username: string
+    account: ForgeAccount
   ): Promise<{ role: "owner" | "member"; state: string } | null>;
 
   // ============================================================================
@@ -136,9 +139,9 @@ export abstract class VcsProvider implements VcsProviderInterface {
     accessToken: string,
     owner: string,
     repo: string,
-    username: string
+    account: ForgeAccount
   ): Promise<boolean> {
-    const role = await this.getUserRole(accessToken, owner, repo, username);
+    const role = await this.getUserRole(accessToken, owner, repo, account);
     return role !== null;
   }
 
@@ -149,9 +152,9 @@ export abstract class VcsProvider implements VcsProviderInterface {
     accessToken: string,
     owner: string,
     repo: string,
-    username: string
+    account: ForgeAccount
   ): Promise<boolean> {
-    const role = await this.getUserRole(accessToken, owner, repo, username);
+    const role = await this.getUserRole(accessToken, owner, repo, account);
     if (!role) {
       return false;
     }
@@ -165,9 +168,9 @@ export abstract class VcsProvider implements VcsProviderInterface {
     accessToken: string,
     owner: string,
     repo: string,
-    username: string
+    account: ForgeAccount
   ): Promise<boolean> {
-    const role = await this.getUserRole(accessToken, owner, repo, username);
+    const role = await this.getUserRole(accessToken, owner, repo, account);
     if (!role) {
       return false;
     }

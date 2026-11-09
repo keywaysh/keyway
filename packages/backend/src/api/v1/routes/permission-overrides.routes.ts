@@ -10,7 +10,7 @@ import {
   BadRequestError,
   ConflictError,
 } from "../../../lib";
-import { getUserRoleWithApp } from "../../../utils/github";
+import { getUserRoleWithApp, type ForgeAccount } from "../../../utils/github";
 import {
   createOverride,
   updateOverride,
@@ -118,10 +118,10 @@ export async function permissionOverridesRoutes(fastify: FastifyInstance) {
    */
   async function canManagePermissions(
     vault: { id: string; orgId: string | null; repoFullName: string; forgeRepoId: string | null },
-    username: string
+    account: ForgeAccount
   ): Promise<boolean> {
     // Check if user is repo admin
-    const role = await getUserRoleWithApp(vault.repoFullName, username, {
+    const role = await getUserRoleWithApp(vault.repoFullName, account, {
       expectedRepoId: vault.forgeRepoId,
     });
     if (role === "admin") {
@@ -131,7 +131,7 @@ export async function permissionOverridesRoutes(fastify: FastifyInstance) {
     // Check if user is a current admin of the vault's org
     if (vault.orgId) {
       const org = await getOrganizationById(vault.orgId);
-      if (org && (await isLiveOrgAdmin(org, username))) {
+      if (org && (await isLiveOrgAdmin(org, account))) {
         return true;
       }
     }
@@ -182,7 +182,7 @@ export async function permissionOverridesRoutes(fastify: FastifyInstance) {
       }
 
       // Check user has at least read access
-      const role = await getUserRoleWithApp(repoFullName, vcsUser.username, {
+      const role = await getUserRoleWithApp(repoFullName, vcsUser, {
         expectedRepoId: vault.forgeRepoId,
       });
       if (!role) {
@@ -243,7 +243,7 @@ export async function permissionOverridesRoutes(fastify: FastifyInstance) {
       }
 
       // Check permission to manage overrides
-      const canManage = await canManagePermissions(vault, vcsUser.username);
+      const canManage = await canManagePermissions(vault, vcsUser);
       if (!canManage) {
         throw new ForbiddenError(
           "Only organization owners or repository admins can manage permissions"
@@ -341,7 +341,7 @@ export async function permissionOverridesRoutes(fastify: FastifyInstance) {
       }
 
       // Check permission to manage overrides
-      const canManage = await canManagePermissions(vault, vcsUser.username);
+      const canManage = await canManagePermissions(vault, vcsUser);
       if (!canManage) {
         throw new ForbiddenError(
           "Only organization owners or repository admins can manage permissions"
@@ -410,7 +410,7 @@ export async function permissionOverridesRoutes(fastify: FastifyInstance) {
       }
 
       // Check permission to manage overrides
-      const canManage = await canManagePermissions(vault, vcsUser.username);
+      const canManage = await canManagePermissions(vault, vcsUser);
       if (!canManage) {
         throw new ForbiddenError(
           "Only organization owners or repository admins can manage permissions"
@@ -474,7 +474,7 @@ export async function permissionOverridesRoutes(fastify: FastifyInstance) {
       }
 
       // Check permission to manage overrides
-      const canManage = await canManagePermissions(vault, vcsUser.username);
+      const canManage = await canManagePermissions(vault, vcsUser);
       if (!canManage) {
         throw new ForbiddenError(
           "Only organization owners or repository admins can manage permissions"
@@ -538,7 +538,7 @@ export async function permissionOverridesRoutes(fastify: FastifyInstance) {
       }
 
       // Get user's GitHub role
-      const role = await getUserRoleWithApp(repoFullName, vcsUser.username, {
+      const role = await getUserRoleWithApp(repoFullName, vcsUser, {
         expectedRepoId: vault.forgeRepoId,
       });
       if (!role) {

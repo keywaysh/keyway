@@ -44,7 +44,7 @@ import {
   UnauthorizedError,
 } from "../../../lib";
 import type { ForgeType } from "../../../db/schema";
-import { getUserRoleWithApp } from "../../../utils/github";
+import { getUserRoleWithApp, type ForgeAccount } from "../../../utils/github";
 import { requireSyncPermission, requireEnvironmentPermission } from "../../../utils/permissions";
 import { logger } from "../../../utils/sharedLogger";
 import { providerConnections } from "../../../db/schema";
@@ -257,8 +257,9 @@ function sendSignInRequiredPage(
 /**
  * Authentication of GET /:provider/authorize, which a browser opens:
  * - `?ticket=` from POST /:provider/authorize-ticket (current CLI);
- * - `?token=` from CLI versions before the ticket: accepted on this route only, by moving
- *   it into the Authorization header (the middleware no longer reads it from the URL);
+ * - `?token=` from CLI versions before 0.7.0: refused with an upgrade page. That URL
+ *   carries the CLI's long-lived token, which browsers and proxies record; it is never
+ *   used to authenticate;
  * - otherwise the usual Bearer header or session cookie.
  *
  * A ticket or query token is a link anyone can be sent: it starts the provider OAuth only
@@ -299,20 +300,18 @@ async function authenticateAuthorizeRequest(request: FastifyRequest, reply: Fast
     return;
   }
 
-  if (typeof query.token === "string" && query.token && !request.headers.authorization) {
-    request.headers.authorization = `Bearer ${query.token}`;
-    await runPreHandler(authenticateGitHub, request, reply);
-
-    const owner = request.vcsUser ?? request.githubUser;
-    if (!owner) {
-      throw new UnauthorizedError("Authentication required");
-    }
-    const sessionUser = await getBrowserSessionUser(request);
-    if (!sessionUser || !isSameForgeUser(sessionUser, owner)) {
-      // No sign-in round trip here: the return URL would carry the long-lived token
-      return sendSignInRequiredPage(reply, provider, owner.username, sessionUser?.username ?? null);
-    }
-    return;
+  if (query.token !== undefined) {
+    return reply
+      .status(410)
+      .type("text/html")
+      .send(
+        renderErrorPage(
+          "Update the Keyway CLI",
+          "This version of the Keyway CLI is no longer supported to connect providers. " +
+            "Update to 0.7.0 or later (npm install -g @keywaysh/cli, or brew upgrade keyway), " +
+            "then run the command again."
+        )
+      );
   }
 
   await runPreHandler(authenticateGitHub, request, reply);
@@ -322,7 +321,8 @@ async function authenticateAuthorizeRequest(request: FastifyRequest, reply: Fast
 // Uses GitHub App to check permissions (consistent with other access checks).
 // Returns the role it checked: environment permission checks must use that role, never a
 // second lookup that could come back null (rate limit, outage) and be skipped.
-async function verifyVaultAccess(username: string, owner: string, repo: string) {
+async function verifyVaultAccess(account: ForgeAccount, owner: string, repo: string) {
+  const username = account.username;
   const repoFullName = `${owner}/${repo}`;
   logger.debug({ username, repoFullName }, "Verifying vault access");
 
@@ -332,7 +332,7 @@ async function verifyVaultAccess(username: string, owner: string, repo: string) 
 
   // Use GitHub App to check user's role (same as requireEnvironmentAccess middleware),
   // bound to the vault's immutable repo id
-  const role = await getUserRoleWithApp(repoFullName, username, {
+  const role = await getUserRoleWithApp(repoFullName, account, {
     expectedRepoId: vault?.forgeRepoId,
   });
 
@@ -910,7 +910,7 @@ export async function integrationsRoutes(fastify: FastifyInstance) {
         .parse(request.body);
 
       const { vault } = await verifyVaultAccess(
-        (request.vcsUser || request.githubUser!).username,
+        request.vcsUser || request.githubUser!,
         owner,
         repo
       );
@@ -953,7 +953,7 @@ export async function integrationsRoutes(fastify: FastifyInstance) {
       const query = SyncStatusQuerySchema.parse(request.query);
 
       const { vault } = await verifyVaultAccess(
-        (request.vcsUser || request.githubUser!).username,
+        request.vcsUser || request.githubUser!,
         owner,
         repo
       );
@@ -1013,7 +1013,7 @@ export async function integrationsRoutes(fastify: FastifyInstance) {
       }
 
       const { vault, role } = await verifyVaultAccess(
-        (request.vcsUser || request.githubUser!).username,
+        request.vcsUser || request.githubUser!,
         owner,
         repo
       );
@@ -1066,7 +1066,7 @@ export async function integrationsRoutes(fastify: FastifyInstance) {
       }
 
       const { vault, role } = await verifyVaultAccess(
-        (request.vcsUser || request.githubUser!).username,
+        request.vcsUser || request.githubUser!,
         owner,
         repo
       );
@@ -1138,7 +1138,7 @@ export async function integrationsRoutes(fastify: FastifyInstance) {
 
       // Verify vault access first
       const { vault, role } = await verifyVaultAccess(
-        (request.vcsUser || request.githubUser!).username,
+        request.vcsUser || request.githubUser!,
         owner,
         repo
       );

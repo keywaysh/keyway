@@ -10,6 +10,8 @@ const mockGetUserSubscription = vi.hoisted(() => vi.fn());
 const mockCreateCheckoutSession = vi.hoisted(() => vi.fn());
 const mockCreatePortalSession = vi.hoisted(() => vi.fn());
 const mockFindFirst = vi.hoisted(() => vi.fn());
+const mockConstructWebhookEvent = vi.hoisted(() => vi.fn());
+const mockHandleWebhookEvent = vi.hoisted(() => vi.fn());
 
 // Mock config
 vi.mock('../../src/config', () => ({
@@ -27,8 +29,8 @@ vi.mock('../../src/services', () => ({
   getUserSubscription: mockGetUserSubscription,
   createCheckoutSession: mockCreateCheckoutSession,
   createPortalSession: mockCreatePortalSession,
-  constructWebhookEvent: vi.fn(),
-  handleWebhookEvent: vi.fn(),
+  constructWebhookEvent: mockConstructWebhookEvent,
+  handleWebhookEvent: mockHandleWebhookEvent,
 }));
 
 // Mock database
@@ -80,6 +82,17 @@ describe('Billing Routes', () => {
     });
 
     app = await createTestApp();
+    // Same JSON parser as production (src/index.ts): keeps the raw body for routes that ask for it
+    app.addContentTypeParser('application/json', { parseAs: 'buffer' }, (req, body, done) => {
+      if (req.routeOptions?.config?.rawBody) {
+        (req as any).rawBody = body;
+      }
+      try {
+        done(null, JSON.parse(body.toString()));
+      } catch (err: any) {
+        done(err, undefined);
+      }
+    });
 
     const { billingRoutes } = await import('../../src/api/v1/routes/billing.routes');
     await app.register(billingRoutes, { prefix: '/v1/billing' });
@@ -448,6 +461,67 @@ describe('Billing Routes', () => {
       expect(body).toHaveProperty('type');
       expect(body).toHaveProperty('title');
       expect(body.detail).toContain('No billing account');
+    });
+  });
+
+  describe('POST /v1/billing/webhook', () => {
+    const deliver = () =>
+      app.inject({
+        method: 'POST',
+        url: '/v1/billing/webhook',
+        headers: { 'content-type': 'application/json', 'stripe-signature': 't=1,v1=abc' },
+        payload: JSON.stringify({ id: 'evt_1', type: 'customer.subscription.updated' }),
+      });
+
+    beforeEach(() => {
+      mockConstructWebhookEvent.mockReturnValue({ id: 'evt_1', type: 'customer.subscription.updated' });
+      mockHandleWebhookEvent.mockResolvedValue(undefined);
+    });
+
+    it('acknowledges a processed event with 200', async () => {
+      const response = await deliver();
+
+      expect(response.statusCode).toBe(200);
+      expect(JSON.parse(response.body)).toEqual({ received: true });
+      expect(mockConstructWebhookEvent).toHaveBeenCalledWith(expect.any(Buffer), 't=1,v1=abc');
+    });
+
+    it('answers 400 when the signature does not verify, without processing', async () => {
+      mockConstructWebhookEvent.mockImplementation(() => {
+        throw new Error('No signatures found matching the expected signature for payload');
+      });
+
+      const response = await deliver();
+
+      expect(response.statusCode).toBe(400);
+      expect(mockHandleWebhookEvent).not.toHaveBeenCalled();
+    });
+
+    it('answers 500 when processing fails, so Stripe retries the event', async () => {
+      mockHandleWebhookEvent.mockRejectedValue(new Error('connection terminated'));
+
+      const response = await deliver();
+
+      expect(response.statusCode).toBe(500);
+      // internal details stay in the logs
+      expect(response.body).not.toContain('connection terminated');
+    });
+
+    it('answers 500 even when the processing error mentions a signature', async () => {
+      mockHandleWebhookEvent.mockRejectedValue(new Error('invalid signature on a downstream call'));
+
+      const response = await deliver();
+
+      expect(response.statusCode).toBe(500);
+    });
+
+    it('answers 409 while another delivery of the event is being processed', async () => {
+      const { ConflictError } = await import('../../src/lib/errors');
+      mockHandleWebhookEvent.mockRejectedValue(new ConflictError('Event is being processed'));
+
+      const response = await deliver();
+
+      expect(response.statusCode).toBe(409);
     });
   });
 

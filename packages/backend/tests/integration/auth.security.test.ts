@@ -685,6 +685,29 @@ describe('Auth routes security', () => {
       // A concurrent poll already took the token
       expect(JSON.parse(response.body)).not.toHaveProperty('keywayToken');
     });
+
+    it('keeps polling when the install callback approved the code meanwhile', async () => {
+      // The poll read "oauth_complete", then the chained install callback moved the code
+      // to "approved" before the conditional consume: the code is unused, so the CLI must
+      // keep polling (the next poll takes the "approved" branch) instead of aborting.
+      const { db } = await import('../../src/db');
+      (db.query.deviceCodes.findFirst as any).mockResolvedValue({
+        ...mockDeviceCode,
+        status: 'oauth_complete',
+        userId: mockUser.id,
+        suggestedRepository: 'testuser/test-repo',
+      });
+      (db.update as any).mockReturnValueOnce(updateMatchingNoRow());
+
+      const response = await app.inject({
+        method: 'POST',
+        url: '/v1/auth/device/poll',
+        payload: { deviceCode: mockDeviceCode.deviceCode },
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(JSON.parse(response.body)).toEqual({ status: 'pending' });
+    });
   });
 
   describe('HTML injection and form bodies', () => {

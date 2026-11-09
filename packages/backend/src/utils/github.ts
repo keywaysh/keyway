@@ -5,10 +5,12 @@ import type { CollaboratorRole } from "../db/schema";
 import { findInstallationForRepo, getInstallationToken } from "../services/github-app.service";
 import { logger } from "./sharedLogger";
 import { maskToken } from "./logger";
+import { githubAccountId, isSameGitHubAccount, type ForgeAccount } from "./forgeAccount";
 
 const GITHUB_API_BASE = config.github?.apiBaseUrl || "https://api.github.com";
 
 export { isValidRepoSegment, isValidRepoFullName, parseRepoFullName };
+export type { ForgeAccount };
 
 function repoApiUrl(owner: string, repo: string): string {
   return `${GITHUB_API_BASE}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`;
@@ -62,6 +64,7 @@ interface GitHubRepo {
   private?: boolean;
   owner?: {
     login: string;
+    id?: number;
     type?: "User" | "Organization";
   };
   permissions?: {
@@ -295,8 +298,13 @@ export async function getRepoPermission(
  * Returns one of: read, triage, write, maintain, admin — or null for no access.
  *
  * Called with a GitHub App installation token, so `repo.permissions` in the API
- * response describe the token, never `username`: the role comes only from the
+ * response describe the token, never the user: the role comes only from the
  * canonical repo owner, live org ownership and the collaborator permission API.
+ *
+ * GitHub addresses users by login, which can be released and re-registered by
+ * another account, so each of those answers counts only when it names
+ * `account.forgeUserId` (the repo owner's id, the membership's and the
+ * permission's `user.id`). Any mismatch or missing id grants nothing.
  *
  * @param options.expectedRepoId - immutable forge repo id of the vault being accessed;
  *   a name that now resolves to a different repository grants nothing. `null` means the
@@ -306,9 +314,10 @@ export async function getRepoPermission(
 export async function getUserRole(
   accessToken: string,
   repoFullName: string,
-  username: string,
+  account: ForgeAccount,
   options: { expectedRepoId?: string | null } = {}
 ): Promise<CollaboratorRole | null> {
+  const username = account.username;
   let owner: string;
   let repo: string;
   try {
@@ -323,7 +332,12 @@ export async function getUserRole(
     logger.warn({ repoFullName }, "Role check on a vault that is not bound to a repository id");
     return null;
   }
-  logger.debug({ username, repoFullName }, "Getting GitHub user role");
+  const accountId = githubAccountId(account);
+  if (accountId === null) {
+    logger.warn({ username, repoFullName }, "Role check without a GitHub user id; nothing granted");
+    return null;
+  }
+  logger.debug({ username, forgeUserId: accountId, repoFullName }, "Getting GitHub user role");
 
   const headers = {
     Authorization: `Bearer ${accessToken}`,
@@ -365,8 +379,9 @@ export async function getUserRole(
       return null;
     }
 
-    // Personal repo owners have admin access but don't appear in the collaborators list
-    if (canonicalOwner === username) {
+    // Personal repo owners have admin access but don't appear in the collaborators list.
+    // Matched by id: the owner's login may since have been taken by someone else.
+    if (isSameGitHubAccount(accountId, repoData.owner)) {
       logger.debug({ username, reason: "repo_owner" }, "User is repo owner, role=admin");
       return "admin";
     }
@@ -383,10 +398,17 @@ export async function getUserRole(
           const membership = (await orgMembershipResponse.json()) as {
             role: string;
             state: string;
+            user?: { id?: unknown; login?: string } | null;
           };
           if (membership.role === "admin" && membership.state === "active") {
-            logger.debug({ username, reason: "org_owner" }, "User is org owner, role=admin");
-            return "admin";
+            if (isSameGitHubAccount(accountId, membership.user)) {
+              logger.debug({ username, reason: "org_owner" }, "User is org owner, role=admin");
+              return "admin";
+            }
+            logger.warn(
+              { username, forgeUserId: accountId, repoFullName },
+              "Org membership is for a different GitHub account than the signed-in user"
+            );
           }
         } else {
           logger.debug({ status: orgMembershipResponse.status }, "Org membership check failed");
@@ -411,7 +433,18 @@ export async function getUserRole(
       return null;
     }
 
-    const data = (await collabResponse.json()) as { permission: string; role_name: string };
+    const data = (await collabResponse.json()) as {
+      permission: string;
+      role_name: string;
+      user?: { id?: unknown; login?: string } | null;
+    };
+    if (!isSameGitHubAccount(accountId, data.user)) {
+      logger.warn(
+        { username, forgeUserId: accountId, repoFullName },
+        "Collaborator permission is for a different GitHub account than the signed-in user"
+      );
+      return null;
+    }
     const roleMap: Record<string, CollaboratorRole> = {
       pull: "read",
       read: "read", // GitHub /permission endpoint can return 'read' directly
@@ -429,6 +462,7 @@ export async function getUserRole(
 
     // On a public repo GitHub reports "read" for every account. Only an actual
     // collaborator (direct, team, org base permission or outside collaborator) counts.
+    // The 204 has no body: the permission answer just above bound the login to the id.
     if (role === "read" && repoData.private === false) {
       const isCollaborator = await fetch(collaboratorUrl, { headers });
       if (isCollaborator.status !== 204) {
@@ -502,6 +536,8 @@ export async function getRepoInfo(
   repoFullName: string
 ): Promise<{
   repoId: string | null;
+  /** Immutable account id of the repository's current owner (user or org). */
+  ownerId: string | null;
   fullName: string | null;
   createdAt: Date | null;
   isPrivate: boolean;
@@ -535,6 +571,8 @@ export async function getRepoInfo(
     const data = (await response.json()) as GitHubRepo;
     return {
       repoId: data.id !== undefined && data.id !== null ? String(data.id) : null,
+      ownerId:
+        data.owner?.id !== undefined && data.owner.id !== null ? String(data.owner.id) : null,
       fullName: isValidRepoFullName(data.full_name) ? data.full_name : null,
       createdAt: data.created_at ? new Date(data.created_at) : null,
       isPrivate: data.private === true,
@@ -680,14 +718,16 @@ export async function getRepoAccessAndPermissionWithApp(
 }
 
 /**
- * Get user role using GitHub App installation token
+ * Get user role using GitHub App installation token (see getUserRole: the role
+ * is bound to `account.forgeUserId`, never to the login alone).
  * @throws ForbiddenError if GitHub App is not installed
  */
 export async function getUserRoleWithApp(
   repoFullName: string,
-  username: string,
+  account: ForgeAccount,
   options: { expectedRepoId?: string | null } = {}
 ): Promise<CollaboratorRole | null> {
+  const username = account.username;
   logger.debug({ username, repoFullName }, "getUserRoleWithApp called");
   const { owner, repo } = parseRepoFullName(repoFullName);
   if (options.expectedRepoId === null) {
@@ -699,7 +739,7 @@ export async function getUserRoleWithApp(
   try {
     const token = await getTokenForRepo(owner, repo);
     logger.debug({ repoFullName }, "Got installation token, checking user role");
-    const role = await getUserRole(token, repoFullName, username, options);
+    const role = await getUserRole(token, repoFullName, account, options);
     logger.debug({ username, repoFullName, role }, "getUserRoleWithApp result");
     return role;
   } catch (error) {
@@ -723,6 +763,11 @@ export interface GitHubOrgMembershipInfo {
     login: string;
     avatar_url: string;
   };
+  /**
+   * The account GitHub answered for, by immutable id: the login in the URL may
+   * now belong to someone else. null when GitHub did not say.
+   */
+  user: { id: number; login: string } | null;
 }
 
 export interface GitHubOrgMember {
@@ -733,8 +778,10 @@ export interface GitHubOrgMember {
 }
 
 /**
- * Get a user's membership in a GitHub organization
- * Uses the user's access token to check their own membership
+ * Get a user's membership in a GitHub organization, addressed by login.
+ * The result's `user.id` says whose membership it is: a login can be released
+ * and re-registered, so callers must compare it with the signed-in account's
+ * forgeUserId before trusting the answer (see utils/orgAdmin).
  */
 export async function getOrgMembership(
   accessToken: string,
@@ -765,7 +812,12 @@ export async function getOrgMembership(
       state: "active" | "pending";
       role: "admin" | "member";
       organization: { id: number; login: string; avatar_url: string };
+      user?: { id?: unknown; login?: unknown } | null;
     };
+    const user =
+      typeof data.user?.id === "number" && typeof data.user.login === "string"
+        ? { id: data.user.id, login: data.user.login }
+        : null;
     return {
       state: data.state,
       role: data.role,
@@ -774,6 +826,7 @@ export async function getOrgMembership(
         login: data.organization.login,
         avatar_url: data.organization.avatar_url,
       },
+      user,
     };
   } catch (error) {
     logger.error(

@@ -1,6 +1,6 @@
 import { db } from "../db";
 import { organizations, organizationMembers, users, vaults } from "../db/schema";
-import { eq, and, desc } from "drizzle-orm";
+import { eq, and, ne, desc, sql } from "drizzle-orm";
 import type { Organization, OrganizationMember, OrgRole, UserPlan, ForgeType } from "../db/schema";
 import {
   getEffectivePlanWithTrial,
@@ -14,6 +14,7 @@ import { getGitHubOrgInfoWithToken, listOrgMembers } from "../utils/github";
 import type { GitHubOrgMember } from "../utils/github";
 import { keywayRoleFromGitHub } from "../utils/orgRole";
 import { logger } from "../utils/sharedLogger";
+import { ServiceUnavailableError } from "../lib";
 
 // ============================================================================
 // Types
@@ -56,7 +57,62 @@ export interface OrganizationDetails extends OrganizationInfo {
 // ============================================================================
 
 /**
- * Get or create an organization from VCS data
+ * Login a stale org row is moved to once another org of its forge holds its
+ * login. `~` is valid in no forge's org name (GitHub: alphanumerics and `-`), so
+ * the placeholder can never be claimed, and it keeps the old name for humans.
+ */
+export function releasedOrgLogin(login: string, forgeOrgId: string): string {
+  return `${login}~renamed-${forgeOrgId}`;
+}
+
+/**
+ * An org's login is unique on its forge at any instant but reusable over time:
+ * after a rename anyone can register the old name. `login` is NOT unique in the
+ * schema (only forge_type + forge_org_id is, the login constraint was dropped
+ * in 0035), so a row of another org may still hold `login` from before its
+ * rename. Given the forge's CURRENT (forgeOrgId, login) pair, move such rows to
+ * a placeholder so lookups by login (routes, webhooks) can only resolve the org
+ * that holds the name now. Nothing else about them changes; their real name is
+ * written back when the forge next reports it (installation or rename webhook,
+ * or a vault created in one of their repos), all of which select by id.
+ */
+async function releaseLoginFromOtherOrgs(
+  forgeType: ForgeType,
+  forgeOrgId: string,
+  login: string
+): Promise<void> {
+  const staleHolders = await db.query.organizations.findMany({
+    where: and(
+      eq(organizations.forgeType, forgeType),
+      ne(organizations.forgeOrgId, forgeOrgId),
+      // Forge logins are case-insensitive.
+      sql`lower(${organizations.login}) = lower(${login})`
+    ),
+  });
+  for (const stale of staleHolders) {
+    const released = releasedOrgLogin(stale.login, stale.forgeOrgId);
+    await db
+      .update(organizations)
+      .set({ login: released, updatedAt: new Date() })
+      .where(eq(organizations.id, stale.id));
+    logger.warn(
+      {
+        orgId: stale.id,
+        staleForgeOrgId: stale.forgeOrgId,
+        currentForgeOrgId: forgeOrgId,
+        login,
+        released,
+      },
+      "Org login now belongs to another forge org; released it from the stale row"
+    );
+  }
+}
+
+/**
+ * Get or create an organization from VCS data. Selected by the forge's
+ * immutable org id; `login` must be the forge's current login for that id (it
+ * is taken off any other org row still holding it, see
+ * releaseLoginFromOtherOrgs).
  */
 export async function getOrCreateOrganization(
   forgeType: ForgeType,
@@ -65,6 +121,8 @@ export async function getOrCreateOrganization(
   displayName?: string,
   avatarUrl?: string
 ): Promise<Organization> {
+  await releaseLoginFromOtherOrgs(forgeType, forgeOrgId, login);
+
   // Try to find existing org
   const existingOrg = await db.query.organizations.findFirst({
     where: and(eq(organizations.forgeType, forgeType), eq(organizations.forgeOrgId, forgeOrgId)),
@@ -113,6 +171,21 @@ export async function getOrCreateOrganization(
 export async function getOrganizationByLogin(login: string): Promise<Organization | null> {
   const org = await db.query.organizations.findFirst({
     where: eq(organizations.login, login),
+  });
+  return org ?? null;
+}
+
+/**
+ * Get organization by the forge's immutable org id (GitHub `organization.id`).
+ * Prefer it to getOrganizationByLogin whenever the forge gives the id: logins
+ * are reusable after a rename.
+ */
+export async function getOrganizationByForgeId(
+  forgeType: ForgeType,
+  forgeOrgId: string
+): Promise<Organization | null> {
+  const org = await db.query.organizations.findFirst({
+    where: and(eq(organizations.forgeType, forgeType), eq(organizations.forgeOrgId, forgeOrgId)),
   });
   return org ?? null;
 }
@@ -605,6 +678,10 @@ export interface TrialEligibility {
  * This is called when creating a vault for an org repo to ensure
  * we can properly calculate trial eligibility.
  *
+ * The org is resolved on GitHub FIRST and selected by its immutable id: a
+ * login can be released by a rename and registered by another org, and a row
+ * still holding it belongs to that previous org (its plan, billing, members).
+ *
  * @param orgLogin - The GitHub organization login (e.g., "keywaysh")
  * @param token - GitHub installation token to fetch org info
  * @param currentUser - Optional caller info to register as a member.
@@ -613,41 +690,30 @@ export interface TrialEligibility {
  *   Never default to "owner" here — doing so promotes the first
  *   GitHub member who triggers org creation to a Keyway owner.
  * @returns The organization (existing or newly created), or null if not an org
+ * @throws ServiceUnavailableError when GitHub doesn't confirm the org but
+ *   Keyway has a row under that login: which org holds it can't be told.
  */
 export async function ensureOrganizationExists(
   orgLogin: string,
   token: string,
   currentUser?: { userId: string; keywayRole: "owner" | "member" }
 ): Promise<Organization | null> {
-  // First, check if org already exists in DB
-  const existingOrg = await getOrganizationByLogin(orgLogin);
-  if (existingOrg) {
-    if (currentUser) {
-      const membership = await getOrganizationMembership(existingOrg.id, currentUser.userId);
-      // Intentionally insert-only: never rewrite an EXISTING member's role here.
-      // A connect/vault-create flow must not silently change roles. Role drift is
-      // reconciled elsewhere — the GET /:org self-heal (caller's own role) and the
-      // webhook member sync (org-wide). Don't "fix" this into an unconditional
-      // upsert, or it becomes a privilege-escalation vector.
-      if (!membership) {
-        await upsertOrganizationMember(
-          existingOrg.id,
-          currentUser.userId,
-          currentUser.keywayRole
-        );
-      }
-    }
-    return existingOrg;
-  }
-
-  // Fetch org info from GitHub
   const githubOrg = await getGitHubOrgInfoWithToken(token, orgLogin);
   if (!githubOrg) {
+    // A login Keyway knows but GitHub didn't confirm (outage, rate limit, or a
+    // rename in flight): attaching to that row could hand it to another org,
+    // and dropping the org would create the vault outside it. Retry instead.
+    if (await getOrganizationByLogin(orgLogin)) {
+      throw new ServiceUnavailableError(
+        `Keyway couldn't confirm the GitHub organization ${orgLogin} right now. Please retry.`
+      );
+    }
     // Not a GitHub organization or not accessible
     return null;
   }
 
-  // Create the organization in DB
+  // Selected (or created) by GitHub's id; any other row holding the login is
+  // stale and gives it up.
   const org = await getOrCreateOrganization(
     "github",
     String(githubOrg.id),
@@ -656,8 +722,16 @@ export async function ensureOrganizationExists(
     githubOrg.avatar_url
   );
 
-  if (currentUser && org) {
-    await upsertOrganizationMember(org.id, currentUser.userId, currentUser.keywayRole);
+  if (currentUser) {
+    const membership = await getOrganizationMembership(org.id, currentUser.userId);
+    // Intentionally insert-only: never rewrite an EXISTING member's role here.
+    // A connect/vault-create flow must not silently change roles. Role drift is
+    // reconciled elsewhere — the GET /:org self-heal (caller's own role) and the
+    // webhook member sync (org-wide). Don't "fix" this into an unconditional
+    // upsert, or it becomes a privilege-escalation vector.
+    if (!membership) {
+      await upsertOrganizationMember(org.id, currentUser.userId, currentUser.keywayRole);
+    }
   }
 
   return org;
