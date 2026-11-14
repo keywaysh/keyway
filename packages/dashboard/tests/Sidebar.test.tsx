@@ -49,7 +49,7 @@ const mockUser = {
   email: 'john@example.com',
   github_username: 'johndoe',
   avatar_url: 'https://example.com/avatar.jpg',
-  plan: 'pro',
+  plan: 'team',
 }
 
 const mockLogout = vi.fn()
@@ -261,7 +261,7 @@ describe('Sidebar', () => {
     it('should show user plan', () => {
       render(<Sidebar isOpen={false} onClose={vi.fn()} />)
 
-      expect(screen.getByText('Pro Plan')).toBeInTheDocument()
+      expect(screen.getByText('Team Plan')).toBeInTheDocument()
     })
 
     it('should show Free Plan for free users', () => {

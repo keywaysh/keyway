@@ -6,7 +6,7 @@ import Image from 'next/image'
 import Link from 'next/link'
 import { User, Building2, AlertTriangle, X } from 'lucide-react'
 import { api } from '@/lib/api'
-import type { Vault, UserPlan } from '@/lib/types'
+import type { Vault } from '@/lib/types'
 import dynamic from 'next/dynamic'
 import { DashboardLayout } from '@/app/components/dashboard/Layout'
 import { VaultCard, VaultCardSkeleton } from '@/app/components/dashboard/VaultCard'
@@ -29,13 +29,9 @@ interface VaultGroup {
   isPersonal: boolean
 }
 
-// Plan limits for display
-const PLAN_LIMITS: Record<UserPlan, number> = {
-  free: 1,
-  pro: 10,
-  team: 20,
-  business: 50,
-}
+// Only the Free plan caps private vaults; paid tiers are unlimited, so the
+// plan-limit banner can only concern Free accounts
+const FREE_PRIVATE_VAULT_LIMIT = 10
 
 function groupVaultsByOwner(vaults: Vault[], currentUsername?: string): VaultGroup[] {
   const groups = new Map<string, VaultGroup>()
@@ -181,7 +177,7 @@ export default function DashboardPage() {
                       {readonlyDueToPlanLimit} vault{readonlyDueToPlanLimit > 1 ? 's are' : ' is'} read-only
                     </p>
                     <p className="text-xs text-amber-700 dark:text-amber-500 mt-1">
-                      Your {user.plan} plan allows {PLAN_LIMITS[user.plan]} private vault{PLAN_LIMITS[user.plan] === 1 ? '' : 's'}.
+                      The Free plan allows {FREE_PRIVATE_VAULT_LIMIT} private vaults.
                       Your oldest vaults remain writable, newer ones are read-only.{' '}
                       <Link href="/upgrade" className="underline hover:no-underline">
                         Upgrade your plan

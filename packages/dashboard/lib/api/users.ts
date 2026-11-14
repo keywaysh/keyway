@@ -1,9 +1,9 @@
 import { BaseApiClient } from './client'
-import type { User } from '../types'
+import type { User, UserPlan } from '../types'
 
 class UsersApiClient extends BaseApiClient {
   async getUsage(): Promise<{
-    plan: 'free' | 'pro' | 'team'
+    plan: UserPlan
     limits: {
       maxPublicRepos: string | number
       maxPrivateRepos: string | number
@@ -19,7 +19,7 @@ class UsersApiClient extends BaseApiClient {
   }> {
     const response = await this.request<{
       data: {
-        plan: 'free' | 'pro' | 'team'
+        plan: UserPlan
         limits: {
           maxPublicRepos: string | number
           maxPrivateRepos: string | number
@@ -47,7 +47,7 @@ class UsersApiClient extends BaseApiClient {
         email: string | null
         avatarUrl: string | null
         createdAt: string | null
-        plan?: 'free' | 'pro' | 'team'
+        plan?: UserPlan
       }
       meta: { requestId: string }
     }>('/v1/users/me')

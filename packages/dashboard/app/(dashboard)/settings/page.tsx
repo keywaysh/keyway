@@ -9,6 +9,7 @@ import { DashboardLayout } from '@/app/components/dashboard/Layout'
 import { useAuth } from '@/lib/auth'
 import { trackEvent, AnalyticsEvents } from '@/lib/analytics'
 import { api } from '@/lib/api'
+import type { SubscriptionData } from '@/lib/api/billing'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
@@ -17,7 +18,7 @@ import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
 
 type UsageData = {
-  plan: 'free' | 'pro' | 'team' | 'business'
+  plan: 'free' | 'team' | 'business'
   limits: {
     maxPublicRepos: string | number
     maxPrivateRepos: string | number
@@ -30,18 +31,6 @@ type UsageData = {
     private: number
     providers: number
   }
-}
-
-type SubscriptionData = {
-  subscription: {
-    id: string
-    status: string
-    currentPeriodEnd: string
-    cancelAtPeriodEnd: boolean
-  } | null
-  plan: 'free' | 'pro' | 'team' | 'business'
-  billingStatus: 'active' | 'past_due' | 'canceled' | 'trialing'
-  stripeCustomerId: string | null
 }
 
 export default function SettingsPage() {
@@ -232,15 +221,10 @@ export default function SettingsPage() {
                       )}
                       {billingData.plan === 'free' && (
                         <p className="text-sm text-muted-foreground mt-1">
-                          Unlimited public repos, 1 private repo
+                          Unlimited public repos, 10 private repos
                         </p>
                       )}
                     </div>
-                    {billingData.plan !== 'free' && (
-                      <Badge variant="outline" className="text-primary">
-                        {billingData.plan === 'pro' ? '€9/mo' : billingData.plan === 'team' ? '€19/mo' : '€39/mo'}
-                      </Badge>
-                    )}
                   </div>
 
                   <div className="flex gap-2 pt-2">
@@ -248,7 +232,7 @@ export default function SettingsPage() {
                       <Button asChild>
                         <Link href="/upgrade">
                           <Sparkles className="h-4 w-4 mr-2" />
-                          Upgrade to Pro
+                          Upgrade
                         </Link>
                       </Button>
                     ) : (
